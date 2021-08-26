@@ -31,9 +31,47 @@
 #    Classes
 #################################################################
 
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#Clinical_Organization
+:Clinical_Organization rdf:type owl:Class ;
+                       rdfs:subClassOf <http://xmlns.com/foaf/0.1/Organization> ;
+                       <http://purl.obolibrary.org/obo/IAO_0000116> """a Clinical Organization resides in a clinical facility
+a Clinical Organization employes staff""" .
+
+
 ###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#Patient
 :Patient rdf:type owl:Class ;
-         rdfs:subClassOf <http://xmlns.com/foaf/0.1/Person> .
+         rdfs:subClassOf [ owl:intersectionOf ( <http://xmlns.com/foaf/0.1/Person>
+                                                [ rdf:type owl:Restriction ;
+                                                  owl:onProperty <http://purl.obolibrary.org/obo/RO_0000087> ;
+                                                  owl:someValuesFrom :patient_role
+                                                ]
+                                              ) ;
+                           rdf:type owl:Class
+                         ] .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#Physician
+:Physician rdf:type owl:Class ;
+           rdfs:subClassOf [ owl:intersectionOf ( :Staff
+                                                  [ rdf:type owl:Restriction ;
+                                                    owl:onProperty <http://purl.obolibrary.org/obo/RO_0000087> ;
+                                                    owl:someValuesFrom :physician_role
+                                                  ]
+                                                ) ;
+                             rdf:type owl:Class
+                           ] .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#Staff
+:Staff rdf:type owl:Class ;
+       rdfs:subClassOf [ owl:intersectionOf ( <http://xmlns.com/foaf/0.1/Person>
+                                              [ rdf:type owl:Restriction ;
+                                                owl:onProperty <http://purl.obolibrary.org/obo/RO_0000087> ;
+                                                owl:someValuesFrom :staff_role
+                                              ]
+                                            ) ;
+                         rdf:type owl:Class
+                       ] .
 
 
 ###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#animal
@@ -51,18 +89,28 @@
           rdfs:subClassOf <http://purl.obolibrary.org/obo/GAZ_00000448> .
 
 
-###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#image_acquisition
-:image_acquisition rdf:type owl:Class ;
-                   owl:equivalentClass [ owl:intersectionOf ( <http://purl.obolibrary.org/obo/APOLLO_SV_00000796>
-                                                              [ rdf:type owl:Restriction ;
-                                                                owl:onProperty <http://purl.obolibrary.org/obo/OBI_0000299> ;
-                                                                owl:someValuesFrom :medical_image_set
-                                                              ]
-                                                            ) ;
-                                         rdf:type owl:Class
-                                       ] ;
-                   rdfs:subClassOf <http://purl.obolibrary.org/obo/APOLLO_SV_00000796> ;
-                   <http://purl.obolibrary.org/obo/IAO_0000116> "should this always be part_of a patient_visit?" .
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#function_of_acquiring_medical_images
+:function_of_acquiring_medical_images rdf:type owl:Class ;
+                                      rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000034> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#function_of_displaying_medical_images_for_clinical_review
+:function_of_displaying_medical_images_for_clinical_review rdf:type owl:Class ;
+                                                           rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000034> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#image_acquisition_event
+:image_acquisition_event rdf:type owl:Class ;
+                         owl:equivalentClass [ owl:intersectionOf ( <http://purl.obolibrary.org/obo/APOLLO_SV_00000796>
+                                                                    [ rdf:type owl:Restriction ;
+                                                                      owl:onProperty <http://purl.obolibrary.org/obo/OBI_0000299> ;
+                                                                      owl:someValuesFrom :medical_image_set
+                                                                    ]
+                                                                  ) ;
+                                               rdf:type owl:Class
+                                             ] ;
+                         rdfs:subClassOf <http://purl.obolibrary.org/obo/APOLLO_SV_00000796> ;
+                         <http://purl.obolibrary.org/obo/IAO_0000116> "should this always be part_of a patient_visit?" .
 
 
 ###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#mammal
