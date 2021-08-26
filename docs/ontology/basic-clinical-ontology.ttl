@@ -11,8 +11,125 @@
                                                                              <http://xmlns.com/foaf/0.1/> .
 
 #################################################################
+#    Object Properties
+#################################################################
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#diagnosis_of
+:diagnosis_of rdf:type owl:ObjectProperty ;
+              rdfs:subPropertyOf <http://purl.obolibrary.org/obo/RO_0000092> ;
+              owl:inverseOf :has_diagnosis .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#has_diagnosis
+:has_diagnosis rdf:type owl:ObjectProperty ;
+               rdfs:subPropertyOf <http://purl.obolibrary.org/obo/RO_0000091> ;
+               rdfs:domain :Patient ;
+               rdfs:range :medical_diagnosis .
+
+
+#################################################################
 #    Classes
 #################################################################
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#Patient
+:Patient rdf:type owl:Class ;
+         rdfs:subClassOf <http://xmlns.com/foaf/0.1/Person> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#animal
+:animal rdf:type owl:Class ;
+        rdfs:subClassOf :organism .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#clinical_facility
+:clinical_facility rdf:type owl:Class ;
+                   rdfs:subClassOf :facility .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#facility
+:facility rdf:type owl:Class ;
+          rdfs:subClassOf <http://purl.obolibrary.org/obo/GAZ_00000448> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#image_acquisition
+:image_acquisition rdf:type owl:Class ;
+                   owl:equivalentClass [ owl:intersectionOf ( <http://purl.obolibrary.org/obo/APOLLO_SV_00000796>
+                                                              [ rdf:type owl:Restriction ;
+                                                                owl:onProperty <http://purl.obolibrary.org/obo/OBI_0000299> ;
+                                                                owl:someValuesFrom :medical_image_set
+                                                              ]
+                                                            ) ;
+                                         rdf:type owl:Class
+                                       ] ;
+                   rdfs:subClassOf <http://purl.obolibrary.org/obo/APOLLO_SV_00000796> ;
+                   <http://purl.obolibrary.org/obo/IAO_0000116> "should this always be part_of a patient_visit?" .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#mammal
+:mammal rdf:type owl:Class ;
+        rdfs:subClassOf :animal .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#manufactured_object
+:manufactured_object rdf:type owl:Class ;
+                     rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000030> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#medical_diagnosis
+:medical_diagnosis rdf:type owl:Class ;
+                   rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000016> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#medical_image_acquisition_system
+:medical_image_acquisition_system rdf:type owl:Class ;
+                                  rdfs:subClassOf :manufactured_object .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#medical_image_set
+:medical_image_set rdf:type owl:Class ;
+                   rdfs:subClassOf <http://purl.obolibrary.org/obo/IAO_0000100> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#organism
+:organism rdf:type owl:Class ;
+          rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000030> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#patient_role
+:patient_role rdf:type owl:Class ;
+              rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000023> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#patient_visit
+:patient_visit rdf:type owl:Class ;
+               rdfs:subClassOf [ owl:intersectionOf ( <http://purl.obolibrary.org/obo/OBI_0000011>
+                                                      [ rdf:type owl:Restriction ;
+                                                        owl:onProperty <http://purl.obolibrary.org/obo/RO_0000057> ;
+                                                        owl:someValuesFrom :Patient
+                                                      ]
+                                                      [ rdf:type owl:Restriction ;
+                                                        owl:onProperty <http://purl.obolibrary.org/obo/RO_0000057> ;
+                                                        owl:someValuesFrom :clinical_facility
+                                                      ]
+                                                    ) ;
+                                 rdf:type owl:Class
+                               ] .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#physician_role
+:physician_role rdf:type owl:Class ;
+                rdfs:subClassOf :staff_role .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#plant
+:plant rdf:type owl:Class ;
+       rdfs:subClassOf :organism .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#staff_role
+:staff_role rdf:type owl:Class ;
+            rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000023> .
+
 
 ###  http://schema.org/CreativeWork
 <http://schema.org/CreativeWork> rdfs:subClassOf <http://purl.obolibrary.org/obo/IAO_0000030> .
@@ -36,6 +153,10 @@
 
 ###  http://xmlns.com/foaf/0.1/Document
 <http://xmlns.com/foaf/0.1/Document> rdfs:subClassOf <http://purl.obolibrary.org/obo/IAO_0000030> .
+
+
+###  http://xmlns.com/foaf/0.1/Person
+<http://xmlns.com/foaf/0.1/Person> rdfs:subClassOf :mammal .
 
 
 ###  http://xmlns.com/foaf/0.1/Project
