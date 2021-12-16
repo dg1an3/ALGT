@@ -1,7 +1,19 @@
 
-do_command(Event_Stream) :- true.
+:- object(event_store(_Committed, _New),
+			implements(ievent_store)).
+	:- public([emit/1, 
+				last_if/1]).
 
+	emit(Event) :-
+		this(_, New),
+		member(Event, New).
 
-:- object(event_store(_Persistence)).
+	last_if(Event) :-
+		this(Committed, _),
+		member(Event, Committed).
+
+	commit(Committed) :-
+		this(_, New),
+		include(nonvar, New, Committed).
 
 :- end_object.
