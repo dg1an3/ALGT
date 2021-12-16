@@ -1,57 +1,69 @@
 
-:- protocol('IAutoTaskService').
-:- public(['EvaluateAvailableRegistrations'/2,
-		   'CalculateNewOffset'/2,
-		   'CalculateUpdatedOffset'/2]).
+:- protocol(iauto_task_service).
+	:- public([evaluate_available_registrations/2,
+				   calculate_new_offset/2,
+				   calculate_updated_offset/2]).
 :- end_protocol.
 
 
-:- object('AutoTaskService'(_),
-		  implements('IAutoTaskService')).
+:- object(auto_task_service(_),
+		  implements(iauto_task_service)).
 
-'EvaluateAvailableRegistrations'(WorkflowInstanceBusinessKey,
-								 AvailableRegistrationsOut) :-
-
-	'GetAvailableCouchCorrections'(WorkflowInstanceBusinessKey,
-								   AvailableRegistrationsOut).
-
-
-:- end_object.
-
-
-
-:- object('WorkflowSubsystemClient').
-
-%!	these are the three RESTful endpoints
+	evaluate_available_registrations(WorkflowInstanceBusinessKey,
+										 AvailableRegistrationsOut) :-
+											 
+	get_available_couch_corrections(WorkflowInstanceBusinessKey,
+										AvailableRegistrationsOut).
 
 :- end_object.
 
 
 
-:- protocol('IWorkflowSubsystemMessaging').
-:- public(['SubscribeToMessageEvent'/2]).
+:- object(workflow_subsystem_client).
+
+	%!	these are the three RESTful endpoints
+
+:- end_object.
+
+
+
+:- protocol(iworkflow_subsystem_messaging).
+	:- public([subscribe_To_Message_Event/2]).
 :- end_protocol.
 
 
-:- object('WorkflowSubsystemMessaging').
+:- object(workflow_subsystem_messaging).
 
-'SubscribeToMessageEvent'(Message, Goal) :-
-	listen(Message, Goal).
+	subscribe_to_message_event(Message, Goal) :-
+		listen(Message, Goal).
 
 :- end_object.
 
 
 
-:- object('ImageReviewApplicationCoordinator'(_WorkflowSubsystemMessaging)).
+:- object(image_review_coordinator(_WorkflowSubsystemMessaging)).
 
-:- initialization((
-	   this(WorkflowSubsystemMessaging),
-	   WorkflowSubsystemMessaging::'SubscribeToMessageEvent'(
-									   'PlanOfCareUpdateCompleted',
-									   _),
-	   WorkflowSubsystemMessaging::'SubscribeToMessageEvent'(
-									   'SroImportdInEquator',
-									   _)
+	:- initialization((
+		this(WorkflowSubsystemMessaging),
+		WorkflowSubsystemMessaging::subscribe_to_message_event(
+										'CareRulesUpdateCompleted',
+										_),
+		WorkflowSubsystemMessaging::subscribe_to_message_event(
+										'SroImported',
+										_)
+	)).
+
+:- end_object.
+
+
+
+
+:- object(image_list_view_model(_WorkflowSubsystemMessaging)).
+
+	subscribe :-
+		this(WorkflowSubsystemMessaging),
+		WorkflowSubsystemMessaging::subscribe_to_message_event(
+									   'ImageImportedInNew', _)
    )).
 
 :- end_object.
@@ -59,51 +71,36 @@
 
 
 
-:- object('ImageListViewModel'(_WorkflowSubsystemMessaging)).
+:- object(messaging_client).
 
-:- initialization((
-	   this(WorkflowSubsystemMessaging),
-	   WorkflowSubsystemMessaging::'SubscribeToMessageEvent'(
-									   'ImageImportedInEquator',
-									   _)
-   )).
+	%!	this is a wrapper for messaging from legacy components
+	%
 
-:- end_object.
+	sendImageImportedMessage(Img_Id) :-
+		true.
 
-
-
-
-:- object('MessagingClient').
-
-%!	this is used by Namer and SRO to send messages
-%
-
-'SendImageImportedMessage'(Img_Id) :-
-	true.
-
-'SendNewTrendDataFromMosaiq'(Patient_Id, Sit_Set_Id, Offset_Id) :-
-	true.
+	sendNewTrendDataFromMosaiq(Patient_Id, Sit_Set_Id, Offset_Id) :-
+		true.
 
 :- end_object.
 
 
 
 
-:- object('ImageImport2dService').
+:- object(image_import_2d_service).
 
-% StartDefaultWorkflowsAsyncIfNeeded
-%
+	% starts default workflow
+	%
 :- end_object.
 
 
 
 
 
-:- object('ImageListPopUpDialogViewModel').
+:- object(image_list_dialog_viewmodel).
 
-% StartDefaultWorkflowsAsyncIfNeeded
-%
-
+	% starts default workflow
+	%
 :- end_object.
 
 
@@ -112,11 +109,10 @@
 
 
 
-:- object('TrendDetailViewModel').
+:- object('Trend_Detail_ViewModel').
 
-% StartDefaultWorkflowsAsyncIfNeeded
-%
-
+	% starts default workflow
+	%
 :- end_object.
 
 
