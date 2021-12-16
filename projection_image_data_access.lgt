@@ -8,15 +8,15 @@
 
 :- object(projection_image_data_access(_ES),
 		  implements(iprojection_image_data_access)).
-:- public([write_image/2]).
+	:- public([write_image/2]).
 
-:- initialization((this(EventStore),
-				   implements_protocol(EventStore, iievent_store))).
+	:- initialization((this(EventStore),
+					implements_protocol(EventStore, iievent_store))).
 
-write_image(request(ProjectionImage), response(Id)) :-
-	this(EventStore),
-	uuid(Id),
-	EventStore::emit(created(pida(Id), ProjectionImage)).
+	write_image(request(ProjectionImage), response(Id)) :-
+		this(EventStore),
+		uuid(Id),
+		EventStore::emit(created(pida(Id), ProjectionImage)).
 
 :- end_object.
 

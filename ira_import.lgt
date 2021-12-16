@@ -7,11 +7,11 @@
 
 :- object(graphical_object_data_access(_ES),
 		  implements(igraphical_object_data_access)).
-:- public([write_graphical_object/2]).
+	:- public([write_graphical_object/2]).
 
-write_graphical_object(request(GraphicalObject), response(Id)) :-
-	uuid(Id),
-	this([created(go(Id), GraphicalObject)|_]).
+	write_graphical_object(request(GraphicalObject), response(Id)) :-
+		uuid(Id),
+		this([created(go(Id), GraphicalObject)|_]).
 
 :- end_object.
 
