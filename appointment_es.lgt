@@ -1,4 +1,4 @@
-:- module(appointment, []).
+:- module(appointment_es, []).
 
 type(wellness).
 type(clinical).
