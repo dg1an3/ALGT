@@ -1,8 +1,8 @@
-%  Copyright 2021 Derek Lane
-%
-%  image_import_manager represents an image import service as an
-%  IDesign-compliant service
-%
+%%  Copyright 2021 Derek Lane
+%%
+%%  image_import_manager represents an image import service as an
+%%  IDesign-compliant service
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 :- object(image_import_engine(_ProjectionImageDataAccess,
@@ -11,21 +11,22 @@
 
     :- public([import_image/2]).
 
-    :- initialization((this(ProjectionImageDataA,
-							GraphicalObjectDA),
-
-					   implements_protocol(ProjectionImageDataA,
-										   iprojection_image_data_access),
-					   implements_protocol(GraphicalObjectDA,
-										   igraphical_object_data_access))).
-
     import_image(request(DicomDataset), response(Ok)) :-
-	    this(ProjectionImageDataAccess, GraphicalObjectDA),
+	    ::inject(ProjectionImageDataAccess, 
+			GraphicalObjectDataAcces),
 
-		dicomToProjectionImage(DicomDataset, ProjectionImage),
+		dicom_to_projection_image(DicomDataset, ProjectionImage),
 		ProjectionImageDataAccess::write_image(ProjectionImage),
-		GraphicalObjectDA::write_graphical_object(_),
+		GraphicalObjectDataAccess::write_graphical_object(_),
 		Ok = true.
+
+	inject(ProjectionImageDataAccess, GraphicalObjectDataAccess) :-
+		this(ProjectionImageDataAccess, GraphicalObjectDataAccess),
+		
+		implements_protocol(ProjectionImageDataAccess,	
+								iprojection_image_data_access),
+		implements_protocol(GraphicalObjectDataAccess,
+								igraphical_object_data_access).
 
 :- end_object.
 
