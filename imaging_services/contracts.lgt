@@ -22,7 +22,7 @@
 
 
 :- protocol(ievent_store).
-    :- public([emit/1, last_if/1]).
+    :- public([emit/1, commit/1]).
 :- end_protocol.
 
 

@@ -1,19 +1,20 @@
+%% Copyright Derek Lane
+%%
+%%
 
-:- object(event_store(_Committed, _New),
+:- object(event_store(_List),
 			implements(ievent_store)).
-	:- public([emit/1, 
-				last_if/1]).
+    :- public([event/1,
+			   commit/1]).
 
-	emit(Event) :-
-		this(_, New),
-		member(Event, New).
+    event(Event) :-
+	    this(event_store(Uncommited)),
+		list:member(Event, Uncommited).
 
-	last_if(Event) :-
-		this(Committed, _),
-		member(Event, Committed).
-
-	commit(Committed) :-
-		this(_, New),
-		include(nonvar, New, Committed).
+    commit(OpenSorted) :-
+	    this(event_store(Uncommited)),
+		list:include(nonvar, Uncommited, Commited), !,
+		list:sort(Commited, Sorted),
+		list:append(Sorted, _, OpenSorted).
 
 :- end_object.
