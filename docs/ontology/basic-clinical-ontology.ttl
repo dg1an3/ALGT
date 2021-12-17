@@ -1,0 +1,214 @@
+@prefix : <http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xml: <http://www.w3.org/XML/1998/namespace> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@base <http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology> .
+
+<http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology> rdf:type owl:Ontology ;
+                                                                 owl:imports <http://purl.obolibrary.org/obo/iao/2020-12-09/iao.owl> ,
+                                                                             <http://xmlns.com/foaf/0.1/> .
+
+#################################################################
+#    Object Properties
+#################################################################
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#diagnosis_of
+:diagnosis_of rdf:type owl:ObjectProperty ;
+              rdfs:subPropertyOf <http://purl.obolibrary.org/obo/RO_0000092> ;
+              owl:inverseOf :has_diagnosis .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#has_diagnosis
+:has_diagnosis rdf:type owl:ObjectProperty ;
+               rdfs:subPropertyOf <http://purl.obolibrary.org/obo/RO_0000091> ;
+               rdfs:domain :Patient ;
+               rdfs:range :medical_diagnosis .
+
+
+#################################################################
+#    Classes
+#################################################################
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#Clinical_Organization
+:Clinical_Organization rdf:type owl:Class ;
+                       rdfs:subClassOf <http://xmlns.com/foaf/0.1/Organization> ;
+                       <http://purl.obolibrary.org/obo/IAO_0000116> """a Clinical Organization resides in a clinical facility
+a Clinical Organization employes staff""" .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#Patient
+:Patient rdf:type owl:Class ;
+         rdfs:subClassOf [ owl:intersectionOf ( <http://xmlns.com/foaf/0.1/Person>
+                                                [ rdf:type owl:Restriction ;
+                                                  owl:onProperty <http://purl.obolibrary.org/obo/RO_0000087> ;
+                                                  owl:someValuesFrom :patient_role
+                                                ]
+                                              ) ;
+                           rdf:type owl:Class
+                         ] .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#Physician
+:Physician rdf:type owl:Class ;
+           rdfs:subClassOf [ owl:intersectionOf ( :Staff
+                                                  [ rdf:type owl:Restriction ;
+                                                    owl:onProperty <http://purl.obolibrary.org/obo/RO_0000087> ;
+                                                    owl:someValuesFrom :physician_role
+                                                  ]
+                                                ) ;
+                             rdf:type owl:Class
+                           ] .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#Staff
+:Staff rdf:type owl:Class ;
+       rdfs:subClassOf [ owl:intersectionOf ( <http://xmlns.com/foaf/0.1/Person>
+                                              [ rdf:type owl:Restriction ;
+                                                owl:onProperty <http://purl.obolibrary.org/obo/RO_0000087> ;
+                                                owl:someValuesFrom :staff_role
+                                              ]
+                                            ) ;
+                         rdf:type owl:Class
+                       ] .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#animal
+:animal rdf:type owl:Class ;
+        rdfs:subClassOf :organism .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#clinical_facility
+:clinical_facility rdf:type owl:Class ;
+                   rdfs:subClassOf :facility .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#facility
+:facility rdf:type owl:Class ;
+          rdfs:subClassOf <http://purl.obolibrary.org/obo/GAZ_00000448> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#function_of_acquiring_medical_images
+:function_of_acquiring_medical_images rdf:type owl:Class ;
+                                      rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000034> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#function_of_displaying_medical_images_for_clinical_review
+:function_of_displaying_medical_images_for_clinical_review rdf:type owl:Class ;
+                                                           rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000034> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#image_acquisition_event
+:image_acquisition_event rdf:type owl:Class ;
+                         owl:equivalentClass [ owl:intersectionOf ( <http://purl.obolibrary.org/obo/APOLLO_SV_00000796>
+                                                                    [ rdf:type owl:Restriction ;
+                                                                      owl:onProperty <http://purl.obolibrary.org/obo/OBI_0000299> ;
+                                                                      owl:someValuesFrom :medical_image_set
+                                                                    ]
+                                                                  ) ;
+                                               rdf:type owl:Class
+                                             ] ;
+                         rdfs:subClassOf <http://purl.obolibrary.org/obo/APOLLO_SV_00000796> ;
+                         <http://purl.obolibrary.org/obo/IAO_0000116> "should this always be part_of a patient_visit?" .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#mammal
+:mammal rdf:type owl:Class ;
+        rdfs:subClassOf :animal .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#manufactured_object
+:manufactured_object rdf:type owl:Class ;
+                     rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000030> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#medical_diagnosis
+:medical_diagnosis rdf:type owl:Class ;
+                   rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000016> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#medical_image_acquisition_system
+:medical_image_acquisition_system rdf:type owl:Class ;
+                                  rdfs:subClassOf :manufactured_object .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#medical_image_set
+:medical_image_set rdf:type owl:Class ;
+                   rdfs:subClassOf <http://purl.obolibrary.org/obo/IAO_0000100> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#organism
+:organism rdf:type owl:Class ;
+          rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000030> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#patient_role
+:patient_role rdf:type owl:Class ;
+              rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000023> .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#patient_visit
+:patient_visit rdf:type owl:Class ;
+               rdfs:subClassOf [ owl:intersectionOf ( <http://purl.obolibrary.org/obo/OBI_0000011>
+                                                      [ rdf:type owl:Restriction ;
+                                                        owl:onProperty <http://purl.obolibrary.org/obo/RO_0000057> ;
+                                                        owl:someValuesFrom :Patient
+                                                      ]
+                                                      [ rdf:type owl:Restriction ;
+                                                        owl:onProperty <http://purl.obolibrary.org/obo/RO_0000057> ;
+                                                        owl:someValuesFrom :clinical_facility
+                                                      ]
+                                                    ) ;
+                                 rdf:type owl:Class
+                               ] .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#physician_role
+:physician_role rdf:type owl:Class ;
+                rdfs:subClassOf :staff_role .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#plant
+:plant rdf:type owl:Class ;
+       rdfs:subClassOf :organism .
+
+
+###  http://dg1an3.github.io/ALGT/ontology/basic-clinical-ontology#staff_role
+:staff_role rdf:type owl:Class ;
+            rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000023> .
+
+
+###  http://schema.org/CreativeWork
+<http://schema.org/CreativeWork> rdfs:subClassOf <http://purl.obolibrary.org/obo/IAO_0000030> .
+
+
+###  http://schema.org/ImageObject
+<http://schema.org/ImageObject> rdfs:subClassOf <http://purl.obolibrary.org/obo/IAO_0000030> .
+
+
+###  http://schema.org/Person
+<http://schema.org/Person> rdfs:subClassOf <http://xmlns.com/foaf/0.1/Agent> .
+
+
+###  http://www.w3.org/2004/02/skos/core#Concept
+<http://www.w3.org/2004/02/skos/core#Concept> rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000031> .
+
+
+###  http://xmlns.com/foaf/0.1/Agent
+<http://xmlns.com/foaf/0.1/Agent> rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000002> .
+
+
+###  http://xmlns.com/foaf/0.1/Document
+<http://xmlns.com/foaf/0.1/Document> rdfs:subClassOf <http://purl.obolibrary.org/obo/IAO_0000030> .
+
+
+###  http://xmlns.com/foaf/0.1/Person
+<http://xmlns.com/foaf/0.1/Person> rdfs:subClassOf :mammal .
+
+
+###  http://xmlns.com/foaf/0.1/Project
+<http://xmlns.com/foaf/0.1/Project> rdfs:subClassOf <http://purl.obolibrary.org/obo/BFO_0000002> .
+
+
+###  Generated by the OWL API (version 4.5.9.2019-02-01T07:24:44Z) https://github.com/owlcs/owlapi
