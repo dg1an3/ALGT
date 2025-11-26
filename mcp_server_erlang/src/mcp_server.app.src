@@ -1,0 +1,15 @@
+{application, mcp_server,
+ [{description, "ALGT MCP Server for Erlang/OTP"},
+  {vsn, "0.1.0"},
+  {registered, [mcp_server, mcp_tools]},
+  {mod, {mcp_server_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    jsx
+   ]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["Apache-2.0"]},
+  {links, []}
+ ]}.
