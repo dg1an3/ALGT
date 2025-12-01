@@ -216,3 +216,4 @@ punctuation(semicolon) --> ";".
 punctuation(at) --> "@".
 punctuation(hash) --> "#".
 punctuation(question) --> "?".
+punctuation(dollar) --> "$".
