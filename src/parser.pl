@@ -326,6 +326,55 @@ report_control(box_control) -->
     skip_attributes.
 
 %------------------------------------------------------------
+% WINDOW controls
+%------------------------------------------------------------
+window_controls([Control|Controls]) -->
+    window_control(Control),
+    !,
+    window_controls(Controls).
+window_controls([]) --> [].
+
+% PROMPT control
+window_control(prompt_control(Text)) -->
+    [keyword('PROMPT')],
+    [lparen],
+    expression(Text),
+    [rparen],
+    skip_attributes.
+
+% ENTRY control
+window_control(entry_control(Format)) -->
+    [keyword('ENTRY')],
+    [lparen],
+    expression(Format),
+    [rparen],
+    skip_attributes.
+
+% BUTTON control
+window_control(button_control(Text)) -->
+    [keyword('BUTTON')],
+    [lparen],
+    expression(Text),
+    [rparen],
+    skip_attributes.
+
+% SPIN control
+window_control(spin_control(Format)) -->
+    [keyword('SPIN')],
+    [lparen],
+    expression(Format),
+    [rparen],
+    skip_attributes.
+
+% STRING control (in window)
+window_control(string_control(Text)) -->
+    [keyword('STRING')],
+    [lparen],
+    expression(Text),
+    [rparen],
+    skip_attributes.
+
+%------------------------------------------------------------
 % Data types
 %------------------------------------------------------------
 data_type('STRING') --> [keyword('STRING')].
@@ -350,6 +399,15 @@ optional_size(size(P, D)) -->
     [number(P)],
     [comma],
     [number(D)],
+    [rparen].
+% Initial value: BYTE(FALSE), BYTE(TRUE), BYTE(0)
+optional_size(init(true)) -->
+    [lparen],
+    [keyword('TRUE')],
+    [rparen].
+optional_size(init(false)) -->
+    [lparen],
+    [keyword('FALSE')],
     [rparen].
 optional_size(none) --> [].
 
@@ -393,6 +451,12 @@ structural_keyword('HEADER').
 structural_keyword('FOOTER').
 structural_keyword('DETAIL').
 structural_keyword('BREAK').
+structural_keyword('WINDOW').
+structural_keyword('ACCEPT').
+structural_keyword('PROMPT').
+structural_keyword('ENTRY').
+structural_keyword('BUTTON').
+structural_keyword('SPIN').
 
 % Skip content inside parentheses, handling nested parens
 % Stop when we see the closing rparen (without consuming it)
@@ -525,6 +589,27 @@ local_declaration(report(Name, Bands)) -->
     report_bands(Bands),
     [keyword('END')].
 
+% Local WINDOW declaration (handles both "Window WINDOW(...)" and "WINDOW WINDOW(...)")
+local_declaration(window(Name, Title, Controls)) -->
+    [identifier(Name)],
+    [keyword('WINDOW')],
+    [lparen],
+    expression(Title),
+    [rparen],
+    skip_attributes,
+    window_controls(Controls),
+    [keyword('END')].
+
+local_declaration(window(window, Title, Controls)) -->
+    [keyword('WINDOW')],
+    [keyword('WINDOW')],
+    [lparen],
+    expression(Title),
+    [rparen],
+    skip_attributes,
+    window_controls(Controls),
+    [keyword('END')].
+
 %------------------------------------------------------------
 % Statements
 %------------------------------------------------------------
@@ -635,6 +720,16 @@ statement(prop_assign(Var, Prop, Expr)) -->
     [op('=')],
     expression(Expr).
 
+% Control property assignment: ?Control{PROP:Name} = Expr
+statement(control_prop_assign(Control, Prop, Expr)) -->
+    [question],
+    [identifier(Control)],
+    [lbrace],
+    [identifier(Prop)],
+    [rbrace],
+    [op('=')],
+    expression(Expr).
+
 % Regular assignment
 statement(assign(Var, Expr)) -->
     [identifier(Var)],
@@ -715,6 +810,27 @@ statement(case(Expr, Cases, Else)) -->
     case_branches(Cases),
     case_else(Else),
     [keyword('END')].
+
+% ACCEPT loop (window event loop)
+statement(accept(Body)) -->
+    [keyword('ACCEPT')],
+    statements(Body),
+    [keyword('END')].
+
+% SELECT statement (focus control)
+statement(select(Arg)) -->
+    [keyword('SELECT')],
+    [lparen],
+    expression(Arg),
+    [rparen].
+
+% BEEP statement
+statement(beep) -->
+    [keyword('BEEP')].
+
+% DISPLAY statement
+statement(display) -->
+    [keyword('DISPLAY')].
 
 %------------------------------------------------------------
 % IF statement
@@ -830,6 +946,10 @@ primary(call(Name, Args)) -->
 primary(var(Name)) -->
     [identifier(Name)].
 
+% WINDOW keyword used as variable (common pattern in Clarion)
+primary(var('WINDOW')) -->
+    [keyword('WINDOW')].
+
 % Picture format specifier: @D2, @N10.2, @n$12.2, etc.
 primary(picture(Name)) -->
     [at],
@@ -844,6 +964,11 @@ primary(picture(Pic)) -->
     { atom_concat(Base, '$', Tmp),
       atom_number(NumAtom, Num),
       atom_concat(Tmp, NumAtom, Pic) }.
+
+% Control reference: ?ControlName
+primary(control_ref(Name)) -->
+    [question],
+    [identifier(Name)].
 
 % Boolean literals
 primary(true) --> [keyword('TRUE')].

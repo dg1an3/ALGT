@@ -55,7 +55,7 @@ comment_rest --> [].  % EOF
 %------------------------------------------------------------
 line_continuation --> "|", line_cont_ws, line_cont_nl.
 
-line_cont_ws --> [C], { C \= 0'\n, C \= 0'\r, code_type(C, space) }, line_cont_ws.
+line_cont_ws --> [C], { C \= 10, C \= 13, code_type(C, space) }, line_cont_ws.
 line_cont_ws --> [].
 
 line_cont_nl --> "\r\n".
@@ -95,12 +95,12 @@ identifier_rest([C|Cs]) -->
 identifier_rest([]) --> [].
 
 identifier_start(C) :- code_type(C, alpha).
-identifier_start(0'_).
+identifier_start(95).  % underscore
 
 identifier_cont(C) :- code_type(C, alnum).
-identifier_cont(0'_).
-identifier_cont(0':).  % Clarion uses : in prefixed names like Cust:Name
-identifier_cont(0'#).  % Clarion uses # suffix for auto-increment vars like i#
+identifier_cont(95).  % underscore
+identifier_cont(58).  % colon - Clarion uses : in prefixed names like Cust:Name
+identifier_cont(35).  % hash - Clarion uses # suffix for auto-increment vars like i#
 
 %------------------------------------------------------------
 % Clarion Keywords
@@ -165,6 +165,15 @@ keyword('DETAIL').
 keyword('PRINT').
 keyword('BOX').
 keyword('PAGE').
+% Window keywords
+keyword('ACCEPT').
+keyword('SELECT').
+keyword('BEEP').
+keyword('DISPLAY').
+keyword('PROMPT').
+keyword('ENTRY').
+keyword('BUTTON').
+keyword('SPIN').
 
 %------------------------------------------------------------
 % String literals (single quoted)
@@ -174,8 +183,8 @@ string_literal(string(String)) -->
     { atom_codes(String, Chars) }.
 
 string_chars([]) --> [].
-string_chars([0''|Cs]) --> "''", !, string_chars(Cs).  % Escaped quote
-string_chars([C|Cs]) --> [C], { C \= 0'' }, string_chars(Cs).
+string_chars([39|Cs]) --> "''", !, string_chars(Cs).  % Escaped quote (single quote = 39)
+string_chars([C|Cs]) --> [C], { C \= 39 }, string_chars(Cs).  % single quote = 39
 
 %------------------------------------------------------------
 % Number literals
@@ -183,7 +192,7 @@ string_chars([C|Cs]) --> [C], { C \= 0'' }, string_chars(Cs).
 number_literal(number(N)) -->
     digit_chars([D|Ds]),
     ( ".", digit_chars(Frac)
-      -> { append([D|Ds], [0'.|Frac], All),
+      -> { append([D|Ds], [46|Frac], All),  % period = 46
            number_codes(N, All) }
       ;  { number_codes(N, [D|Ds]) }
     ).
