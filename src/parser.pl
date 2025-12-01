@@ -16,6 +16,7 @@
 %------------------------------------------------------------
 parse_file(FileName, AST) :-
     tokenize_file(FileName, Tokens),
+    !,  % Cut to prevent backtracking into tokenizer on parse failure
     parse(Tokens, AST).
 
 %------------------------------------------------------------
