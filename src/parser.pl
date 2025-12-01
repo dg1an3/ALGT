@@ -81,6 +81,14 @@ global_declaration(file(Name, Contents)) -->
     file_contents(Contents),
     [keyword('END')].
 
+% REPORT declaration
+global_declaration(report(Name, Bands)) -->
+    [identifier(Name)],
+    [keyword('REPORT')],
+    skip_attributes,
+    report_bands(Bands),
+    [keyword('END')].
+
 % Simple variable declaration (e.g., CustomerName STRING(50))
 global_declaration(var(Name, Type, Size)) -->
     [identifier(Name)],
@@ -259,6 +267,65 @@ field_list_rest([Field|Fields]) -->
 field_list_rest([]) --> [].
 
 %------------------------------------------------------------
+% REPORT bands
+%------------------------------------------------------------
+report_bands([Band|Bands]) -->
+    report_band(Band),
+    !,
+    report_bands(Bands).
+report_bands([]) --> [].
+
+% HEADER band
+report_band(header(Controls)) -->
+    [keyword('HEADER')],
+    skip_attributes,
+    report_controls(Controls),
+    [keyword('END')].
+
+% FOOTER band
+report_band(footer(Controls)) -->
+    [keyword('FOOTER')],
+    skip_attributes,
+    report_controls(Controls),
+    [keyword('END')].
+
+% DETAIL band
+report_band(detail(Controls)) -->
+    [keyword('DETAIL')],
+    skip_attributes,
+    report_controls(Controls),
+    [keyword('END')].
+
+% BREAK band (contains nested HEADER/FOOTER)
+report_band(break(Expr, Bands)) -->
+    [keyword('BREAK')],
+    [lparen],
+    expression(Expr),
+    [rparen],
+    report_bands(Bands),
+    [keyword('END')].
+
+% Report controls (STRING, BOX, etc.)
+report_controls([Control|Controls]) -->
+    report_control(Control),
+    !,
+    report_controls(Controls).
+report_controls([]) --> [].
+
+% STRING control (handles both regular text and picture formats via expression)
+report_control(string_control(Text)) -->
+    [keyword('STRING')],
+    [lparen],
+    expression(Text),
+    [rparen],
+    skip_attributes.
+
+% BOX control
+report_control(box_control) -->
+    [keyword('BOX')],
+    skip_attributes.
+
+%------------------------------------------------------------
 % Data types
 %------------------------------------------------------------
 data_type('STRING') --> [keyword('STRING')].
@@ -321,6 +388,11 @@ structural_keyword('ELSE').
 structural_keyword('LOOP').
 structural_keyword('CASE').
 structural_keyword('RETURN').
+structural_keyword('REPORT').
+structural_keyword('HEADER').
+structural_keyword('FOOTER').
+structural_keyword('DETAIL').
+structural_keyword('BREAK').
 
 % Skip content inside parentheses, handling nested parens
 % Stop when we see the closing rparen (without consuming it)
@@ -445,6 +517,14 @@ local_declaration(local_var(Name, Type, Size)) -->
     optional_size(Size),
     skip_attributes.
 
+% Local REPORT declaration
+local_declaration(report(Name, Bands)) -->
+    [identifier(Name)],
+    [keyword('REPORT')],
+    skip_attributes,
+    report_bands(Bands),
+    [keyword('END')].
+
 %------------------------------------------------------------
 % Statements
 %------------------------------------------------------------
@@ -546,6 +626,15 @@ statement(array_assign(Array, Index, Expr)) -->
     [op('=')],
     expression(Expr).
 
+% Property assignment: Var{PROP:Name} = Expr
+statement(prop_assign(Var, Prop, Expr)) -->
+    [identifier(Var)],
+    [lbrace],
+    [identifier(Prop)],
+    [rbrace],
+    [op('=')],
+    expression(Expr).
+
 % Regular assignment
 statement(assign(Var, Expr)) -->
     [identifier(Var)],
@@ -611,6 +700,13 @@ statement(cycle) -->
 % EXIT (for routines)
 statement(exit) -->
     [keyword('EXIT')].
+
+% PRINT statement (for reports)
+statement(print(Arg)) -->
+    [keyword('PRINT')],
+    [lparen],
+    expression(Arg),
+    [rparen].
 
 % CASE statement
 statement(case(Expr, Cases, Else)) -->
@@ -734,10 +830,20 @@ primary(call(Name, Args)) -->
 primary(var(Name)) -->
     [identifier(Name)].
 
-% Picture format specifier: @D2, @N10.2, etc.
+% Picture format specifier: @D2, @N10.2, @n$12.2, etc.
 primary(picture(Name)) -->
     [at],
     [identifier(Name)].
+
+% Picture format with currency: @n$12.2
+primary(picture(Pic)) -->
+    [at],
+    [identifier(Base)],
+    [dollar],
+    [number(Num)],
+    { atom_concat(Base, '$', Tmp),
+      atom_number(NumAtom, Num),
+      atom_concat(Tmp, NumAtom, Pic) }.
 
 % Boolean literals
 primary(true) --> [keyword('TRUE')].

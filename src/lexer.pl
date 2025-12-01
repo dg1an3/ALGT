@@ -100,6 +100,7 @@ identifier_start(0'_).
 identifier_cont(C) :- code_type(C, alnum).
 identifier_cont(0'_).
 identifier_cont(0':).  % Clarion uses : in prefixed names like Cust:Name
+identifier_cont(0'#).  % Clarion uses # suffix for auto-increment vars like i#
 
 %------------------------------------------------------------
 % Clarion Keywords
@@ -157,6 +158,13 @@ keyword('PARENT').
 keyword('AND').
 keyword('OR').
 keyword('NOT').
+% Report keywords
+keyword('HEADER').
+keyword('FOOTER').
+keyword('DETAIL').
+keyword('PRINT').
+keyword('BOX').
+keyword('PAGE').
 
 %------------------------------------------------------------
 % String literals (single quoted)
