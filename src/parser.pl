@@ -45,10 +45,8 @@ program(program(Map, GlobalDecls, MainCode, Procedures)) -->
     code_section(MainCode),
     procedure_definitions(Procedures).
 
-%------------------------------------------------------------
 % Global declarations (between MAP and CODE)
 % Handles CLASS, GROUP, QUEUE, FILE, and variable declarations
-%------------------------------------------------------------
 global_declarations([Decl|Decls]) -->
     global_declaration(Decl),
     !,
@@ -81,10 +79,10 @@ global_declaration(queue(Name, Members)) -->
     end_keyword.
 
 % FILE declaration
-global_declaration(file(Name, Contents)) -->
+global_declaration(file(Name, Attrs, Contents)) -->
     [identifier(Name)],
     [keyword('FILE')],
-    skip_attributes,
+    file_attributes_list(Attrs),
     file_contents(Contents),
     end_keyword.
 
@@ -102,6 +100,7 @@ global_declaration(var(Name, Type, Size)) -->
     data_type(Type),
     optional_size(Size),
     skip_attributes.
+
 
 %------------------------------------------------------------
 % CLASS support
@@ -416,6 +415,11 @@ optional_size(init(false)) -->
     [lparen],
     [keyword('FALSE')],
     [rparen].
+% String initial value: STRING('initial text')
+optional_size(init(S)) -->
+    [lparen],
+    [string(S)],
+    [rparen].
 optional_size(none) --> [].
 
 %------------------------------------------------------------
@@ -471,6 +475,33 @@ skip_parens_content --> [lparen], !, skip_parens_content, [rparen], skip_parens_
 skip_parens_content --> [rparen], { fail }.  % Fail on rparen - caller will consume it
 skip_parens_content --> [T], { T \= rparen }, !, skip_parens_content.
 skip_parens_content --> [].
+
+%------------------------------------------------------------
+% FILE attributes
+%------------------------------------------------------------
+file_attributes_list([Attr|Attrs]) -->
+    [comma], % Attributes are typically comma-separated
+    file_attribute(Attr),
+    file_attributes_rest(Attrs).
+file_attributes_list([]) --> []. % No attributes
+
+file_attributes_rest([Attr|Attrs]) -->
+    [comma],
+    file_attribute(Attr),
+    file_attributes_rest(Attrs).
+file_attributes_rest([]) --> [].
+
+% File attributes - match by uppercase form since lexer lowercases identifiers
+file_attribute(driver(Name)) --> [identifier(Id)], { upcase_atom(Id, 'DRIVER') }, [lparen], [string(Name)], [rparen].
+file_attribute(name(Name)) --> [identifier(Id)], { upcase_atom(Id, 'NAME') }, [lparen], [string(Name)], [rparen].
+file_attribute(owner(ConnStr)) --> [identifier(Id)], { upcase_atom(Id, 'OWNER') }, [lparen], expression(ConnStr), [rparen].
+file_attribute(pre(Prefix)) --> [identifier(Id)], { upcase_atom(Id, 'PRE') }, [lparen], [identifier(Prefix)], [rparen].
+file_attribute(bindable) --> [identifier(Id)], { upcase_atom(Id, 'BINDABLE') }.
+file_attribute(thread) --> [identifier(Id)], { upcase_atom(Id, 'THREAD') }.
+% Generic attribute with parentheses (for NOCASE, PRIMARY with args if needed)
+file_attribute(attr(Name, Value)) --> [identifier(Name)], [lparen], expression(Value), [rparen].
+% Generic simple attribute (for NOCASE, PRIMARY, etc.)
+file_attribute(Attr) --> [identifier(Attr)].
 
 %------------------------------------------------------------
 % MAP section

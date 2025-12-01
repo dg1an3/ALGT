@@ -21,7 +21,8 @@ test_files([
     'examples/report_example.clw',
     'examples/sql_example.clw',
     'examples/string_functions.clw',
-    'examples/window_example.clw'
+    'examples/window_example.clw',
+    'examples/ado_sql_example.clw'
 ]).
 
 %------------------------------------------------------------
