@@ -28,6 +28,13 @@ parse(Tokens, AST) :-
     !.  % Cut to prevent backtracking into alternative parses
 
 %------------------------------------------------------------
+% end_keyword - matches END or . (period)
+% Clarion allows period as shorthand for END
+%------------------------------------------------------------
+end_keyword --> [keyword('END')].
+end_keyword --> [dot].
+
+%------------------------------------------------------------
 % Program structure
 % program ::= 'PROGRAM' map_section global_declarations code_section procedure_defs
 %------------------------------------------------------------
@@ -55,7 +62,7 @@ global_declaration(class(Name, Parent, Attrs, Members)) -->
     optional_parent_class(Parent),
     class_attributes(Attrs),
     class_members(Members),
-    [keyword('END')].
+    end_keyword.
 
 % GROUP declaration
 global_declaration(group(Name, Members)) -->
@@ -63,7 +70,7 @@ global_declaration(group(Name, Members)) -->
     [keyword('GROUP')],
     skip_attributes,
     group_members(Members),
-    [keyword('END')].
+    end_keyword.
 
 % QUEUE declaration
 global_declaration(queue(Name, Members)) -->
@@ -71,7 +78,7 @@ global_declaration(queue(Name, Members)) -->
     [keyword('QUEUE')],
     skip_attributes,
     queue_members(Members),
-    [keyword('END')].
+    end_keyword.
 
 % FILE declaration
 global_declaration(file(Name, Contents)) -->
@@ -79,7 +86,7 @@ global_declaration(file(Name, Contents)) -->
     [keyword('FILE')],
     skip_attributes,
     file_contents(Contents),
-    [keyword('END')].
+    end_keyword.
 
 % REPORT declaration
 global_declaration(report(Name, Bands)) -->
@@ -87,7 +94,7 @@ global_declaration(report(Name, Bands)) -->
     [keyword('REPORT')],
     skip_attributes,
     report_bands(Bands),
-    [keyword('END')].
+    end_keyword.
 
 % Simple variable declaration (e.g., CustomerName STRING(50))
 global_declaration(var(Name, Type, Size)) -->
@@ -231,7 +238,7 @@ file_item(record(Members)) -->
     optional_record_keyword,
     skip_attributes,
     record_members(Members),
-    [keyword('END')].
+    end_keyword.
 
 % If there's another RECORD keyword, consume it (happens when label "Record" parsed as keyword)
 optional_record_keyword --> [keyword('RECORD')], !.
@@ -280,21 +287,21 @@ report_band(header(Controls)) -->
     [keyword('HEADER')],
     skip_attributes,
     report_controls(Controls),
-    [keyword('END')].
+    end_keyword.
 
 % FOOTER band
 report_band(footer(Controls)) -->
     [keyword('FOOTER')],
     skip_attributes,
     report_controls(Controls),
-    [keyword('END')].
+    end_keyword.
 
 % DETAIL band
 report_band(detail(Controls)) -->
     [keyword('DETAIL')],
     skip_attributes,
     report_controls(Controls),
-    [keyword('END')].
+    end_keyword.
 
 % BREAK band (contains nested HEADER/FOOTER)
 report_band(break(Expr, Bands)) -->
@@ -303,7 +310,7 @@ report_band(break(Expr, Bands)) -->
     expression(Expr),
     [rparen],
     report_bands(Bands),
-    [keyword('END')].
+    end_keyword.
 
 % Report controls (STRING, BOX, etc.)
 report_controls([Control|Controls]) -->
@@ -472,7 +479,7 @@ skip_parens_content --> [].
 map_section(map(Declarations)) -->
     [keyword('MAP')],
     procedure_declarations(Declarations),
-    [keyword('END')].
+    end_keyword.
 
 procedure_declarations([Decl|Decls]) -->
     procedure_declaration(Decl),
@@ -587,7 +594,7 @@ local_declaration(report(Name, Bands)) -->
     [keyword('REPORT')],
     skip_attributes,
     report_bands(Bands),
-    [keyword('END')].
+    end_keyword.
 
 % Local WINDOW declaration (handles both "Window WINDOW(...)" and "WINDOW WINDOW(...)")
 local_declaration(window(Name, Title, Controls)) -->
@@ -598,7 +605,7 @@ local_declaration(window(Name, Title, Controls)) -->
     [rparen],
     skip_attributes,
     window_controls(Controls),
-    [keyword('END')].
+    end_keyword.
 
 local_declaration(window(window, Title, Controls)) -->
     [keyword('WINDOW')],
@@ -608,7 +615,7 @@ local_declaration(window(window, Title, Controls)) -->
     [rparen],
     skip_attributes,
     window_controls(Controls),
-    [keyword('END')].
+    end_keyword.
 
 %------------------------------------------------------------
 % Statements
@@ -749,7 +756,7 @@ statement(if(Cond, Then, ElsIfs, Else)) -->
     statements(Then),
     elsif_clauses(ElsIfs),
     else_clause(Else),
-    [keyword('END')].
+    end_keyword.
 
 % LOOP with counter: LOOP Var = From TO To
 statement(loop_to(Var, From, To, Body)) -->
@@ -760,7 +767,7 @@ statement(loop_to(Var, From, To, Body)) -->
     [keyword('TO')],
     expression(To),
     statements(Body),
-    [keyword('END')].
+    end_keyword.
 
 % LOOP WHILE
 statement(loop_while(Cond, Body)) -->
@@ -768,7 +775,7 @@ statement(loop_while(Cond, Body)) -->
     [keyword('WHILE')],
     expression(Cond),
     statements(Body),
-    [keyword('END')].
+    end_keyword.
 
 % LOOP UNTIL
 statement(loop_until(Cond, Body)) -->
@@ -776,13 +783,13 @@ statement(loop_until(Cond, Body)) -->
     [keyword('UNTIL')],
     expression(Cond),
     statements(Body),
-    [keyword('END')].
+    end_keyword.
 
 % Simple infinite LOOP
 statement(loop(Body)) -->
     [keyword('LOOP')],
     statements(Body),
-    [keyword('END')].
+    end_keyword.
 
 % BREAK
 statement(break) -->
@@ -809,13 +816,13 @@ statement(case(Expr, Cases, Else)) -->
     expression(Expr),
     case_branches(Cases),
     case_else(Else),
-    [keyword('END')].
+    end_keyword.
 
 % ACCEPT loop (window event loop)
 statement(accept(Body)) -->
     [keyword('ACCEPT')],
     statements(Body),
-    [keyword('END')].
+    end_keyword.
 
 % SELECT statement (focus control)
 statement(select(Arg)) -->
