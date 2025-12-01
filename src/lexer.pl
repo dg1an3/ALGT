@@ -30,6 +30,7 @@ tokenize(Codes, Tokens) :-
 tokens([]) --> [].
 tokens(Tokens) --> whitespace, tokens(Tokens).
 tokens(Tokens) --> comment, tokens(Tokens).
+tokens(Tokens) --> line_continuation, tokens(Tokens).
 tokens([Token|Tokens]) --> token(Token), tokens(Tokens).
 
 %------------------------------------------------------------
@@ -47,6 +48,18 @@ comment_rest --> "\n", !.
 comment_rest --> "\r\n", !.
 comment_rest --> [_], comment_rest.
 comment_rest --> [].  % EOF
+
+%------------------------------------------------------------
+% Line continuation (| followed by optional whitespace and newline)
+% Clarion uses | at end of line to continue statement on next line
+%------------------------------------------------------------
+line_continuation --> "|", line_cont_ws, line_cont_nl.
+
+line_cont_ws --> [C], { C \= 0'\n, C \= 0'\r, code_type(C, space) }, line_cont_ws.
+line_cont_ws --> [].
+
+line_cont_nl --> "\r\n".
+line_cont_nl --> "\n".
 
 %------------------------------------------------------------
 % Individual token types
