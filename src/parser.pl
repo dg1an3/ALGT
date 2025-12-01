@@ -972,6 +972,16 @@ primary(picture(Pic)) -->
       atom_number(NumAtom, Num),
       atom_concat(Tmp, NumAtom, Pic) }.
 
+% Picture format with decimal: @n12.2 (tokenizes as @n12 . 2)
+primary(picture(Pic)) -->
+    [at],
+    [identifier(Base)],
+    [dot],
+    [number(Frac)],
+    { atom_number(FracAtom, Frac),
+      atom_concat(Base, '.', Tmp),
+      atom_concat(Tmp, FracAtom, Pic) }.
+
 % Control reference: ?ControlName
 primary(control_ref(Name)) -->
     [question],
