@@ -13,13 +13,23 @@ This project uses Prolog to parse and analyze Clarion source code, enabling:
 
 ## Requirements
 
-- SWI-Prolog 8.0+ (recommended) or another ISO Prolog implementation
+- SWI-Prolog 8.0+ (recommended)
+
+Install on macOS:
+```bash
+brew install swi-prolog
+```
 
 ## Getting Started
 
-```prolog
-?- [analyzer].
-?- analyze_file('path/to/your/clarion/file.clw').
+```bash
+# Run the test suite
+swipl test_parser.pl
+
+# Or use interactively
+swipl
+?- use_module(src/clarion).
+?- analyze_file('examples/hello_world.clw').
 ```
 
 ## Project Structure
@@ -28,7 +38,15 @@ This project uses Prolog to parse and analyze Clarion source code, enabling:
 clarion_prolog/
 ├── README.md           # This file
 ├── CLAUDE.md           # Claude Code assistant context
-└── src/                # Prolog source files (to be added)
+├── test_parser.pl      # Test runner
+├── src/
+│   ├── clarion.pl      # Main entry point
+│   ├── lexer.pl        # Tokenizer (DCG)
+│   └── parser.pl       # Parser (DCG)
+└── examples/           # Sample Clarion programs
+    ├── hello_world.clw
+    ├── data_types.clw
+    └── ...
 ```
 
 ## Why Prolog?
