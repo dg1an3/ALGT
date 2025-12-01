@@ -904,8 +904,17 @@ expression_rest(Left, Expr) -->
     expression_rest(binop(Op, Left, Right), Expr).
 expression_rest(Expr, Expr) --> [].
 
-primary(string(S)) -->
-    [string(S)].
+primary(String) -->
+    [string(S1)],
+    adjacent_strings(S1, String).
+
+% Handle adjacent strings (implicit concatenation in Clarion)
+adjacent_strings(Acc, Result) -->
+    [string(S)],
+    !,
+    { atom_concat(Acc, S, NewAcc) },
+    adjacent_strings(NewAcc, Result).
+adjacent_strings(Acc, string(Acc)) --> [].
 
 primary(number(N)) -->
     [number(N)].
@@ -945,6 +954,14 @@ primary(member_access(Obj, Member)) -->
 % Function call with args
 primary(call(Name, Args)) -->
     [identifier(Name)],
+    [lparen],
+    argument_list(Args),
+    [rparen].
+
+% Keyword used as function (DATE, TIME, etc.)
+primary(call(Name, Args)) -->
+    [keyword(Name)],
+    { \+ structural_keyword(Name) },
     [lparen],
     argument_list(Args),
     [rparen].

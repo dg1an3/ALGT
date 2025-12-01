@@ -393,6 +393,46 @@ print_case_branches(Indent, [case_of(Value, Stmts)|Rest]) :-
     maplist(print_statement(Indent1), Stmts),
     print_case_branches(Indent, Rest).
 
+print_statement(Indent, prop_assign(Var, Prop, Expr)) :-
+    print_indent(Indent),
+    format("~w{~w} = ", [Var, Prop]),
+    print_expr(Expr),
+    format("~n", []).
+
+print_statement(Indent, control_prop_assign(Control, Prop, Expr)) :-
+    print_indent(Indent),
+    format("?~w{~w} = ", [Control, Prop]),
+    print_expr(Expr),
+    format("~n", []).
+
+print_statement(Indent, print(Arg)) :-
+    print_indent(Indent),
+    format("PRINT(", []),
+    print_expr(Arg),
+    format(")~n", []).
+
+print_statement(Indent, accept(Body)) :-
+    print_indent(Indent),
+    format("ACCEPT~n", []),
+    Indent1 is Indent + 2,
+    maplist(print_statement(Indent1), Body),
+    print_indent(Indent),
+    format("END~n", []).
+
+print_statement(Indent, select(Arg)) :-
+    print_indent(Indent),
+    format("SELECT(", []),
+    print_expr(Arg),
+    format(")~n", []).
+
+print_statement(Indent, beep) :-
+    print_indent(Indent),
+    format("BEEP~n", []).
+
+print_statement(Indent, display) :-
+    print_indent(Indent),
+    format("DISPLAY~n", []).
+
 % Catch-all for unknown statements
 print_statement(Indent, Stmt) :-
     print_indent(Indent),
@@ -442,6 +482,8 @@ print_expr(binop(Op, Left, Right)) :-
     format(" ~w ", [Op]),
     print_expr(Right),
     format(")", []).
+print_expr(control_ref(Name)) :-
+    format("?~w", [Name]).
 % Catch-all for unknown expressions
 print_expr(Expr) :-
     format("/*~w*/", [Expr]).

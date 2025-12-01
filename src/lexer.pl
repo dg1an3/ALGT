@@ -182,9 +182,12 @@ string_literal(string(String)) -->
     "'", string_chars(Chars), "'",
     { atom_codes(String, Chars) }.
 
-string_chars([]) --> [].
+% Check for escaped quote FIRST (two single quotes = one embedded quote)
 string_chars([39|Cs]) --> "''", !, string_chars(Cs).  % Escaped quote (single quote = 39)
+% Regular character (not a single quote)
 string_chars([C|Cs]) --> [C], { C \= 39 }, string_chars(Cs).  % single quote = 39
+% Empty - must be last so escaped quotes at end of string are handled
+string_chars([]) --> [].
 
 %------------------------------------------------------------
 % Number literals
