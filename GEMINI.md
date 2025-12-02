@@ -36,7 +36,7 @@ The analyzer represents Clarion code as Prolog facts and rules:
 
 ## Architecture
 
-The project consists of three main modules in `src/`:
+The project consists of three main modules in `clarion_interpreter/`:
 
 ### Lexer (`lexer.pl`)
 Tokenizes Clarion source files into a token stream.
@@ -62,16 +62,16 @@ Executes Clarion programs from their AST representation.
 ## Running Programs
 
 ```prolog
-?- use_module(src/clarion).
+?- use_module(clarion_interpreter/clarion).
 
 % Parse and display AST
-?- analyze_file('examples/hello_world.clw').
+?- analyze_file('clarion_examples/hello_world.clw').
 
 % Execute a program
-?- run_file('examples/hello_world.clw').
+?- run_file('clarion_examples/hello_world.clw').
 
 % Parse to AST for inspection
-?- parse_file('examples/file_io.clw', AST).
+?- parse_file('clarion_examples/file_io.clw', AST).
 ```
 
 ## Development Guidelines

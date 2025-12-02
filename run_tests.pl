@@ -1,31 +1,31 @@
-:- use_module(src/clarion).
+:- use_module(clarion_interpreter/clarion).
 :- use_module(library(plunit)).
 :- use_module(library(lists)). % For forall/2 and member/2
 
 test_files([
-    'examples/class_example.clw',
-    'examples/control_flow.clw',
-    'examples/data_types.clw',
-    'examples/file_io.clw',
-    'examples/hello_world.clw',
-    'examples/queue_example.clw',
-    'examples/report_example.clw',
-    'examples/sql_example.clw',
-    'examples/string_functions.clw',
-    'examples/window_example.clw',
-    'examples/ado_sql_example.clw'
+    'clarion_examples/class_example.clw',
+    'clarion_examples/control_flow.clw',
+    'clarion_examples/data_types.clw',
+    'clarion_examples/file_io.clw',
+    'clarion_examples/hello_world.clw',
+    'clarion_examples/queue_example.clw',
+    'clarion_examples/report_example.clw',
+    'clarion_examples/sql_example.clw',
+    'clarion_examples/string_functions.clw',
+    'clarion_examples/window_example.clw',
+    'clarion_examples/ado_sql_example.clw'
 ]).
 
 interpreter_test_files([
-    'examples/hello_world.clw',
-    'examples/string_functions.clw',
-    'examples/control_flow.clw',
-    'examples/file_io.clw',
-    'examples/class_example.clw',
-    'examples/case_variations.clw',
-    'examples/report_example.clw',
-    'examples/window_example.clw',
-    'examples/queue_example.clw'
+    'clarion_examples/hello_world.clw',
+    'clarion_examples/string_functions.clw',
+    'clarion_examples/control_flow.clw',
+    'clarion_examples/file_io.clw',
+    'clarion_examples/class_example.clw',
+    'clarion_examples/case_variations.clw',
+    'clarion_examples/report_example.clw',
+    'clarion_examples/window_example.clw',
+    'clarion_examples/queue_example.clw'
 ]).
 
 % run_tests/0 will discover and run all tests defined with :- begin_tests/1

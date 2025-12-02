@@ -28,7 +28,7 @@ A Prolog-based interpreter for Clarion, a 4GL (fourth-generation language) used 
 ├── subject_image_domain_model/
 ├── treatment_image_domain_model/
 ├── appointment_domain_model/
-├── src/                     # Clarion interpreter modules
+├── clarion_interpreter/                     # Clarion interpreter modules
 │   ├── clarion.pl           # Main entry point
 │   ├── lexer.pl             # Tokenizer
 │   ├── parser.pl            # Parser (DCG)
@@ -36,7 +36,7 @@ A Prolog-based interpreter for Clarion, a 4GL (fourth-generation language) used 
 │   ├── ui_backend.pl        # UI abstraction layer
 │   ├── scenario_dsl.pl      # Test scenario DSL
 │   └── scenario_ahk.pl      # AutoHotkey script generator
-├── examples/                # Sample Clarion programs
+├── clarion_examples/                # Sample Clarion programs
 └── docs/                    # Documentation
 ```
 
@@ -64,13 +64,13 @@ Verifies interleaved concurrent operations to identify race conditions.
 
 ## Clarion Interpreter Components
 
-### Lexer (`src/lexer.pl`)
+### Lexer (`clarion_interpreter/lexer.pl`)
 Tokenizes Clarion source files into a token stream.
 
-### Parser (`src/parser.pl`)
+### Parser (`clarion_interpreter/parser.pl`)
 Parses tokens into an AST using DCG (Definite Clause Grammars).
 
-### Interpreter (`src/interpreter.pl`)
+### Interpreter (`clarion_interpreter/interpreter.pl`)
 Executes Clarion programs from their AST representation.
 
 **Supported features:**
@@ -82,13 +82,13 @@ Executes Clarion programs from their AST representation.
 - File I/O operations (in-memory simulation)
 - Built-in functions: `MESSAGE`, `CLIP`, `LEN`, `CHR`, `VAL`, `TODAY`, `CLOCK`
 
-### UI Backend (`src/ui_backend.pl`)
+### UI Backend (`clarion_interpreter/ui_backend.pl`)
 Pluggable UI abstraction supporting:
 - Simulation backend (testing)
 - TUI backend (terminal)
 - Remote backend (JSON/JavaScript)
 
-### Scenario DSL (`src/scenario_dsl.pl`, `src/scenario_ahk.pl`)
+### Scenario DSL (`clarion_interpreter/scenario_dsl.pl`, `clarion_interpreter/scenario_ahk.pl`)
 Declarative testing DSL with AutoHotkey script generation for real Clarion app testing.
 
 ---
@@ -97,8 +97,8 @@ Declarative testing DSL with AutoHotkey script generation for real Clarion app t
 
 ### Clarion Interpreter
 ```prolog
-?- use_module(src/clarion).
-?- run_file('examples/hello_world.clw').
+?- use_module(clarion_interpreter/clarion).
+?- run_file('clarion_examples/hello_world.clw').
 ```
 
 ### ALGT Tests

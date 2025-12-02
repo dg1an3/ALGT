@@ -331,7 +331,7 @@ test(tokenize_simple_program) :-
              [keyword('PROGRAM'), keyword('MAP'), keyword('END'), keyword('CODE')]).
 
 test(tokenize_file, [nondet]) :-
-    tokenize_file('examples/hello_world.clw', Tokens),
+    tokenize_file('clarion_examples/hello_world.clw', Tokens),
     member(keyword('PROGRAM'), Tokens),
     member(keyword('CODE'), Tokens).
 

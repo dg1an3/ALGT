@@ -37,8 +37,8 @@ cd ALGT
 ### Clarion Interpreter
 ```prolog
 swipl
-?- use_module(src/clarion).
-?- run_file('examples/hello_world.clw').
+?- use_module(clarion_interpreter/clarion).
+?- run_file('clarion_examples/hello_world.clw').
 ```
 
 ### ALGT Verification Tests
@@ -71,7 +71,7 @@ swipl -s model_checker/model_checker.pl
 ├── model_checker/           # Concurrent operation verification
 │   ├── model_checker.pl
 │   └── README.md
-├── src/                     # Clarion interpreter
+├── clarion_interpreter/                     # Clarion interpreter
 │   ├── clarion.pl           # Main entry point
 │   ├── lexer.pl             # Tokenizer
 │   ├── parser.pl            # Parser (DCG)
@@ -79,7 +79,7 @@ swipl -s model_checker/model_checker.pl
 │   ├── ui_backend.pl        # Pluggable UI backends
 │   ├── scenario_dsl.pl      # Test scenario DSL
 │   └── scenario_ahk.pl      # AutoHotkey generator
-├── examples/                # Sample Clarion programs
+├── clarion_examples/                # Sample Clarion programs
 ├── subject_image_domain_model/
 ├── treatment_image_domain_model/
 ├── appointment_domain_model/
