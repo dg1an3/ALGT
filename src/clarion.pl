@@ -7,11 +7,15 @@
     analyze_file/2,
     parse_file/2,
     tokenize_file/2,
-    print_ast/1
+    print_ast/1,
+    run_file/1,
+    run_ast/1,
+    run_ast/2
 ]).
 
 :- use_module(lexer).
 :- use_module(parser).
+:- use_module(interpreter).
 
 %------------------------------------------------------------
 % analyze_file(+FileName)

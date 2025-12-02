@@ -4,7 +4,7 @@ This file provides context for Claude Code when working on this project.
 
 ## Project Overview
 
-This project uses Prolog to perform static analysis on Clarion programs. Clarion is a 4GL (fourth-generation language) used primarily for database application development.
+This project uses Prolog to parse, analyze, and execute Clarion programs. Clarion is a 4GL (fourth-generation language) used primarily for database application development.
 
 ## Technology Stack
 
@@ -33,6 +33,46 @@ The analyzer represents Clarion code as Prolog facts and rules:
 - Source code is parsed into an AST represented as Prolog terms
 - Analysis queries are written as Prolog predicates
 - Results can be queried interactively
+
+## Architecture
+
+The project consists of three main modules in `src/`:
+
+### Lexer (`lexer.pl`)
+Tokenizes Clarion source files into a token stream.
+
+### Parser (`parser.pl`)
+Parses tokens into an AST using DCG (Definite Clause Grammars).
+
+### Interpreter (`interpreter.pl`)
+Executes Clarion programs from their AST representation.
+
+**Supported features:**
+- Variables (local, global, prefixed file fields like `Cust:CustomerID`)
+- Expressions (arithmetic, comparison, logical, string concatenation)
+- Control flow: `IF/ELSIF/ELSE`, `LOOP` (infinite, TO, WHILE, UNTIL), `CASE/OF`, `BREAK`, `CYCLE`
+- Procedures with parameters and local variables
+- Routines (`DO`/`ROUTINE` with `EXIT`)
+- File I/O operations (in-memory simulation):
+  - `CREATE`, `OPEN`, `CLOSE`, `CLEAR`, `EMPTY`
+  - `ADD`, `GET`, `PUT`, `DELETE`, `NEXT`, `SET`
+  - `RECORDS`, `ERRORCODE`, `ERROR`
+- Built-in functions: `MESSAGE`, `CLIP`, `LEN`, `CHR`, `VAL`, `TODAY`, `CLOCK`
+
+## Running Programs
+
+```prolog
+?- use_module(src/clarion).
+
+% Parse and display AST
+?- analyze_file('examples/hello_world.clw').
+
+% Execute a program
+?- run_file('examples/hello_world.clw').
+
+% Parse to AST for inspection
+?- parse_file('examples/file_io.clw', AST).
+```
 
 ## Development Guidelines
 
