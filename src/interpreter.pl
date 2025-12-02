@@ -59,8 +59,8 @@ run_ast(program(_, code(Statements), Procedures), FinalState) :-
 %------------------------------------------------------------
 
 init_procedures([], State, State).
-init_procedures([Proc|Procs], state(Vars, ExistingProcs, Out, Files, Err, Classes, Self), FinalState) :-
-    init_procedures(Procs, state(Vars, [Proc|ExistingProcs], Out, Files, Err, Classes, Self), FinalState).
+init_procedures([Proc|Procs], state(Vars, ExistingProcs, Out, Files, Err, Classes, Self, UI, Cont), FinalState) :-
+    init_procedures(Procs, state(Vars, [Proc|ExistingProcs], Out, Files, Err, Classes, Self, UI, Cont), FinalState).
 
 init_globals([], State, State).
 init_globals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
@@ -401,9 +401,9 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
       init_locals(LocalVars, State1, State2),
       exec_statements(Body, State2, State3, Control),
       ( Control = return(V) -> Result = V ; Result = none ),
-      StateIn = state(OuterVars, Procs, _, _, _, _, _),
-      State3 = state(_, _, NewOut, NewFiles, NewErr, NewClasses, _),
-      StateOut = state(OuterVars, Procs, NewOut, NewFiles, NewErr, NewClasses, none)
+      StateIn = state(OuterVars, Procs, _, _, _, _, _, UI, Cont),
+      State3 = state(_, _, NewOut, NewFiles, NewErr, NewClasses, _, _, _),
+      StateOut = state(OuterVars, Procs, NewOut, NewFiles, NewErr, NewClasses, none, UI, Cont)
     ).
 
 eval_args([], _, []).
@@ -451,11 +451,11 @@ exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, Result) :-
     init_locals(LocalVars, State2, State3),
     exec_statements(Body, State3, State4, Control),
     ( Control = return(V) -> Result = V ; Result = none ),
-    State4 = state(_, Procs, NewOut, NewFiles, NewErr, NewClasses, _),
+    State4 = state(_, Procs, NewOut, NewFiles, NewErr, NewClasses, _, UI, Cont),
     get_var(ObjName, State4, UpdatedInstance),
     set_var(ObjName, UpdatedInstance, StateIn, State5),
-    State5 = state(Vars5, _, _, _, _, _, _),
-    StateOut = state(Vars5, Procs, NewOut, NewFiles, NewErr, NewClasses, none).
+    State5 = state(Vars5, _, _, _, _, _, _, _, _),
+    StateOut = state(Vars5, Procs, NewOut, NewFiles, NewErr, NewClasses, none, UI, Cont).
 
 exec_parent_call(MethodName, Args, StateIn, StateOut, Result) :-
     get_self(StateIn, self_context(ObjName, CurrentClass, _)),

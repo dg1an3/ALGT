@@ -31,9 +31,9 @@
 
 % Initialize a class definition in state
 init_class(Name, Parent, Attrs, Members, StateIn, StateOut) :-
-    StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self),
+    StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
     ClassDef = class_def(Name, Parent, Attrs, Members),
-    StateOut = state(Vars, Procs, Out, Files, Err, [ClassDef|Classes], Self).
+    StateOut = state(Vars, Procs, Out, Files, Err, [ClassDef|Classes], Self, UI, Cont).
 
 % Get class definition by name
 get_class_def(ClassName, State, ClassDef) :-

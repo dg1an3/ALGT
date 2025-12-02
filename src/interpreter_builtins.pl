@@ -310,13 +310,13 @@ builtin_call('DISPLAY', [], StateIn, StateIn, none).
 % Event Phase Management
 %------------------------------------------------------------
 
-set_event_phase(Phase, state(Vars, Procs, Out, Files, Err, Classes, Self),
-                       state([var('__EVENT_PHASE__', Phase)|Vars1], Procs, Out, Files, Err, Classes, Self)) :-
+set_event_phase(Phase, state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
+                       state([var('__EVENT_PHASE__', Phase)|Vars1], Procs, Out, Files, Err, Classes, Self, UI, Cont)) :-
     exclude(is_event_phase_var, Vars, Vars1).
 
 is_event_phase_var(var('__EVENT_PHASE__', _)).
 
-get_event_phase(state(Vars, _, _, _, _, _, _), Phase) :-
+get_event_phase(state(Vars, _, _, _, _, _, _, _, _), Phase) :-
     member(var('__EVENT_PHASE__', Phase), Vars), !.
 get_event_phase(_, none).
 

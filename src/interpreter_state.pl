@@ -7,6 +7,7 @@
 :- module(interpreter_state, [
     % State creation
     empty_state/1,
+    empty_ui_state/1,
 
     % State accessors
     get_vars/2,
@@ -16,6 +17,13 @@
     get_error/2,
     get_classes/2,
     get_self/2,
+    get_ui_state/2,
+    get_continuation/2,
+
+    % State setters
+    set_ui_state/3,
+    set_continuation/3,
+    clear_continuation/2,
 
     % Variable operations
     get_var/3,
@@ -54,18 +62,54 @@
 %------------------------------------------------------------
 % State Structure
 %------------------------------------------------------------
-% state(Vars, Procs, Output, Files, ErrorCode, Classes, Self)
+% state(Vars, Procs, Output, Files, ErrorCode, Classes, Self, UIState, Continuation)
+%
+% Extended state with UI and continuation support:
+%   - UIState: UI backend state (window stack, event queue, mode)
+%   - Continuation: For pausable ACCEPT loop (none or continuation{...})
 
-empty_state(state([], [], [], [], 0, [], none)).
+empty_state(state([], [], [], [], 0, [], none, UIState, none)) :-
+    empty_ui_state(UIState).
 
-% State accessors
-get_vars(state(Vars, _, _, _, _, _, _), Vars).
-get_procs(state(_, Procs, _, _, _, _, _), Procs).
-get_output(state(_, _, Out, _, _, _, _), Out).
-get_files(state(_, _, _, Files, _, _, _), Files).
-get_error(state(_, _, _, _, Err, _, _), Err).
-get_classes(state(_, _, _, _, _, Classes, _), Classes).
-get_self(state(_, _, _, _, _, _, Self), Self).
+% UI State structure (SWI-Prolog dict):
+% ui_state{
+%     backend: atom,              % simulation | tui | remote
+%     windows: [window_state{}],  % Stack of open windows
+%     event_queue: [],            % Pending events (FIFO)
+%     current_event: none,        % Event being processed
+%     mode: sync | async          % Execution mode
+% }
+
+empty_ui_state(ui_state{
+    backend: simulation,
+    windows: [],
+    event_queue: [],
+    current_event: none,
+    mode: sync
+}).
+
+% State accessors (9-tuple)
+get_vars(state(Vars, _, _, _, _, _, _, _, _), Vars).
+get_procs(state(_, Procs, _, _, _, _, _, _, _), Procs).
+get_output(state(_, _, Out, _, _, _, _, _, _), Out).
+get_files(state(_, _, _, Files, _, _, _, _, _), Files).
+get_error(state(_, _, _, _, Err, _, _, _, _), Err).
+get_classes(state(_, _, _, _, _, Classes, _, _, _), Classes).
+get_self(state(_, _, _, _, _, _, Self, _, _), Self).
+get_ui_state(state(_, _, _, _, _, _, _, UIState, _), UIState).
+get_continuation(state(_, _, _, _, _, _, _, _, Cont), Cont).
+
+% UI State and Continuation setters
+set_ui_state(NewUIState,
+    state(Vars, Procs, Out, Files, Err, Classes, Self, _, Cont),
+    state(Vars, Procs, Out, Files, Err, Classes, Self, NewUIState, Cont)).
+
+set_continuation(NewCont,
+    state(Vars, Procs, Out, Files, Err, Classes, Self, UI, _),
+    state(Vars, Procs, Out, Files, Err, Classes, Self, UI, NewCont)).
+
+clear_continuation(StateIn, StateOut) :-
+    set_continuation(none, StateIn, StateOut).
 
 %------------------------------------------------------------
 % Variable Operations
@@ -88,12 +132,12 @@ get_var(Name, _, _) :-
 set_var(Name, Value, StateIn, StateOut) :-
     ( parse_prefixed_name(Name, Prefix, FieldName)
     -> set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut)
-    ;  StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self),
+    ;  StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
        ( select(var(Name, _), Vars, RestVars)
        -> NewVars = [var(Name, Value)|RestVars]
        ;  NewVars = [var(Name, Value)|Vars]
        ),
-       StateOut = state(NewVars, Procs, Out, Files, Err, Classes, Self)
+       StateOut = state(NewVars, Procs, Out, Files, Err, Classes, Self, UI, Cont)
     ).
 
 % Parse a prefixed name like 'Cust:CustomerID' into prefix and field
@@ -143,8 +187,8 @@ get_proc(Name, _, _) :-
 % Output Management
 %------------------------------------------------------------
 
-add_output(Text, state(Vars, Procs, Out, Files, Err, Classes, Self),
-                 state(Vars, Procs, [Text|Out], Files, Err, Classes, Self)).
+add_output(Text, state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
+                 state(Vars, Procs, [Text|Out], Files, Err, Classes, Self, UI, Cont)).
 
 get_output_list(State, Output) :-
     get_output(State, Out),
@@ -154,11 +198,11 @@ get_output_list(State, Output) :-
 % Error and Self Context
 %------------------------------------------------------------
 
-set_error(ErrCode, state(Vars, Procs, Out, Files, _, Classes, Self),
-                   state(Vars, Procs, Out, Files, ErrCode, Classes, Self)).
+set_error(ErrCode, state(Vars, Procs, Out, Files, _, Classes, Self, UI, Cont),
+                   state(Vars, Procs, Out, Files, ErrCode, Classes, Self, UI, Cont)).
 
-set_self(NewSelf, state(Vars, Procs, Out, Files, Err, Classes, _),
-                  state(Vars, Procs, Out, Files, Err, Classes, NewSelf)).
+set_self(NewSelf, state(Vars, Procs, Out, Files, Err, Classes, _, UI, Cont),
+                  state(Vars, Procs, Out, Files, Err, Classes, NewSelf, UI, Cont)).
 
 %------------------------------------------------------------
 % File State Management
@@ -173,8 +217,8 @@ get_file_state(Name, State, FileState) :-
     FileState = file_state(Name, _, _, _, _, _, _, _), !.
 
 set_file_state(Name, NewFileState,
-               state(Vars, Procs, Out, Files, Err, Classes, Self),
-               state(Vars, Procs, Out, NewFiles, Err, Classes, Self)) :-
+               state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
+               state(Vars, Procs, Out, NewFiles, Err, Classes, Self, UI, Cont)) :-
     NewFileState = file_state(Name, _, _, _, _, _, _, _),
     ( select(file_state(Name, _, _, _, _, _, _, _), Files, RestFiles)
     -> NewFiles = [NewFileState|RestFiles]
