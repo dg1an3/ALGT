@@ -418,6 +418,12 @@ exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, norm
        set_var(ArrayName, Value, StateIn, StateOut)  % Simple fallback
     ).
 
+exec_statement(assign_add(VarName, Expr), StateIn, StateOut, normal) :-
+    eval_expr(Expr, StateIn, Val),
+    get_var(VarName, StateIn, CurrentVal),
+    NewVal is CurrentVal + Val,
+    set_var(VarName, NewVal, StateIn, StateOut).
+
 % Return (no value)
 exec_statement(return, State, State, return).
 
@@ -1156,3 +1162,15 @@ is_truthy(A) :- atom(A), A \= ''.
 to_string(S, S) :- string(S), !.
 to_string(A, S) :- atom(A), !, atom_string(A, S).
 to_string(N, S) :- number(N), number_string(N, S).
+
+:- use_module(library(plunit)).
+
+
+:- begin_tests(interpreter).
+
+test(run_example_files) :-
+    interpreter_test_files(Files),
+    forall(member(File, Files),
+           assertion(run_file(File))).
+
+:- end_tests(interpreter).

@@ -16,6 +16,17 @@ test_files([
     'examples/ado_sql_example.clw'
 ]).
 
+interpreter_test_files([
+    'examples/hello_world.clw',
+    'examples/string_functions.clw',
+    'examples/control_flow.clw',
+    'examples/file_io.clw',
+    'examples/class_example.clw',
+    'examples/case_variations.clw',
+    'examples/report_example.clw',
+    'examples/window_example.clw'
+]).
+
 % run_tests/0 will discover and run all tests defined with :- begin_tests/1
 % The plunit:run_tests/0 predicate is dynamically found if tests are loaded.
 run_all_plunit_tests :-
