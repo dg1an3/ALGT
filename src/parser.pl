@@ -1051,3 +1051,15 @@ primary(Expr) -->
 binary_op(Op) --> [op(Op)].
 binary_op(and) --> [keyword('AND')].
 binary_op(or) --> [keyword('OR')].
+
+:- use_module(library(plunit)).
+
+
+:- begin_tests(parser).
+
+test(parse_example_files) :-
+    test_files(Files),
+    forall(member(File, Files),
+           assertion(parse_file(File, _))).
+
+:- end_tests(parser).

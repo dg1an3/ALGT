@@ -51,7 +51,7 @@ comment_rest --> [].  % EOF
 
 %------------------------------------------------------------
 % Line continuation (| followed by optional whitespace and newline)
-% Clarion uses | at end of line to continue statement on next line
+%Clarion uses | at end of line to continue statement on next line
 %------------------------------------------------------------
 line_continuation --> "|", line_cont_ws, line_cont_nl.
 
@@ -75,13 +75,14 @@ token(Token) --> punctuation(Token).
 %------------------------------------------------------------
 keyword_or_identifier(Token) -->
     identifier_chars(Chars),
-    { Chars \= [],
-      atom_codes(Atom, Chars),
-      upcase_atom(Atom, Upper),
-      ( keyword(Upper)
-        -> Token = keyword(Upper)
-        ;  Token = identifier(Atom)
-      )
+    {
+        Chars \= [],
+        atom_codes(Atom, Chars),
+        upcase_atom(Atom, Upper),
+        ( keyword(Upper)
+          -> Token = keyword(Upper)
+          ;  Token = identifier(Atom)
+        )
     }.
 
 identifier_chars([C|Cs]) -->
@@ -180,7 +181,9 @@ keyword('SPIN').
 %------------------------------------------------------------
 string_literal(string(String)) -->
     "'", string_chars(Chars), "'",
-    { atom_codes(String, Chars) }.
+    {
+        atom_codes(String, Chars)
+    }.
 
 % Check for escaped quote FIRST (two single quotes = one embedded quote)
 string_chars([39|Cs]) --> "''", !, string_chars(Cs).  % Escaped quote (single quote = 39)
@@ -194,10 +197,14 @@ string_chars([]) --> [].
 %------------------------------------------------------------
 number_literal(number(N)) -->
     digit_chars([D|Ds]),
-    ( ".", digit_chars(Frac)
-      -> { append([D|Ds], [46|Frac], All),  % period = 46
-           number_codes(N, All) }
-      ;  { number_codes(N, [D|Ds]) }
+    (
+        ".", digit_chars(Frac)
+        -> {
+               append([D|Ds], [46|Frac], All),  % period = 46
+               number_codes(N, All)
+           }
+        ;
+        { number_codes(N, [D|Ds]) }
     ).
 
 digit_chars([D|Ds]) -->
@@ -250,3 +257,93 @@ punctuation(at) --> "@".
 punctuation(hash) --> "#".
 punctuation(question) --> "?".
 punctuation(dollar) --> "$".
+
+%============================================================
+% Unit Tests
+%============================================================
+
+:- use_module(library(plunit)).
+
+:- begin_tests(lexer).
+
+test(tokenize_empty) :-
+    string_codes("", Codes),
+    tokenize(Codes, []).
+
+test(tokenize_whitespace) :-
+    string_codes("   ", Codes),
+    tokenize(Codes, []).
+
+test(tokenize_comment) :-
+    string_codes("! this is a comment\n", Codes),
+    tokenize(Codes, []).
+
+test(tokenize_keyword) :-
+    string_codes("PROGRAM", Codes),
+    tokenize(Codes, [keyword('PROGRAM')]).
+
+test(tokenize_keyword_lowercase) :-
+    string_codes("program", Codes),
+    tokenize(Codes, [keyword('PROGRAM')]).
+
+test(tokenize_identifier) :-
+    string_codes("MyVariable", Codes),
+    tokenize(Codes, [identifier('MyVariable')]).
+
+test(tokenize_prefixed_identifier) :-
+    string_codes("Cust:Name", Codes),
+    tokenize(Codes, [identifier('Cust:Name')]).
+
+test(tokenize_string) :-
+    string_codes("'hello world'", Codes),
+    tokenize(Codes, [string('hello world')]).
+
+test(tokenize_string_escaped_quote) :-
+    string_codes("'it''s'", Codes),
+    tokenize(Codes, [string('it''s')]).
+
+test(tokenize_integer) :-
+    string_codes("12345", Codes),
+    tokenize(Codes, [number(12345)]).
+
+test(tokenize_decimal) :-
+    string_codes("123.45", Codes),
+    tokenize(Codes, [number(123.45)]).
+
+test(tokenize_operators) :-
+    string_codes("+ - * / = <> <= >=", Codes),
+    tokenize(Codes,
+             [op('+'), op('-'), op('*'), op('/'), op('='),
+              op('<>'), op('<='), op('>=')]).
+
+test(tokenize_punctuation) :-
+    string_codes("( ) [ ] , .", Codes),
+    tokenize(Codes,
+             [lparen, rparen, lbracket, rbracket, comma, dot]).
+
+test(tokenize_line_continuation) :-
+    string_codes("a |\n  b", Codes),
+    tokenize(Codes, [identifier(a), identifier(b)]).
+
+test(tokenize_simple_program) :-
+    string_codes("PROGRAM\nMAP\nEND\nCODE\n", Codes),
+    tokenize(Codes,
+             [keyword('PROGRAM'), keyword('MAP'), keyword('END'), keyword('CODE')]).
+
+test(tokenize_file, [nondet]) :-
+    tokenize_file('examples/hello_world.clw', Tokens),
+    member(keyword('PROGRAM'), Tokens),
+    member(keyword('CODE'), Tokens).
+
+:- end_tests(lexer).
+
+
+
+:- begin_tests(lexer_files).
+
+test(tokenize_example_files) :-
+    test_files(Files),
+    forall(member(File, Files),
+           assertion(tokenize_file(File, _))).
+
+:- end_tests(lexer_files).
