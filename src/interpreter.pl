@@ -19,12 +19,17 @@
 %------------------------------------------------------------
 % State Management
 %
-% State is represented as: state(Vars, Procs, Output, Files, ErrorCode)
+% State is represented as: state(Vars, Procs, Output, Files, ErrorCode, Classes, Self)
 %   Vars      = list of var(Name, Value) pairs
 %   Procs     = list of procedure definitions from AST
 %   Output    = accumulated output (for testing/capture)
 %   Files     = list of file_state(...) for open files
 %   ErrorCode = last error code (0 = success)
+%   Classes   = list of class definitions from AST
+%   Self      = current self context: none | self_context(VarName, ClassName, ParentClass)
+%
+% Instance values are stored as: instance(ClassName, Properties)
+%   Properties = list of prop(Name, Value) pairs
 %
 % file_state(Name, Prefix, Keys, Fields, Records, RecordBuffer, Position, IsOpen)
 %   Name         = file name atom
@@ -37,14 +42,16 @@
 %   IsOpen       = true/false
 %------------------------------------------------------------
 
-empty_state(state([], [], [], [], 0)).
+empty_state(state([], [], [], [], 0, [], none)).
 
 % State accessors
-get_vars(state(Vars, _, _, _, _), Vars).
-get_procs(state(_, Procs, _, _, _), Procs).
-get_output(state(_, _, Out, _, _), Out).
-get_files(state(_, _, _, Files, _), Files).
-get_error(state(_, _, _, _, Err), Err).
+get_vars(state(Vars, _, _, _, _, _, _), Vars).
+get_procs(state(_, Procs, _, _, _, _, _), Procs).
+get_output(state(_, _, Out, _, _, _, _), Out).
+get_files(state(_, _, _, Files, _, _, _), Files).
+get_error(state(_, _, _, _, Err, _, _), Err).
+get_classes(state(_, _, _, _, _, Classes, _), Classes).
+get_self(state(_, _, _, _, _, _, Self), Self).
 
 % Get variable value from state
 % Handles both regular variables and prefixed file fields (Prefix:Field)
@@ -63,12 +70,12 @@ get_var(Name, _, _) :-
 set_var(Name, Value, StateIn, StateOut) :-
     ( parse_prefixed_name(Name, Prefix, FieldName)
     -> set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut)
-    ;  StateIn = state(Vars, Procs, Out, Files, Err),
+    ;  StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self),
        ( select(var(Name, _), Vars, RestVars)
        -> NewVars = [var(Name, Value)|RestVars]
        ;  NewVars = [var(Name, Value)|Vars]
        ),
-       StateOut = state(NewVars, Procs, Out, Files, Err)
+       StateOut = state(NewVars, Procs, Out, Files, Err, Classes, Self)
     ).
 
 % Parse a prefixed name like 'Cust:CustomerID' into prefix and field
@@ -116,8 +123,12 @@ find_file_by_key_prefix(Prefix, KeyName, State, FileState) :-
     member(key(KeyName, _), Keys), !.
 
 % Set error code
-set_error(ErrCode, state(Vars, Procs, Out, Files, _),
-                   state(Vars, Procs, Out, Files, ErrCode)).
+set_error(ErrCode, state(Vars, Procs, Out, Files, _, Classes, Self),
+                   state(Vars, Procs, Out, Files, ErrCode, Classes, Self)).
+
+% Set self context
+set_self(NewSelf, state(Vars, Procs, Out, Files, Err, Classes, _),
+                  state(Vars, Procs, Out, Files, Err, Classes, NewSelf)).
 
 % Get procedure definition from state
 get_proc(Name, State, Proc) :-
@@ -129,8 +140,8 @@ get_proc(Name, _, _) :-
     fail.
 
 % Add output to state
-add_output(Text, state(Vars, Procs, Out, Files, Err),
-                 state(Vars, Procs, [Text|Out], Files, Err)).
+add_output(Text, state(Vars, Procs, Out, Files, Err, Classes, Self),
+                 state(Vars, Procs, [Text|Out], Files, Err, Classes, Self)).
 
 % Get accumulated output (in correct order)
 get_output_list(State, Output) :-
@@ -149,8 +160,8 @@ get_file_state(Name, State, FileState) :-
 
 % Update file state
 set_file_state(Name, NewFileState,
-               state(Vars, Procs, Out, Files, Err),
-               state(Vars, Procs, Out, NewFiles, Err)) :-
+               state(Vars, Procs, Out, Files, Err, Classes, Self),
+               state(Vars, Procs, Out, NewFiles, Err, Classes, Self)) :-
     NewFileState = file_state(Name, _, _, _, _, _, _, _),
     ( select(file_state(Name, _, _, _, _, _, _, _), Files, RestFiles)
     -> NewFiles = [NewFileState|RestFiles]
@@ -215,10 +226,10 @@ run_ast(program(_, code(Statements), Procedures), FinalState) :-
 
 % Load procedure definitions into state
 init_procedures([], State, State).
-init_procedures([Proc|Procs], state(Vars, ExistingProcs, Out, Files, Err), FinalState) :-
-    init_procedures(Procs, state(Vars, [Proc|ExistingProcs], Out, Files, Err), FinalState).
+init_procedures([Proc|Procs], state(Vars, ExistingProcs, Out, Files, Err, Classes, Self), FinalState) :-
+    init_procedures(Procs, state(Vars, [Proc|ExistingProcs], Out, Files, Err, Classes, Self), FinalState).
 
-% Initialize global declarations (variables and files)
+% Initialize global declarations (variables, files, and classes)
 init_globals([], State, State).
 init_globals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
     default_value(Type, SizeSpec, DefaultVal),
@@ -227,9 +238,67 @@ init_globals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
 init_globals([file(Name, Attrs, Contents)|Rest], StateIn, StateOut) :-
     init_file(Name, Attrs, Contents, StateIn, State1),
     init_globals(Rest, State1, StateOut).
+init_globals([class(Name, Parent, Attrs, Members)|Rest], StateIn, StateOut) :-
+    init_class(Name, Parent, Attrs, Members, StateIn, State1),
+    init_globals(Rest, State1, StateOut).
+init_globals([group(Name, Fields)|Rest], StateIn, StateOut) :-
+    init_group(Name, Fields, StateIn, State1),
+    init_globals(Rest, State1, StateOut).
 init_globals([_|Rest], StateIn, StateOut) :-
-    % Skip other declarations (classes, queues, etc. for now)
+    % Skip other declarations (queues, arrays, etc. for now)
     init_globals(Rest, StateIn, StateOut).
+
+% Initialize a GROUP as a compound variable
+init_group(Name, Fields, StateIn, StateOut) :-
+    create_group_value(Fields, GroupValue),
+    set_var(Name, group_val(Fields, GroupValue), StateIn, StateOut).
+
+% Create default values for group fields
+create_group_value([], []).
+create_group_value([field(_, Type, Size)|Rest], [Value|Values]) :-
+    default_value(Type, Size, Value),
+    create_group_value(Rest, Values).
+
+% Set a field value in a GROUP
+set_group_field(FieldName, Value, Fields, Values, NewValues) :-
+    nth0(Index, Fields, field(FieldName, _, _)),
+    replace_nth0(Index, Values, Value, NewValues), !.
+set_group_field(FieldName, _, _, Values, Values) :-
+    format(user_error, "Error: Unknown GROUP field '~w'~n", [FieldName]).
+
+% Get a field value from a GROUP
+get_group_field(FieldName, Fields, Values, Value) :-
+    nth0(Index, Fields, field(FieldName, _, _)),
+    nth0(Index, Values, Value), !.
+get_group_field(FieldName, _, _, 0) :-
+    format(user_error, "Error: Unknown GROUP field '~w'~n", [FieldName]).
+
+% Set an element in an array (0-based index)
+set_array_element(0, Value, [_|Rest], [Value|Rest]) :- !.
+set_array_element(Idx, Value, [H|T], [H|NewT]) :-
+    Idx > 0,
+    Idx1 is Idx - 1,
+    set_array_element(Idx1, Value, T, NewT).
+set_array_element(Idx, Value, [], NewList) :-
+    % Extend array if needed
+    Idx >= 0,
+    length(Padding, Idx),
+    maplist(=(0), Padding),
+    append(Padding, [Value], NewList).
+
+% Get an element from an array (0-based index)
+get_array_element(0, [H|_], H) :- !.
+get_array_element(Idx, [_|T], Value) :-
+    Idx > 0,
+    Idx1 is Idx - 1,
+    get_array_element(Idx1, T, Value).
+get_array_element(_, [], 0).  % Out of bounds returns 0
+
+% Initialize a class definition
+init_class(Name, Parent, Attrs, Members, StateIn, StateOut) :-
+    StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self),
+    ClassDef = class_def(Name, Parent, Attrs, Members),
+    StateOut = state(Vars, Procs, Out, Files, Err, [ClassDef|Classes], Self).
 
 % Initialize a file declaration
 init_file(Name, Attrs, Contents, StateIn, StateOut) :-
@@ -304,6 +373,50 @@ exec_statement(call(Name, Args), StateIn, StateOut, normal) :-
 exec_statement(assign(VarName, Expr), StateIn, StateOut, normal) :-
     eval_expr(Expr, StateIn, Value),
     set_var(VarName, Value, StateIn, StateOut).
+
+% Method call (as statement)
+exec_statement(method_call(ObjName, MethodName, Args), StateIn, StateOut, normal) :-
+    exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, _Result).
+
+% SELF assignment (inside method)
+exec_statement(self_assign(PropName, Expr), StateIn, StateOut, normal) :-
+    eval_expr(Expr, StateIn, Value),
+    get_self(StateIn, self_context(VarName, _, _)),
+    get_var(VarName, StateIn, Instance),
+    set_instance_prop(PropName, Value, Instance, NewInstance),
+    set_var(VarName, NewInstance, StateIn, StateOut).
+
+% PARENT method call
+exec_statement(parent_call(MethodName, Args), StateIn, StateOut, normal) :-
+    exec_parent_call(MethodName, Args, StateIn, StateOut, _Result).
+
+% GROUP member assignment: GroupName.FieldName = Value
+exec_statement(member_assign(GroupName, FieldName, Expr), StateIn, StateOut, normal) :-
+    eval_expr(Expr, StateIn, Value),
+    get_var(GroupName, StateIn, GroupVal),
+    ( GroupVal = group_val(Fields, Values)
+    -> set_group_field(FieldName, Value, Fields, Values, NewValues),
+       set_var(GroupName, group_val(Fields, NewValues), StateIn, StateOut)
+    ; GroupVal = instance(_, _)
+    -> % It's a class instance, use instance property setter
+       set_instance_prop(FieldName, Value, GroupVal, NewInstance),
+       set_var(GroupName, NewInstance, StateIn, StateOut)
+    ;  format(user_error, "Error: ~w is not a GROUP or instance~n", [GroupName]),
+       StateOut = StateIn
+    ).
+
+% Array assignment: ArrayName[Index] = Value
+exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, normal) :-
+    eval_expr(IndexExpr, StateIn, Index),
+    eval_expr(Expr, StateIn, Value),
+    get_var(ArrayName, StateIn, ArrayVal),
+    ( ArrayVal = array(Elements)
+    -> Idx is Index - 1,  % Clarion arrays are 1-based
+       set_array_element(Idx, Value, Elements, NewElements),
+       set_var(ArrayName, array(NewElements), StateIn, StateOut)
+    ;  % If not already an array, create one
+       set_var(ArrayName, Value, StateIn, StateOut)  % Simple fallback
+    ).
 
 % Return (no value)
 exec_statement(return, State, State, return).
@@ -486,10 +599,10 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
       exec_statements(Body, State2, State3, Control),
       % Extract return value if any
       ( Control = return(V) -> Result = V ; Result = none ),
-      % Restore outer scope (keep output, files, and error changes)
-      StateIn = state(OuterVars, Procs, _, _, _),
-      State3 = state(_, _, NewOut, NewFiles, NewErr),
-      StateOut = state(OuterVars, Procs, NewOut, NewFiles, NewErr)
+      % Restore outer scope (keep output, files, error, classes changes)
+      StateIn = state(OuterVars, Procs, _, _, _, _, _),
+      State3 = state(_, _, NewOut, NewFiles, NewErr, NewClasses, _),
+      StateOut = state(OuterVars, Procs, NewOut, NewFiles, NewErr, NewClasses, none)
     ).
 
 eval_args([], _, []).
@@ -509,10 +622,146 @@ init_locals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
     default_value(Type, SizeSpec, Default),
     set_var(Name, Default, StateIn, State1),
     init_locals(Rest, State1, StateOut).
+init_locals([local_var(Name, custom(ClassName), _)|Rest], StateIn, StateOut) :-
+    % Create a class instance
+    create_instance(ClassName, StateIn, Instance),
+    set_var(Name, Instance, StateIn, State1),
+    init_locals(Rest, State1, StateOut).
 init_locals([local_var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
+    Type \= custom(_),
     default_value(Type, SizeSpec, Default),
     set_var(Name, Default, StateIn, State1),
     init_locals(Rest, State1, StateOut).
+
+%------------------------------------------------------------
+% Class Instance Management
+%------------------------------------------------------------
+
+% Create a new instance of a class with default property values
+create_instance(ClassName, State, instance(ClassName, Props)) :-
+    get_class_def(ClassName, State, class_def(ClassName, Parent, _, Members)),
+    % Get inherited properties from parent
+    ( Parent \= none
+    -> get_inherited_props(Parent, State, InheritedProps)
+    ;  InheritedProps = []
+    ),
+    % Get own properties
+    get_class_props(Members, OwnProps),
+    append(InheritedProps, OwnProps, Props).
+
+% Get class definition by name
+get_class_def(ClassName, State, ClassDef) :-
+    get_classes(State, Classes),
+    member(ClassDef, Classes),
+    ClassDef = class_def(ClassName, _, _, _), !.
+get_class_def(ClassName, _, _) :-
+    format(user_error, "Error: Undefined class '~w'~n", [ClassName]),
+    fail.
+
+% Get inherited properties from parent class chain
+get_inherited_props(none, _, []) :- !.
+get_inherited_props(ParentName, State, AllProps) :-
+    get_class_def(ParentName, State, class_def(ParentName, GrandParent, _, Members)),
+    get_class_props(Members, ParentProps),
+    get_inherited_props(GrandParent, State, GrandProps),
+    append(GrandProps, ParentProps, AllProps).
+
+% Extract property definitions from class members
+get_class_props([], []).
+get_class_props([property(Name, Type, Size)|Rest], [prop(Name, Default)|Props]) :-
+    default_value(Type, Size, Default),
+    get_class_props(Rest, Props).
+get_class_props([method(_, _, _, _)|Rest], Props) :-
+    get_class_props(Rest, Props).
+
+% Get property value from instance
+get_instance_prop(PropName, instance(_, Props), Value) :-
+    member(prop(PropName, Value), Props), !.
+get_instance_prop(PropName, _, _) :-
+    format(user_error, "Error: Unknown property '~w'~n", [PropName]),
+    fail.
+
+% Set property value in instance, returns new instance
+set_instance_prop(PropName, Value, instance(Class, Props), instance(Class, NewProps)) :-
+    ( select(prop(PropName, _), Props, RestProps)
+    -> NewProps = [prop(PropName, Value)|RestProps]
+    ;  NewProps = [prop(PropName, Value)|Props]
+    ).
+
+%------------------------------------------------------------
+% Method Call Execution
+%------------------------------------------------------------
+
+% Execute a method call: ObjName.MethodName(Args)
+exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, Result) :-
+    % Get the instance
+    get_var(ObjName, StateIn, Instance),
+    Instance = instance(ClassName, _),
+    % Find the method implementation (check class hierarchy)
+    find_method_impl(ClassName, MethodName, StateIn, MethodImpl),
+    MethodImpl = method_impl(ImplClass, MethodName, Params, LocalVars, code(Body)),
+    % Evaluate arguments
+    eval_args(Args, StateIn, ArgVals),
+    % Set up method context with SELF
+    get_class_def(ClassName, StateIn, class_def(ClassName, ParentClass, _, _)),
+    set_self(self_context(ObjName, ImplClass, ParentClass), StateIn, State1),
+    % Bind parameters
+    bind_params(Params, ArgVals, State1, State2),
+    % Initialize local variables
+    init_locals(LocalVars, State2, State3),
+    % Execute method body
+    exec_statements(Body, State3, State4, Control),
+    % Extract return value
+    ( Control = return(V) -> Result = V ; Result = none ),
+    % Restore state (keep instance changes, clear self context)
+    State4 = state(_, Procs, NewOut, NewFiles, NewErr, NewClasses, _),
+    StateIn = state(_, _, _, _, _, _, _),
+    % Get updated instance from State4
+    get_var(ObjName, State4, UpdatedInstance),
+    set_var(ObjName, UpdatedInstance, StateIn, State5),
+    State5 = state(Vars5, _, _, _, _, _, _),
+    StateOut = state(Vars5, Procs, NewOut, NewFiles, NewErr, NewClasses, none).
+
+% Execute a PARENT method call
+exec_parent_call(MethodName, Args, StateIn, StateOut, Result) :-
+    get_self(StateIn, self_context(ObjName, CurrentClass, _)),
+    % Get the parent class of current implementation class
+    get_class_def(CurrentClass, StateIn, class_def(CurrentClass, ParentClass, _, _)),
+    ( ParentClass \= none
+    -> % Find method in parent
+       find_method_impl(ParentClass, MethodName, StateIn, MethodImpl),
+       MethodImpl = method_impl(ImplClass, MethodName, Params, LocalVars, code(Body)),
+       % Evaluate arguments
+       eval_args(Args, StateIn, ArgVals),
+       % Update self context to parent's parent for nested PARENT calls
+       get_class_def(ImplClass, StateIn, class_def(ImplClass, GrandParent, _, _)),
+       set_self(self_context(ObjName, ImplClass, GrandParent), StateIn, State1),
+       % Bind parameters and locals
+       bind_params(Params, ArgVals, State1, State2),
+       init_locals(LocalVars, State2, State3),
+       % Execute
+       exec_statements(Body, State3, State4, Control),
+       ( Control = return(V) -> Result = V ; Result = none ),
+       % Restore self context
+       get_self(StateIn, OrigSelf),
+       set_self(OrigSelf, State4, StateOut)
+    ;  format(user_error, "Error: No parent class for PARENT call~n", []),
+       StateOut = StateIn, Result = none
+    ).
+
+% Find method implementation in class hierarchy
+find_method_impl(ClassName, MethodName, State, MethodImpl) :-
+    get_procs(State, Procs),
+    member(MethodImpl, Procs),
+    MethodImpl = method_impl(ClassName, MethodName, _, _, _), !.
+find_method_impl(ClassName, MethodName, State, MethodImpl) :-
+    % Not in this class, try parent
+    get_class_def(ClassName, State, class_def(ClassName, ParentClass, _, _)),
+    ParentClass \= none,
+    find_method_impl(ParentClass, MethodName, State, MethodImpl).
+find_method_impl(ClassName, MethodName, _, _) :-
+    format(user_error, "Error: Method '~w.~w' not found~n", [ClassName, MethodName]),
+    fail.
 
 %------------------------------------------------------------
 % Built-in Functions
@@ -567,6 +816,35 @@ builtin_call('TODAY', [], StateIn, StateIn, 0).
 
 % CLOCK() - current time (returns 0 for now)
 builtin_call('CLOCK', [], StateIn, StateIn, 0).
+
+% FORMAT(value, picture) - Format a value according to picture
+builtin_call('FORMAT', [ValueExpr, PictureExpr], StateIn, StateIn, Result) :-
+    eval_expr(ValueExpr, StateIn, Value),
+    eval_expr(PictureExpr, StateIn, Picture),
+    format_value(Value, Picture, Result).
+
+% Format a value according to a picture specification
+format_value(Value, picture(Pic), Result) :-
+    format_with_picture(Value, Pic, Result), !.
+format_value(Value, Pic, Result) :-
+    atom(Pic),
+    format_with_picture(Value, Pic, Result), !.
+format_value(Value, _, Result) :-
+    to_string(Value, Result).
+
+% Format with specific picture codes
+format_with_picture(Value, 'D2', Result) :-
+    % @D2 = MM/DD/YY format (simplified - just return value as string for now)
+    to_string(Value, Result).
+format_with_picture(Value, 'D1', Result) :-
+    % @D1 = MM/DD/YYYY format
+    to_string(Value, Result).
+format_with_picture(Value, Pic, Result) :-
+    % Handle numeric pictures like N10.2
+    atom_codes(Pic, [78|_]),  % Starts with 'N'
+    to_string(Value, Result).
+format_with_picture(Value, _, Result) :-
+    to_string(Value, Result).
 
 %------------------------------------------------------------
 % File I/O Built-in Functions
@@ -797,6 +1075,25 @@ eval_expr(var(Name), State, Value) :-
 
 eval_expr(call(Name, Args), StateIn, Result) :-
     exec_call(Name, Args, StateIn, _, Result).
+
+% Method call as expression (returns value)
+eval_expr(method_call(ObjName, MethodName, Args), StateIn, Result) :-
+    exec_method_call(ObjName, MethodName, Args, StateIn, _, Result).
+
+% SELF property access (inside method)
+eval_expr(self_access(PropName), State, Value) :-
+    get_self(State, self_context(VarName, _, _)),
+    get_var(VarName, State, Instance),
+    get_instance_prop(PropName, Instance, Value).
+
+% Member access: Obj.Property
+eval_expr(member_access(ObjName, PropName), State, Value) :-
+    get_var(ObjName, State, Instance),
+    ( Instance = instance(_, _)
+    -> get_instance_prop(PropName, Instance, Value)
+    ;  format(user_error, "Error: ~w is not an object~n", [ObjName]),
+       Value = 0
+    ).
 
 eval_expr(binop(Op, Left, Right), State, Result) :-
     eval_expr(Left, State, LVal),
