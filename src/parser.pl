@@ -10,6 +10,10 @@
 
 :- use_module(lexer).
 
+:- discontiguous file_item/3.
+:- discontiguous statement/3.
+:- discontiguous primary/3.
+
 %------------------------------------------------------------
 % parse_file(+FileName, -AST)
 % Parse a Clarion source file into an AST
@@ -223,7 +227,7 @@ file_contents([Item|Items]) -->
     file_contents(Items).
 file_contents([]) --> [].
 
-file_item(key(Name, Fields, Attrs)) -->
+file_item(key(Name, Fields, _Attrs)) -->
     [identifier(Name)],
     [keyword('KEY')],
     [lparen],

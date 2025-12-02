@@ -17,6 +17,9 @@
 :- use_module(parser).
 :- use_module(interpreter).
 
+:- discontiguous print_ast/2.
+:- discontiguous print_statement/2.
+
 %------------------------------------------------------------
 % analyze_file(+FileName)
 % Parse and display analysis of a Clarion file

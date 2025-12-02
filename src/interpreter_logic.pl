@@ -15,6 +15,8 @@
 :- use_module(parser).
 
 :- discontiguous builtin_call/5.
+:- discontiguous exec_statement/4.
+:- discontiguous eval_expr/3.
 
 %------------------------------------------------------------
 % State Management
@@ -475,6 +477,53 @@ exec_statement(do(RoutineName), StateIn, StateOut, Control) :-
 % EXIT (from routine)
 exec_statement(exit, State, State, exit).
 
+% ACCEPT loop (window event loop) - simplified for non-GUI execution
+% Simulates: EVENT:OpenWindow fires once, then EVENT:CloseWindow to exit
+exec_statement(accept(Body), StateIn, StateOut, Control) :-
+    exec_accept_loop(Body, StateIn, StateOut, Control, open_window).
+
+% Window/Control operations (no-ops for non-GUI)
+exec_statement(control_prop_assign(_, _, _), State, State, normal).
+exec_statement(select(_), State, State, normal).
+exec_statement(beep, State, State, normal).
+exec_statement(display, State, State, normal).
+
+exec_accept_loop(Body, StateIn, StateOut, Control, Phase) :-
+    % Set current event phase for EVENT() function
+    set_event_phase(Phase, StateIn, State1),
+    exec_statements(Body, State1, State2, BodyControl),
+    ( BodyControl = break
+    -> StateOut = State2, Control = normal
+    ; BodyControl = cycle
+    -> next_phase(Phase, NextPhase),
+       ( NextPhase = done
+       -> StateOut = State2, Control = normal
+       ; exec_accept_loop(Body, State2, StateOut, Control, NextPhase)
+       )
+    ; % normal - continue to next phase
+      next_phase(Phase, NextPhase),
+      ( NextPhase = done
+      -> StateOut = State2, Control = normal
+      ; exec_accept_loop(Body, State2, StateOut, Control, NextPhase)
+      )
+    ).
+
+% Event phases for simulated ACCEPT loop
+next_phase(open_window, close_window).
+next_phase(close_window, done).
+next_phase(done, done).
+
+% Store event phase in state (using a special variable)
+set_event_phase(Phase, state(Vars, Procs, Out, Files, Err, Classes, Self),
+                       state([var('__EVENT_PHASE__', Phase)|Vars1], Procs, Out, Files, Err, Classes, Self)) :-
+    exclude(is_event_phase_var, Vars, Vars1).
+
+is_event_phase_var(var('__EVENT_PHASE__', _)).
+
+get_event_phase(state(Vars, _, _, _, _, _, _), Phase) :-
+    member(var('__EVENT_PHASE__', Phase), Vars), !.
+get_event_phase(_, none).
+
 % Catch-all for unimplemented statements
 exec_statement(Stmt, State, State, normal) :-
     format(user_error, "Warning: Unimplemented statement: ~w~n", [Stmt]).
@@ -628,6 +677,9 @@ init_locals([local_var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
     default_value(Type, SizeSpec, Default),
     set_var(Name, Default, StateIn, State1),
     init_locals(Rest, State1, StateOut).
+% Skip window declarations (GUI not fully supported yet)
+init_locals([window(_, _, _)|Rest], StateIn, StateOut) :-
+    init_locals(Rest, StateIn, StateOut).
 
 %------------------------------------------------------------
 % Class Instance Management
@@ -974,7 +1026,7 @@ builtin_call('SET', [var(Ref)], StateIn, StateOut, none) :-
        NewFileState = file_state(Ref, Prefix, Keys, Fields, Records, Buffer, -1, Open),
        set_file_state(Ref, NewFileState, StateIn, State1),
        set_error(0, State1, StateOut)
-    ; parse_prefixed_name(Ref, Prefix, KeyName)
+    ; parse_prefixed_name(Ref, Prefix, _KeyName)
     -> % Key reference like Cust:ByName
        find_file_by_prefix(Prefix, StateIn, FileState),
        FileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, _, Open),
@@ -1037,6 +1089,28 @@ builtin_call('SORT', [var(QueueName), _SortKey], StateIn, StateOut, none) :-
     ;  set_error(2, StateIn, StateOut)
     ).
 
+% EVENT() - Get current window event (for ACCEPT loop simulation)
+builtin_call('EVENT', [], StateIn, StateIn, EventCode) :-
+    get_event_phase(StateIn, Phase),
+    phase_to_event(Phase, EventCode).
+
+phase_to_event(open_window, 'EVENT:OpenWindow').
+phase_to_event(close_window, 'EVENT:CloseWindow').
+phase_to_event(accepted, 'EVENT:Accepted').
+phase_to_event(_, 0).  % No event
+
+% ACCEPTED() - Get accepted control (stubbed for non-GUI)
+builtin_call('ACCEPTED', [], StateIn, StateIn, 0).
+
+% SELECT(control) - Select a control (no-op for non-GUI)
+builtin_call('SELECT', [_Control], StateIn, StateIn, none).
+
+% BEEP - Make a beep sound (no-op for non-GUI)
+builtin_call('BEEP', [], StateIn, StateIn, none).
+
+% DISPLAY - Refresh window display (no-op for non-GUI)
+builtin_call('DISPLAY', [], StateIn, StateIn, none).
+
 % Error messages
 error_message(0, "").
 error_message(2, "File not found").
@@ -1085,8 +1159,22 @@ eval_expr(neg(N), _, Result) :- Result is -N.
 eval_expr(true, _, 1).
 eval_expr(false, _, 0).
 
+% Handle Clarion constants (EVENT:xxx, BUTTON:xxx, ICON:xxx, PROP:xxx)
+eval_expr(var(Name), _, Name) :-
+    is_clarion_constant(Name), !.
+
 eval_expr(var(Name), State, Value) :-
     get_var(Name, State, Value).
+
+% Recognize Clarion constants by their prefix
+is_clarion_constant(Name) :-
+    atom(Name),
+    atom_string(Name, Str),
+    ( sub_string(Str, 0, _, _, "EVENT:")
+    ; sub_string(Str, 0, _, _, "BUTTON:")
+    ; sub_string(Str, 0, _, _, "ICON:")
+    ; sub_string(Str, 0, _, _, "PROP:")
+    ).
 
 eval_expr(call(Name, Args), StateIn, Result) :-
     exec_call(Name, Args, StateIn, _, Result).
