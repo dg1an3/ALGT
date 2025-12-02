@@ -24,7 +24,8 @@ interpreter_test_files([
     'examples/class_example.clw',
     'examples/case_variations.clw',
     'examples/report_example.clw',
-    'examples/window_example.clw'
+    'examples/window_example.clw',
+    'examples/queue_example.clw'
 ]).
 
 % run_tests/0 will discover and run all tests defined with :- begin_tests/1
