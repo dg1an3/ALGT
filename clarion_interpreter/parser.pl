@@ -522,21 +522,31 @@ procedure_declarations([Decl|Decls]) -->
     procedure_declarations(Decls).
 procedure_declarations([]) --> [].
 
+% Procedure declaration with parameters: Name PROCEDURE(Type Param, <Type Param>, ...)
+procedure_declaration(proc_decl(Name, procedure, Params)) -->
+    [identifier(Name)],
+    [keyword('PROCEDURE')],
+    [lparen],
+    proc_parameter_list(Params),
+    [rparen].
+
+% Procedure declaration without parameters: Name PROCEDURE
 procedure_declaration(proc_decl(Name, procedure)) -->
     [identifier(Name)],
-    [keyword('PROCEDURE')].
+    [keyword('PROCEDURE')],
+    \+ [lparen].
 
 procedure_declaration(proc_decl(Name, function, ReturnType)) -->
     [identifier(Name)],
     [keyword('FUNCTION')],
     [lparen],
-    optional_params(_Params),
+    map_param_list(_Params),
     [rparen],
     [comma],
     return_type(ReturnType).
 
-optional_params([]) --> [].
-% TODO: parameter parsing
+map_param_list([]) --> [].
+map_param_list(Params) --> proc_parameter_list(Params).
 
 return_type(Type) -->
     [identifier(Type)].
@@ -607,9 +617,24 @@ proc_param_rest([Param|Params]) -->
     proc_param_rest(Params).
 proc_param_rest([]) --> [].
 
+% Optional parameter: <Type Name> or <Type Name=Default>
+proc_parameter(param(Type, Name, optional, Default)) -->
+    [op('<')],
+    data_type(Type),
+    [identifier(Name)],
+    optional_default_value(Default),
+    [op('>')].
+
+% Required parameter: Type Name
 proc_parameter(param(Type, Name)) -->
     data_type(Type),
     [identifier(Name)].
+
+% Optional default value for optional parameters
+optional_default_value(Default) -->
+    [op('=')],
+    expression(Default).
+optional_default_value(none) --> [].
 
 local_declarations([Decl|Decls]) -->
     local_declaration(Decl),

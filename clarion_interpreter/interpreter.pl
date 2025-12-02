@@ -412,11 +412,29 @@ eval_args([Arg|Args], State, [Val|Vals]) :-
     eval_args(Args, State, Vals).
 
 bind_params([], [], State, State).
+% Required parameter with value provided
 bind_params([param(_, Name)|Params], [Val|Vals], StateIn, StateOut) :-
     set_var(Name, Val, StateIn, State1),
     bind_params(Params, Vals, State1, StateOut).
+% Optional parameter with value provided
+bind_params([param(_, Name, optional, _)|Params], [Val|Vals], StateIn, StateOut) :-
+    set_var(Name, Val, StateIn, State1),
+    bind_params(Params, Vals, State1, StateOut).
+% Optional parameter without value - use default
+bind_params([param(Type, Name, optional, Default)|Params], [], StateIn, StateOut) :-
+    ( Default = none
+    -> default_value(Type, none, Val)
+    ;  eval_full_expr(Default, StateIn, Val)
+    ),
+    set_var(Name, Val, StateIn, State1),
+    bind_params(Params, [], State1, StateOut).
+% Extra args - ignore
 bind_params([], [_|_], State, State).
-bind_params([_|_], [], State, State).
+% Missing required args - use type defaults
+bind_params([param(Type, Name)|Params], [], StateIn, StateOut) :-
+    default_value(Type, none, Val),
+    set_var(Name, Val, StateIn, State1),
+    bind_params(Params, [], State1, StateOut).
 
 init_locals([], State, State).
 init_locals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
