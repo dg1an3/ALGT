@@ -75,7 +75,18 @@
     trace_loop_end/2,
     trace_case_match/3,
     trace_file_op/4,
-    trace_error/1
+    trace_error/1,
+
+    % ML-friendly exports
+    graph_to_adjacency/3,     % graph_to_adjacency(+Graph, -AdjList, -NodeTypes)
+    graph_to_edge_index/3,    % graph_to_edge_index(+Graph, -EdgeIndex, -EdgeTypes) - PyTorch Geometric format
+    graph_to_numpy_json/2,    % graph_to_numpy_json(+Graph, -JsonString) - NumPy/PyTorch friendly
+    node_type_encoding/3,     % node_type_encoding(+Nodes, -TypeIds, -TypeMapping)
+
+    % Probabilistic graphical model
+    graph_to_pgm/2,           % graph_to_pgm(+Graph, -PGM) - Convert to Bayesian network structure
+    path_probability/3,       % path_probability(+Graph, +Path, -Prob)
+    sample_path/4             % sample_path(+Graph, +InputDist, -Path, -Prob)
 ]).
 
 :- use_module(library(assoc)).
@@ -801,6 +812,189 @@ edges_to_json([Edge|Rest], Result) :-
 
 edge_to_json(edge(From, To, Type), Str) :-
     format(string(Str), "    {\"from\": ~d, \"to\": ~d, \"type\": \"~w\"}", [From, To, Type]).
+
+%------------------------------------------------------------
+% ML-Friendly Export Formats
+%------------------------------------------------------------
+
+%% graph_to_adjacency(+Graph, -AdjList, -NodeTypes) is det.
+%
+% Export graph as adjacency list format suitable for graph ML libraries.
+% AdjList: List of From-To pairs (0-indexed for Python/C++)
+% NodeTypes: List of node type atoms in order
+
+graph_to_adjacency(Graph, AdjList, NodeTypes) :-
+    Graph = graph{nodes: Nodes, edges: Edges, metadata: _},
+    % Extract node types in ID order
+    msort(Nodes, SortedNodes),
+    maplist(node_type, SortedNodes, NodeTypes),
+    % Convert edges to 0-indexed pairs
+    findall([From1, To1],
+        (member(edge(From, To, _), Edges),
+         From1 is From - 1,  % Convert to 0-indexed
+         To1 is To - 1),
+        AdjList).
+
+node_type(node(_, Type, _), Type).
+
+%% graph_to_edge_index(+Graph, -EdgeIndex, -EdgeTypes) is det.
+%
+% Export in PyTorch Geometric COO format (edge_index tensor).
+% EdgeIndex: [[src1,src2,...], [dst1,dst2,...]] (0-indexed)
+% EdgeTypes: List of edge type atoms
+
+graph_to_edge_index(Graph, EdgeIndex, EdgeTypes) :-
+    Graph = graph{nodes: _, edges: Edges, metadata: _},
+    findall(From1-To1-Type,
+        (member(edge(From, To, Type), Edges),
+         From1 is From - 1,
+         To1 is To - 1),
+        EdgeData),
+    maplist(edge_src, EdgeData, Srcs),
+    maplist(edge_dst, EdgeData, Dsts),
+    maplist(edge_type_only, EdgeData, EdgeTypes),
+    EdgeIndex = [Srcs, Dsts].
+
+edge_src(S-_-_, S).
+edge_dst(_-D-_, D).
+edge_type_only(_-_-T, T).
+
+%% graph_to_numpy_json(+Graph, -JsonString) is det.
+%
+% Export graph in JSON format optimized for numpy/PyTorch loading.
+% Includes adjacency as COO sparse matrix format.
+
+graph_to_numpy_json(Graph, JsonString) :-
+    Graph = graph{nodes: Nodes, edges: Edges, metadata: Meta},
+    length(Nodes, NumNodes),
+    length(Edges, NumEdges),
+    % Build edge index arrays
+    graph_to_edge_index(Graph, [Srcs, Dsts], EdgeTypes),
+    % Build node feature vectors (one-hot encoded types)
+    node_type_encoding(Nodes, NodeTypeIds, TypeMapping),
+    % Build branch info for probabilistic modeling
+    findall(branch_info{node: N1, condition: C, value: V},
+        (member(node(N, branch, node_data{data: D, timestamp: _}), Nodes),
+         N1 is N - 1,
+         C = D.condition,
+         V = D.value),
+        BranchInfos),
+    format(string(JsonString),
+'{
+  "num_nodes": ~d,
+  "num_edges": ~d,
+  "edge_index": [~w, ~w],
+  "edge_types": ~w,
+  "node_type_ids": ~w,
+  "type_mapping": ~w,
+  "branch_nodes": ~w,
+  "metadata": ~w
+}',
+        [NumNodes, NumEdges, Srcs, Dsts, EdgeTypes, NodeTypeIds, TypeMapping, BranchInfos, Meta]).
+
+%% node_type_encoding(+Nodes, -TypeIds, -TypeMapping) is det.
+%
+% Encode node types as integers for neural network input.
+
+node_type_encoding(Nodes, TypeIds, TypeMapping) :-
+    % Collect unique types
+    findall(Type, member(node(_, Type, _), Nodes), Types),
+    sort(Types, UniqueTypes),
+    % Create mapping
+    findall(Type-Id, nth0(Id, UniqueTypes, Type), TypeMapping),
+    % Encode each node
+    msort(Nodes, SortedNodes),
+    maplist(encode_node_type(TypeMapping), SortedNodes, TypeIds).
+
+encode_node_type(Mapping, node(_, Type, _), Id) :-
+    member(Type-Id, Mapping), !.
+encode_node_type(_, _, -1).
+
+%% graph_to_pgm(+Graph, -PGM) is det.
+%
+% Convert execution graph to a Probabilistic Graphical Model structure.
+% Useful for probabilistic inference over execution paths.
+%
+% PGM structure:
+%   pgm{
+%     variables: [var{name, type, parents, domain}],
+%     factors: [factor{vars, table}],
+%     observed: [name-value pairs]
+%   }
+
+graph_to_pgm(Graph, PGM) :-
+    Graph = graph{nodes: Nodes, edges: Edges, metadata: _},
+    % Extract branch nodes as random variables
+    findall(
+        var{id: N1, name: VarName, type: branch, parents: Parents, domain: [true, false]},
+        (member(node(N, branch, node_data{data: D, timestamp: _}), Nodes),
+         N1 is N - 1,
+         format(atom(VarName), 'branch_~d', [N1]),
+         % Find parent branch nodes (through control flow)
+         findall(P1,
+             (member(edge(P, N, control), Edges),
+              member(node(P, branch, _), Nodes),
+              P1 is P - 1),
+             Parents)),
+        BranchVars),
+    % Extract assignment nodes as observed variables (when values known)
+    findall(
+        var{id: N1, name: VarName, type: assign, parents: [], domain: continuous},
+        (member(node(N, assign, node_data{data: D, timestamp: _}), Nodes),
+         N1 is N - 1,
+         D.var = AssignVar,
+         format(atom(VarName), 'assign_~w_~d', [AssignVar, N1])),
+        AssignVars),
+    append(BranchVars, AssignVars, AllVars),
+    % Create uniform prior factors for branches (can be updated with observations)
+    findall(
+        factor{vars: [VarName], table: [[true, 0.5], [false, 0.5]]},
+        member(var{name: VarName, type: branch, parents: [], domain: _}, BranchVars),
+        PriorFactors),
+    PGM = pgm{
+        variables: AllVars,
+        factors: PriorFactors,
+        observed: []
+    }.
+
+%% path_probability(+Graph, +Path, -Probability) is det.
+%
+% Calculate probability of a specific execution path given branch probabilities.
+% Path is a list of branch decisions: [branch(NodeId, true/false), ...]
+% Assumes uniform 0.5 probability for each branch by default.
+
+path_probability(_, [], 1.0).
+path_probability(Graph, [branch(NodeId, Decision)|Rest], Prob) :-
+    % Default: uniform probability
+    BranchProb = 0.5,
+    path_probability(Graph, Rest, RestProb),
+    Prob is BranchProb * RestProb.
+
+%% sample_path(+Graph, +InputDist, -Path, -Probability) is det.
+%
+% Sample an execution path given an input distribution.
+% InputDist: dict mapping variable names to distributions
+%            e.g., input_dist{'X': uniform(0, 100), 'Y': normal(50, 10)}
+% Returns the sampled Path and its Probability.
+%
+% Note: This is a stub - full implementation would require:
+%       1. Symbolic execution to determine branch conditions
+%       2. Constraint solving to check path feasibility
+%       3. Integration with a probabilistic programming backend
+
+sample_path(Graph, _InputDist, Path, Probability) :-
+    % Collect all branch nodes
+    Graph = graph{nodes: Nodes, edges: _, metadata: _},
+    findall(NodeId,
+        member(node(NodeId, branch, _), Nodes),
+        BranchNodes),
+    % For now: sample uniformly from recorded decisions
+    maplist(sample_branch_uniform, BranchNodes, Path),
+    path_probability(Graph, Path, Probability).
+
+sample_branch_uniform(NodeId, branch(NodeId, Decision)) :-
+    random(R),
+    ( R < 0.5 -> Decision = true ; Decision = false ).
 
 %% path_to_dot(+Trace, -DotString) is det.
 %
