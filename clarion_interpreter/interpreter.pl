@@ -14,8 +14,10 @@
 
 :- module(interpreter, [
     run_file/1,
+    run_file_traced/2,      % run_file_traced(+FileName, -Trace)
     run_ast/1,
     run_ast/2,
+    run_ast_traced/2,       % run_ast_traced(+AST, -Trace)
     exec_statements/4,
     exec_call/5
 ]).
@@ -26,6 +28,7 @@
 :- use_module(interpreter_builtins).
 :- use_module(interpreter_classes).
 :- use_module(interpreter_control).
+:- use_module(execution_tracer).
 
 :- discontiguous exec_statement/4.
 
@@ -38,6 +41,17 @@ run_file(FileName) :-
     parser:parse_file(FileName, AST),
     format("Executing...~n~n", []),
     run_ast(AST).
+
+%% run_file_traced(+FileName, -Trace) is det.
+%
+% Run a Clarion file with execution tracing enabled.
+% Returns a Trace dict containing execution events and graph.
+
+run_file_traced(FileName, Trace) :-
+    format("Loading: ~w~n", [FileName]),
+    parser:parse_file(FileName, AST),
+    format("Executing with tracing...~n~n", []),
+    run_ast_traced(AST, Trace).
 
 run_ast(AST) :-
     run_ast(AST, _FinalState).
@@ -53,6 +67,25 @@ run_ast(program(_, code(Statements), Procedures), FinalState) :-
     empty_state(InitState),
     init_procedures(Procedures, InitState, State1),
     exec_statements(Statements, State1, FinalState, _Control).
+
+%% run_ast_traced(+AST, -Trace) is det.
+%
+% Execute AST with tracing enabled.
+% Returns a Trace containing:
+%   - events: List of trace events
+%   - graph: Execution graph (PyTorch-style DAG)
+%   - duration: Execution time
+%   - summary: Statistics
+
+run_ast_traced(AST, Trace) :-
+    start_trace,
+    ( run_ast(AST, _FinalState)
+    -> true
+    ;  true  % Continue even if execution fails
+    ),
+    get_execution_graph(Graph),
+    stop_trace(BaseTrace),
+    Trace = BaseTrace.put(graph, Graph).
 
 %------------------------------------------------------------
 % Initialization
@@ -132,9 +165,19 @@ exec_statements([Stmt|Stmts], StateIn, StateOut, Control) :-
 exec_statement(call(Name, Args), StateIn, StateOut, normal) :-
     exec_call(Name, Args, StateIn, StateOut, _Result).
 
-% Assignment
+% Assignment (with tracing)
 exec_statement(assign(VarName, Expr), StateIn, StateOut, normal) :-
     eval_full_expr(Expr, StateIn, Value),
+    % Trace: record the assignment
+    ( is_tracing
+    -> ( get_var(VarName, StateIn, OldValue) -> true ; OldValue = undefined ),
+       trace_var_assign(VarName, OldValue, Value),
+       % Build graph node for assignment
+       graph_node_for_assignment(VarName, Value, Expr, NodeId),
+       % Track data dependencies from expression variables
+       trace_expr_reads(Expr, StateIn, NodeId)
+    ;  true
+    ),
     set_var(VarName, Value, StateIn, StateOut).
 
 % Method call (as statement)
@@ -196,44 +239,104 @@ exec_statement(return, State, State, return).
 exec_statement(return(Expr), StateIn, StateIn, return(Value)) :-
     eval_full_expr(Expr, StateIn, Value).
 
-% IF statement (4-arg form with ELSIF)
+% IF statement (4-arg form with ELSIF) - with tracing
 exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn, StateOut, Control) :-
     eval_full_expr(Cond, StateIn, CondVal),
-    ( is_truthy(CondVal)
+    IsTruthy = is_truthy(CondVal),
+    ( call(IsTruthy) -> BranchTaken = true ; BranchTaken = false ),
+    % Trace: record the branch decision
+    ( is_tracing
+    -> trace_branch(if, Cond, CondVal, BranchTaken),
+       graph_node_for_branch(Cond, BranchTaken, NodeId),
+       trace_condition_vars(Cond, NodeId)
+    ;  true
+    ),
+    ( BranchTaken = true
     -> exec_statements(ThenStmts, StateIn, StateOut, Control)
     ;  exec_elsifs(ElsifClauses, ElseStmts, StateIn, StateOut, Control)
     ).
 
-% IF statement (3-arg legacy form)
+% IF statement (3-arg legacy form) - with tracing
 exec_statement(if(Cond, ThenStmts, ElseStmts), StateIn, StateOut, Control) :-
     \+ is_list(ElseStmts),
     eval_full_expr(Cond, StateIn, CondVal),
-    ( is_truthy(CondVal)
+    ( is_truthy(CondVal) -> BranchTaken = true ; BranchTaken = false ),
+    % Trace: record the branch decision
+    ( is_tracing
+    -> trace_branch(if, Cond, CondVal, BranchTaken),
+       graph_node_for_branch(Cond, BranchTaken, NodeId),
+       trace_condition_vars(Cond, NodeId)
+    ;  true
+    ),
+    ( BranchTaken = true
     -> exec_statements(ThenStmts, StateIn, StateOut, Control)
     ;  exec_statements(ElseStmts, StateIn, StateOut, Control)
     ).
 
-% Loop statements
+% Loop statements - with tracing
 exec_statement(loop(Body), StateIn, StateOut, Control) :-
-    exec_loop_infinite(Body, StateIn, StateOut, Control).
+    ( is_tracing
+    -> trace_loop_start(infinite, info{})
+    ;  true
+    ),
+    exec_loop_infinite(Body, StateIn, StateOut, Control),
+    ( is_tracing
+    -> trace_loop_end(infinite, Control)
+    ;  true
+    ).
+
 exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn, StateOut, Control) :-
     eval_full_expr(FromExpr, StateIn, From),
     eval_full_expr(ToExpr, StateIn, To),
+    ( is_tracing
+    -> trace_loop_start(loop_to, info{var: Var, from: From, to: To}),
+       add_graph_node(loop, loop{type: loop_to, var: Var, from: From, to: To}, _)
+    ;  true
+    ),
     set_var(Var, From, StateIn, State1),
-    exec_loop_to(Var, To, Body, State1, StateOut, Control).
+    exec_loop_to(Var, To, Body, State1, StateOut, Control),
+    ( is_tracing
+    -> trace_loop_end(loop_to, Control)
+    ;  true
+    ).
+
 exec_statement(loop_while(Cond, Body), StateIn, StateOut, Control) :-
-    exec_loop_while(Cond, Body, StateIn, StateOut, Control).
+    ( is_tracing
+    -> trace_loop_start(loop_while, info{condition: Cond}),
+       add_graph_node(loop, loop{type: loop_while, condition: Cond}, _)
+    ;  true
+    ),
+    exec_loop_while(Cond, Body, StateIn, StateOut, Control),
+    ( is_tracing
+    -> trace_loop_end(loop_while, Control)
+    ;  true
+    ).
+
 exec_statement(loop_until(Cond, Body), StateIn, StateOut, Control) :-
-    exec_loop_until(Cond, Body, StateIn, StateOut, Control).
+    ( is_tracing
+    -> trace_loop_start(loop_until, info{condition: Cond}),
+       add_graph_node(loop, loop{type: loop_until, condition: Cond}, _)
+    ;  true
+    ),
+    exec_loop_until(Cond, Body, StateIn, StateOut, Control),
+    ( is_tracing
+    -> trace_loop_end(loop_until, Control)
+    ;  true
+    ).
 
 % BREAK and CYCLE
 exec_statement(break, State, State, break).
 exec_statement(cycle, State, State, cycle).
 
-% CASE statement
+% CASE statement - with tracing
 exec_statement(case(Expr, Cases, ElseStmts), StateIn, StateOut, Control) :-
     eval_full_expr(Expr, StateIn, Value),
-    exec_case(Value, Cases, ElseStmts, StateIn, StateOut, Control).
+    ( is_tracing
+    -> add_graph_node(branch, branch{type: case, expr: Expr, value: Value}, NodeId),
+       trace_expr_reads(Expr, StateIn, NodeId)
+    ;  true
+    ),
+    exec_case_traced(Value, Cases, ElseStmts, StateIn, StateOut, Control, 0).
 
 % DO routine call
 exec_statement(do(RoutineName), StateIn, StateOut, Control) :-
@@ -357,6 +460,25 @@ exec_case(Value, [case_of(CaseVal, Stmts)|Rest], ElseStmts, StateIn, StateOut, C
     ;  exec_case(Value, Rest, ElseStmts, StateIn, StateOut, Control)
     ).
 
+% Traced version of exec_case that records which branch was taken
+exec_case_traced(_, [], ElseStmts, StateIn, StateOut, Control, Index) :-
+    ( is_tracing
+    -> trace_case_match(else, else, Index)
+    ;  true
+    ),
+    exec_statements(ElseStmts, StateIn, StateOut, Control).
+exec_case_traced(Value, [case_of(CaseVal, Stmts)|Rest], ElseStmts, StateIn, StateOut, Control, Index) :-
+    eval_full_expr(CaseVal, StateIn, MatchVal),
+    ( Value = MatchVal
+    -> ( is_tracing
+       -> trace_case_match(Value, MatchVal, Index)
+       ;  true
+       ),
+       exec_statements(Stmts, StateIn, StateOut, Control)
+    ;  NextIndex is Index + 1,
+       exec_case_traced(Value, Rest, ElseStmts, StateIn, StateOut, Control, NextIndex)
+    ).
+
 %------------------------------------------------------------
 % Routine Execution
 %------------------------------------------------------------
@@ -397,10 +519,22 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
     -> true
     ; get_proc(Name, StateIn, procedure(Name, Params, LocalVars, code(Body))),
       eval_args(Args, StateIn, ArgVals),
+      % Trace: procedure entry
+      ( is_tracing
+      -> trace_proc_enter(Name, ArgVals),
+         add_graph_node(call, call{name: Name, args: ArgVals}, _CallNodeId)
+      ;  true
+      ),
       bind_params(Params, ArgVals, StateIn, State1),
       init_locals(LocalVars, State1, State2),
       exec_statements(Body, State2, State3, Control),
       ( Control = return(V) -> Result = V ; Result = none ),
+      % Trace: procedure exit
+      ( is_tracing
+      -> trace_proc_exit(Name, Result),
+         add_graph_node(return, return{name: Name, value: Result}, _RetNodeId)
+      ;  true
+      ),
       StateIn = state(OuterVars, Procs, _, _, _, _, _, UI, Cont),
       State3 = state(_, _, NewOut, NewFiles, NewErr, NewClasses, _, _, _),
       StateOut = state(OuterVars, Procs, NewOut, NewFiles, NewErr, NewClasses, none, UI, Cont)
@@ -463,12 +597,24 @@ exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, Result) :-
     find_method_impl(ClassName, MethodName, StateIn, MethodImpl),
     MethodImpl = method_impl(ImplClass, MethodName, Params, LocalVars, code(Body)),
     eval_args(Args, StateIn, ArgVals),
+    % Trace: method entry
+    ( is_tracing
+    -> trace_method_enter(ObjName, MethodName, ArgVals),
+       add_graph_node(call, call{type: method, object: ObjName, method: MethodName, args: ArgVals}, _)
+    ;  true
+    ),
     get_class_def(ClassName, StateIn, class_def(ClassName, ParentClass, _, _)),
     set_self(self_context(ObjName, ImplClass, ParentClass), StateIn, State1),
     bind_params(Params, ArgVals, State1, State2),
     init_locals(LocalVars, State2, State3),
     exec_statements(Body, State3, State4, Control),
     ( Control = return(V) -> Result = V ; Result = none ),
+    % Trace: method exit
+    ( is_tracing
+    -> trace_method_exit(ObjName, MethodName, Result),
+       add_graph_node(return, return{type: method, object: ObjName, method: MethodName, value: Result}, _)
+    ;  true
+    ),
     State4 = state(_, Procs, NewOut, NewFiles, NewErr, NewClasses, _, UI, Cont),
     get_var(ObjName, State4, UpdatedInstance),
     set_var(ObjName, UpdatedInstance, StateIn, State5),
@@ -524,6 +670,59 @@ set_array_element(Idx, Value, [], NewList) :-
     length(Padding, Idx),
     maplist(=(0), Padding),
     append(Padding, [Value], NewList).
+
+%------------------------------------------------------------
+% Tracing Helpers
+%------------------------------------------------------------
+
+%% trace_expr_reads(+Expr, +State, +NodeId) is det.
+%
+% Track data dependencies by recording variable reads in an expression.
+% Creates data flow edges from the last write of each variable to this node.
+
+trace_expr_reads(Expr, _State, NodeId) :-
+    ( is_tracing
+    -> collect_expr_vars(Expr, Vars),
+       forall(member(Var, Vars), record_var_read(Var, NodeId))
+    ;  true
+    ).
+
+%% collect_expr_vars(+Expr, -Vars) is det.
+%
+% Collect all variable names referenced in an expression.
+
+collect_expr_vars(var(Name), [Name]) :- !.
+collect_expr_vars(num(_), []) :- !.
+collect_expr_vars(str(_), []) :- !.
+collect_expr_vars(op(_, Left, Right), Vars) :- !,
+    collect_expr_vars(Left, LeftVars),
+    collect_expr_vars(Right, RightVars),
+    append(LeftVars, RightVars, Vars).
+collect_expr_vars(unary(_, Expr), Vars) :- !,
+    collect_expr_vars(Expr, Vars).
+collect_expr_vars(call(_, Args), Vars) :- !,
+    maplist(collect_expr_vars, Args, VarLists),
+    append(VarLists, Vars).
+collect_expr_vars(cond(Cond, Then, Else), Vars) :- !,
+    collect_expr_vars(Cond, CondVars),
+    collect_expr_vars(Then, ThenVars),
+    collect_expr_vars(Else, ElseVars),
+    append([CondVars, ThenVars, ElseVars], Vars).
+collect_expr_vars(member_access(Obj, _), [Obj]) :- !.
+collect_expr_vars(array_access(Name, Idx), [Name|IdxVars]) :- !,
+    collect_expr_vars(Idx, IdxVars).
+collect_expr_vars(_, []).  % Default: no variables
+
+%% trace_condition_vars(+Cond, +NodeId) is det.
+%
+% Track variable reads in a condition expression for data flow.
+
+trace_condition_vars(Cond, NodeId) :-
+    ( is_tracing
+    -> collect_expr_vars(Cond, Vars),
+       forall(member(Var, Vars), record_var_read(Var, NodeId))
+    ;  true
+    ).
 
 %------------------------------------------------------------
 % Tests
