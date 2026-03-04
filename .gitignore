@@ -1,0 +1,32 @@
+# Clarion build outputs
+*.exe
+*.dll
+*.lib
+*.obj
+*.exp
+*.map
+*.res
+*.o
+
+# Clarion intermediate files
+*.cwproj.user
+*.suo
+*.ncb
+*.pdb
+*.ilk
+
+# Build directories
+bin/
+obj/
+map/
+Debug/
+Release/
+
+# Clarion IDE files
+*.~*
+*.bak
+*.log
+
+# Windows
+Thumbs.db
+Desktop.ini
