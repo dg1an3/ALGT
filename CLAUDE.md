@@ -3,7 +3,7 @@
 Experiments learning Clarion language semantics: building, DLL exports, and Python interop.
 
 ## TODO FROM DEREK
-* Separate clarion.pl in to clarion_parser.pl and clarion_interpreter.pl (and separate tests as well)
+* ~~Separate clarion.pl in to clarion_parser.pl and clarion_interpreter.pl (and separate tests as well)~~ DONE
 * Implement an ODBC-based data store, and then get the clarion_interpreter to support this as well
 * Add a project with a GUI form, and then determine how best to simulate that with the interpreter (web interface?)
 * ~~Document strategy for determining that execution traces match between interpreter and compiled code~~ DONE — see Execution Trace Comparison section below
@@ -118,14 +118,20 @@ cd sensor-data
 SWI-Prolog interpreter for Clarion source code. Single-pass DCG grammar parses `.clw` files into an AST, then a separate interpreter executes the AST.
 
 **Key files:**
-- `clarion.pl` — DCG grammar (source → AST) + interpreter (AST → results) + file I/O simulation + execution tracing
-- `test_clarion.pl` — Test suite (28 tests)
+- `clarion_parser.pl` — DCG grammar module (source → AST)
+- `clarion_interpreter.pl` — Interpreter module (AST → results) + file I/O simulation + execution tracing
+- `clarion.pl` — Convenience re-export of both modules (backward compatibility)
+- `test_parser.pl` — Parser-only tests (12 tests)
+- `test_interpreter.pl` — Interpreter-only tests (22 tests)
+- `test_clarion.pl` — Combined test suite (28 tests, uses clarion.pl re-export)
 - `trace_sensorlib.pl` — Execution trace output for diff comparison with Python side
 
 **Run tests:**
 ```bash
 cd prolog-interp
-swipl -g "main,halt" -t "halt(1)" test_clarion.pl
+swipl -g "main,halt" -t "halt(1)" test_parser.pl       # parser only
+swipl -g "main,halt" -t "halt(1)" test_interpreter.pl   # interpreter only
+swipl -g "main,halt" -t "halt(1)" test_clarion.pl       # all tests
 ```
 
 **Run trace comparison:**
