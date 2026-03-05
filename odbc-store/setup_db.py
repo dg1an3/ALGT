@@ -13,13 +13,13 @@ import pyodbc
 
 CONN_STR_MASTER = (
     "DRIVER={SQL Server Native Client 11.0};"
-    "Server=(localdb)\\MSSQLLocalDB;"
+    "Server=localhost;"
     "Database=master;"
     "Trusted_Connection=yes;"
 )
 CONN_STR_DB = (
     "DRIVER={SQL Server Native Client 11.0};"
-    "Server=(localdb)\\MSSQLLocalDB;"
+    "Server=localhost;"
     "Database=OdbcDemo;"
     "Trusted_Connection=yes;"
 )
@@ -39,7 +39,7 @@ def create_database():
 
 
 def create_dsn():
-    """Create a 32-bit User DSN 'OdbcDemo' pointing to LocalDB."""
+    """Create a 32-bit User DSN 'OdbcDemo' pointing to SQL Server."""
     ODBC_ADD_DSN = 1
     odbccp32 = ctypes.windll.LoadLibrary("odbccp32.dll")
     func = odbccp32.SQLConfigDataSourceW
@@ -51,8 +51,8 @@ def create_dsn():
 
     attrs = (
         "DSN=OdbcDemo\x00"
-        "Description=OdbcDemo LocalDB\x00"
-        "Server=(localdb)\\MSSQLLocalDB\x00"
+        "Description=OdbcDemo SQL Server\x00"
+        "Server=localhost\x00"
         "Database=OdbcDemo\x00"
         "Trusted_Connection=Yes\x00\x00"
     )
