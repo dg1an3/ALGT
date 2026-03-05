@@ -5,7 +5,9 @@
 
 :- module(clarion_interpreter, [
     exec_procedure/4,
+    exec_program/3,
     init_file_io/0,
+    set_events/1,
     set_trace/1,
     get_trace/1,
     clear_trace/0,
@@ -13,6 +15,53 @@
 ]).
 
 :- set_prolog_flag(double_quotes, codes).
+
+%% ==========================================================================
+%% GUI event simulation state
+%% ==========================================================================
+
+:- dynamic event_queue/1.      % event_queue([Event, ...])
+:- dynamic last_accepted/1.    % last_accepted(EquateNum)
+:- dynamic equate_map/2.       % equate_map(Name, Number)
+
+set_events(Events) :-
+    retractall(event_queue(_)),
+    assert(event_queue(Events)).
+
+init_gui :-
+    retractall(event_queue(_)),
+    retractall(last_accepted(_)),
+    retractall(equate_map(_, _)),
+    assert(event_queue([])),
+    assert(last_accepted(0)).
+
+% Assign equate numbers to ?name references found in a window declaration
+assign_equates([], _).
+assign_equates([Control|Cs], N) :-
+    ( control_equate(Control, Name) ->
+        retractall(equate_map(Name, _)),
+        assert(equate_map(Name, N)),
+        N1 is N + 1,
+        assign_equates(Cs, N1)
+    ; assign_equates(Cs, N)
+    ).
+
+control_equate(entry(_, _, equate(Name)), Name).
+control_equate(button(_, _, equate(Name)), Name).
+control_equate(string_ctl(_, _, equate(Name)), Name).
+
+%% exec_program(+AST, +Events, -Result)
+%% Execute a PROGRAM-style AST with simulated GUI events.
+exec_program(AST, Events, Result) :-
+    init_gui,
+    set_events(Events),
+    AST = program(_, _, Globals, _, _),
+    % Find and register window equates
+    ( member(window(_, _, _, Controls), Globals) ->
+        assign_equates(Controls, 1)
+    ; true
+    ),
+    exec_procedure(AST, '_main', [], Result).
 
 %% ==========================================================================
 %% File I/O simulation state (persists across exec_procedure calls)
@@ -88,9 +137,14 @@ trace_current_proc(_, '?').
 %% ==========================================================================
 %% exec_stmt_call(+Name, +RawArgs, +Env, -NewEnv)
 
-exec_stmt_call('OPEN', [var(FileName)], Env, Env) :- !,
-    ( file_exists(FileName) -> set_errorcode(0)
-    ; set_errorcode(2)  % File not found
+exec_stmt_call('OPEN', [var(Name)], Env, Env) :- !,
+    ( memberchk(program_ast(AST), Env),
+      AST = program(_, _, Globals, _, _),
+      member(window(Name, _, _, _), Globals)
+    -> true  % Window open is a no-op
+    ; ( file_exists(Name) -> set_errorcode(0)
+      ; set_errorcode(2)  % File not found
+      )
     ).
 
 exec_stmt_call('CREATE', [var(FileName)], Env, Env) :- !,
@@ -100,8 +154,8 @@ exec_stmt_call('CREATE', [var(FileName)], Env, Env) :- !,
     assert(file_records(FileName, [])),
     set_errorcode(0).
 
-exec_stmt_call('CLOSE', [var(_FileName)], Env, Env) :- !,
-    set_errorcode(0).
+exec_stmt_call('CLOSE', [var(_Name)], Env, Env) :- !,
+    set_errorcode(0).  % No-op for both files and windows
 
 exec_stmt_call('SET', [var(FileName)], Env, Env) :- !,
     retractall(file_cursor(FileName, _)),
@@ -308,12 +362,41 @@ exec_body([call(Name, Args)|Rest], Env, FinalEnv, Result) :- !,
     exec_stmt_call(Name, Args, Env, Env1),
     exec_body(Rest, Env1, FinalEnv, Result).
 
+exec_body([accept(Body)|Rest], Env, FinalEnv, Result) :- !,
+    exec_accept_loop(Body, Env, Env1, AcceptResult),
+    ( AcceptResult = return(R) -> Result = R, FinalEnv = Env1
+    ; exec_body(Rest, Env1, FinalEnv, Result)
+    ).
+
+exec_body([display|Rest], Env, FinalEnv, Result) :- !,
+    exec_body(Rest, Env, FinalEnv, Result).
+
 exec_body([break|_], Env, Env, break) :- !,
     trace_current_proc(Env, ProcName),
     emit_trace(stmt(ProcName, break, '')).
 
 exec_body([_|Rest], Env, FinalEnv, Result) :-
     exec_body(Rest, Env, FinalEnv, Result).
+
+%% ==========================================================================
+%% ACCEPT loop execution (GUI event simulation)
+%% ==========================================================================
+
+% Consume events from the queue one at a time, execute the body for each.
+% BREAK inside the body ends the accept loop.
+exec_accept_loop(Body, Env, FinalEnv, Result) :-
+    ( event_queue(Events), Events = [Event|RestEvents] ->
+        retractall(event_queue(_)),
+        assert(event_queue(RestEvents)),
+        retractall(last_accepted(_)),
+        assert(last_accepted(Event)),
+        exec_body(Body, Env, Env1, BodyResult),
+        ( BodyResult == break -> Result = ok, FinalEnv = Env1
+        ; nonvar(BodyResult) -> Result = return(BodyResult), FinalEnv = Env1
+        ; exec_accept_loop(Body, Env1, FinalEnv, Result)
+        )
+    ; Result = ok, FinalEnv = Env  % No more events, exit accept
+    ).
 
 %% ==========================================================================
 %% Loop execution
@@ -396,6 +479,10 @@ eval(call('POINTER', [_]), _, 1) :- !.    % Mock pointer
 eval(call('TODAY', []), _, 80000) :- !.   % Mock date
 eval(call('ERRORCODE', []), _, V) :- !,
     ( last_errorcode(V) -> true ; V = 0 ).
+eval(call('ACCEPTED', []), _, V) :- !,
+    ( last_accepted(V) -> true ; V = 0 ).
+eval(equate(Name), _, V) :- !,
+    ( equate_map(Name, V) -> true ; V = 0 ).
 eval(call(Name, Args), Env, V) :- !,
     maplist(eval_in_env(Env), Args, ArgVals),
     ( memberchk(program_ast(AST), Env) -> true ; fail ),

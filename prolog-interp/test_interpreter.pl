@@ -295,6 +295,108 @@ test_stats_calc :-
 %% Main
 %% ==========================================================================
 
+%% ==========================================================================
+%% GUI form simulation tests
+%% ==========================================================================
+
+form_source("
+  PROGRAM
+  MAP
+  END
+
+X LONG(50)
+Y LONG(30)
+Result LONG(0)
+
+MainWindow WINDOW('Test'),AT(,,200,100),CENTER
+             BUTTON('Calc'),AT(10,10,80,14),USE(?CalcBtn)
+             BUTTON('Close'),AT(100,10,80,14),USE(?CloseBtn)
+           END
+
+  CODE
+  OPEN(MainWindow)
+  ACCEPT
+    CASE ACCEPTED()
+    OF ?CalcBtn
+      Result = X * Y
+      DISPLAY
+    OF ?CloseBtn
+      BREAK
+    END
+  END
+  CLOSE(MainWindow)
+  RETURN(Result)
+").
+
+test_form_parse :-
+    form_source(Src),
+    parse_clarion(Src, AST),
+    AST = program(_, _, Globals, _, Procs),
+    format("  PROGRAM with WINDOW parses"),
+    ( length(Globals, 4),  % X, Y, Result, window
+      Procs = [procedure('_main', [], void, [], _)]
+    -> format(" [PASS]~n")
+    ; format(" [FAIL]~n"), format("    globals=~w procs=~w~n", [Globals, Procs])
+    ).
+
+test_form_calc :-
+    form_source(Src),
+    parse_clarion(Src, AST),
+    % CalcBtn=1, CloseBtn=2; simulate: press Calc then Close
+    exec_program(AST, [1, 2], Result),
+    format("  Form calc: 50*30=1500"),
+    ( Result =:= 1500 -> format(" [PASS]~n")
+    ; format(" [FAIL] got ~w~n", [Result])
+    ).
+
+test_form_close_only :-
+    form_source(Src),
+    parse_clarion(Src, AST),
+    % Only press Close — Result stays 0
+    exec_program(AST, [2], Result),
+    format("  Form close only: Result=0"),
+    ( Result =:= 0 -> format(" [PASS]~n")
+    ; format(" [FAIL] got ~w~n", [Result])
+    ).
+
+test_form_multi_calc :-
+    form_source(Src),
+    parse_clarion(Src, AST),
+    % Press Calc twice then Close — same result since globals don't change
+    exec_program(AST, [1, 1, 2], Result),
+    format("  Form multi calc: Result=1500"),
+    ( Result =:= 1500 -> format(" [PASS]~n")
+    ; format(" [FAIL] got ~w~n", [Result])
+    ).
+
+test_form_no_events :-
+    form_source(Src),
+    parse_clarion(Src, AST),
+    % No events — accept loop exits immediately, Result stays 0
+    exec_program(AST, [], Result),
+    format("  Form no events: Result=0"),
+    ( Result =:= 0 -> format(" [PASS]~n")
+    ; format(" [FAIL] got ~w~n", [Result])
+    ).
+
+test_formdemo_parse :-
+    File = '../form-demo/FormDemo.clw',
+    ( exists_file(File) -> true ; format("  [FAIL: ~w not found]~n", [File]), fail ),
+    read_file_to_codes(File, Codes, []),
+    parse_clarion(Codes, AST),
+    AST = program(_, _, Globals, _, Procs),
+    format("  FormDemo.clw parse"),
+    ( length(Globals, 5),  % SensorID, Reading, Weight, Result, window
+      Procs = [procedure('_main', [], void, [], Body)],
+      length(Body, 4)      % OPEN, ACCEPT, CLOSE, RETURN
+    -> format(" [PASS]~n")
+    ; format(" [FAIL]~n")
+    ).
+
+%% ==========================================================================
+%% Main
+%% ==========================================================================
+
 run(Test) :-
     ( catch(call(Test), E, (format("  [ERROR: ~w]~n", [E])))
     -> true
@@ -326,4 +428,12 @@ main :-
     run(test_diagstore_exec),
     run(test_sensorlib_exec),
     run(test_stats_calc),
+    nl,
+    format("GUI form simulation:~n"),
+    run(test_form_parse),
+    run(test_form_calc),
+    run(test_form_close_only),
+    run(test_form_multi_calc),
+    run(test_form_no_events),
+    run(test_formdemo_parse),
     format("~nAll interpreter tests complete.~n").

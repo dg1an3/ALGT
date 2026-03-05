@@ -5,7 +5,7 @@ Experiments learning Clarion language semantics: building, DLL exports, and Pyth
 ## TODO FROM DEREK
 * ~~Separate clarion.pl in to clarion_parser.pl and clarion_interpreter.pl (and separate tests as well)~~ DONE
 * Implement an ODBC-based data store, and then get the clarion_interpreter to support this as well
-* Add a project with a GUI form, and then determine how best to simulate that with the interpreter (web interface?)
+* ~~Add a project with a GUI form, and then determine how best to simulate that with the interpreter (web interface?)~~ DONE — form-demo/ project + event queue simulation in interpreter
 * ~~Document strategy for determining that execution traces match between interpreter and compiled code~~ DONE — see Execution Trace Comparison section below
 
 ## Execution Trace Comparison
@@ -114,15 +114,30 @@ cd sensor-data
 
 **Architecture:** Python → `ctypes.CDLL` → `SensorLib.dll` → `Sensors.dat` (DOS flat file)
 
+### form-demo/
+Clarion EXE with a GUI form for sensor data entry. Uses `PROGRAM` (not `MEMBER`), WINDOW declaration with controls, and ACCEPT event loop. Used as the test case for GUI simulation in the Prolog interpreter.
+
+**Key files:**
+- `FormDemo.clw` — Clarion PROGRAM with WINDOW, ENTRY, BUTTON controls, ACCEPT/CASE event handling
+- `FormDemo.cwproj` — MSBuild project (`OutputType=WinExe`, `Model=Exe`)
+
+**Build:**
+```bash
+cd form-demo
+/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe FormDemo.cwproj
+```
+
+**GUI simulation approach:** The Prolog interpreter simulates the GUI event loop via an event queue. `exec_program(AST, Events, Result)` takes a list of simulated events (equate numbers for button presses), feeds them one-at-a-time through the ACCEPT loop, and executes the CASE body for each event. No actual GUI rendering — pure behavioral simulation.
+
 ### prolog-interp/
 SWI-Prolog interpreter for Clarion source code. Single-pass DCG grammar parses `.clw` files into an AST, then a separate interpreter executes the AST.
 
 **Key files:**
-- `clarion_parser.pl` — DCG grammar module (source → AST)
-- `clarion_interpreter.pl` — Interpreter module (AST → results) + file I/O simulation + execution tracing
+- `clarion_parser.pl` — DCG grammar module (source → AST), supports MEMBER and PROGRAM forms, WINDOW/ACCEPT/controls
+- `clarion_interpreter.pl` — Interpreter module (AST → results) + file I/O simulation + GUI event simulation + execution tracing
 - `clarion.pl` — Convenience re-export of both modules (backward compatibility)
 - `test_parser.pl` — Parser-only tests (12 tests)
-- `test_interpreter.pl` — Interpreter-only tests (22 tests)
+- `test_interpreter.pl` — Interpreter-only tests (28 tests, includes GUI simulation)
 - `test_clarion.pl` — Combined test suite (28 tests, uses clarion.pl re-export)
 - `trace_sensorlib.pl` — Execution trace output for diff comparison with Python side
 
@@ -140,7 +155,7 @@ diff <(cd sensor-data && python trace_sensorlib.py | grep "^CALL") \
      <(cd prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
 ```
 
-**Current status:** Parses and executes MathLib, DiagnosisStore, SensorLib, and StatsLib. Full file I/O simulation (OPEN/CREATE/SET/NEXT/ADD/PUT/CLEAR) with stateful record storage. Execution trace mode (`set_trace(on)`) logs procedure entry/exit and every statement.
+**Current status:** Parses and executes MathLib, DiagnosisStore, SensorLib, StatsLib, and FormDemo. Full file I/O simulation (OPEN/CREATE/SET/NEXT/ADD/PUT/CLEAR) with stateful record storage. GUI event simulation via `exec_program(AST, Events, Result)` for PROGRAM-style forms with WINDOW/ACCEPT. Execution trace mode (`set_trace(on)`) logs procedure entry/exit and every statement.
 
 **Expansion plan — DiagnosisStore support (4 chunks):**
 

@@ -58,11 +58,21 @@ parse_clarion(Source, AST) :-
 %% Top-level structure
 %% ==========================================================================
 
+% MEMBER() form (DLLs with procedures)
 program(program(Files, Groups, Globals, MapEntries, Procs)) -->
     ws, kw("MEMBER"), ws, "(", ws, ")", ws,
     top_decls(Files, Groups, Globals), ws,
     map_block(MapEntries), ws,
     procedures(Procs), ws.
+
+% PROGRAM form (EXE with inline CODE)
+program(program(Files, Groups, Globals, MapEntries, [MainProc])) -->
+    ws, kw("PROGRAM"), ws,
+    map_block(MapEntries), ws,
+    top_decls(Files, Groups, Globals), ws,
+    kw("CODE"), ws,
+    statements(Body), ws,
+    { MainProc = procedure('_main', [], void, [], Body) }.
 
 % --- Top-level declarations (FILE, GROUP, global vars) ---
 
@@ -88,6 +98,15 @@ top_decl_item(group(Name, Prefix, Fields)) -->
     field_list(Fields), ws,
     kw("END").
 
+% WINDOW declaration
+top_decl_item(window(Name, Title, Attrs, Controls)) -->
+    ident(Name), ws, kw("WINDOW"), ws, !,
+    "(", ws, "'", qchars(TCs), "'", ws, ")", ws,
+    window_attrs(Attrs), ws,
+    control_list(Controls), ws,
+    kw("END"),
+    { atom_codes(Title, TCs) }.
+
 % Array declaration: Name TYPE,DIM(n)
 top_decl_item(array(Name, Type, Size)) -->
     ident(Name), ws, type(Type), ws,
@@ -98,6 +117,74 @@ top_decl_item(global(Name, Type, Init)) -->
     ident(Name), ws, type(Type), ws,
     ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
 
+%% --- WINDOW attributes ---
+
+window_attrs([A|As]) --> ",", ws, window_attr(A), ws, window_attrs(As).
+window_attrs([]) --> [].
+
+window_attr(at(X, Y, W, H)) -->
+    kw("AT"), ws, "(", ws, opt_number(X), ws, ",", ws, opt_number(Y), ws,
+    ",", ws, number(W), ws, ",", ws, number(H), ws, ")".
+window_attr(center) --> kw("CENTER").
+
+opt_number(N) --> number(N), !.
+opt_number(0) --> [].
+
+%% --- Control list inside WINDOW ---
+
+control_list([C|Cs]) --> control_decl(C), !, ws, control_list(Cs).
+control_list([]) --> [].
+
+control_decl(prompt(Text, Attrs)) -->
+    kw("PROMPT"), ws, "(", ws, "'", qchars(TCs), "'", ws, ")", ws,
+    control_attrs(Attrs),
+    { atom_codes(Text, TCs) }.
+
+control_decl(entry(Format, Attrs, UseVar)) -->
+    kw("ENTRY"), ws, "(", ws, format_picture(Format), ws, ")", ws,
+    control_attrs_with_use(Attrs, UseVar).
+
+control_decl(button(Text, Attrs, UseRef)) -->
+    kw("BUTTON"), ws, "(", ws, "'", qchars(TCs), "'", ws, ")", ws,
+    control_attrs_with_use(Attrs, UseRef),
+    { atom_codes(Text, TCs) }.
+
+control_decl(string_ctl(Format, Attrs, UseVar)) -->
+    kw("STRING"), ws, "(", ws, format_picture(Format), ws, ")", ws,
+    control_attrs_with_use(Attrs, UseVar).
+
+control_decl(string_ctl(Text, Attrs, UseVar)) -->
+    kw("STRING"), ws, "(", ws, "'", qchars(TCs), "'", ws, ")", ws,
+    control_attrs_with_use(Attrs, UseVar),
+    { atom_codes(Text, TCs) }.
+
+% Format picture: @n9, @s30, etc.
+format_picture(Format) -->
+    "@", [T], { T >= 0'a, T =< 0'z ; T >= 0'A, T =< 0'Z },
+    digits(Ds), { Ds \= [] },
+    { atom_codes(Format, [0'@, T | Ds]) }.
+
+% Control attributes (comma-separated)
+control_attrs([A|As]) --> ",", ws, control_attr(A), ws, control_attrs(As).
+control_attrs([]) --> [].
+
+control_attrs_with_use(Attrs, UseRef) -->
+    control_attrs(AllAttrs),
+    { select(use(UseRef), AllAttrs, Attrs) -> true
+    ; Attrs = AllAttrs, UseRef = none
+    }.
+
+control_attr(at(X, Y, W, H)) -->
+    kw("AT"), ws, "(", ws, number(X), ws, ",", ws, number(Y), ws,
+    ",", ws, number(W), ws, ",", ws, number(H), ws, ")".
+control_attr(at(X, Y)) -->
+    kw("AT"), ws, "(", ws, number(X), ws, ",", ws, number(Y), ws, ")".
+control_attr(use(Ref)) -->
+    kw("USE"), ws, "(", ws, use_ref(Ref), ws, ")".
+
+use_ref(equate(Name)) --> "?", word(Name).
+use_ref(var(Name)) --> ident(Name).
+
 partition_decls([], [], [], []).
 partition_decls([file(N,P,A,F)|Is], [file(N,P,A,F)|Fs], Gs, Vs) :-
     partition_decls(Is, Fs, Gs, Vs).
@@ -106,6 +193,8 @@ partition_decls([group(N,P,F)|Is], Fs, [group(N,P,F)|Gs], Vs) :-
 partition_decls([global(N,T,I)|Is], Fs, Gs, [global(N,T,I)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([array(N,T,S)|Is], Fs, Gs, [array(N,T,S)|Vs]) :-
+    partition_decls(Is, Fs, Gs, Vs).
+partition_decls([window(N,T,A,C)|Is], Fs, Gs, [window(N,T,A,C)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 
 %% --- FILE attributes ---
@@ -294,11 +383,24 @@ statement(case(Expr, Ofs, Else)) -->
     case_else(Else), ws,
     kw("END").
 
+% ACCEPT / stmts / END (GUI event loop)
+statement(accept(Body)) -->
+    kw("ACCEPT"), ws,
+    statements(Body), ws,
+    kw("END").
+
+statement(display) -->
+    kw("DISPLAY").
+
 statement(break) -->
     kw("BREAK").
 
 statement(return(Expr)) -->
     kw("RETURN"), ws, expr(Expr).
+
+% Bare RETURN (no expression)
+statement(return(lit(0))) -->
+    kw("RETURN").
 
 statement(assign(array_ref(Name, Index), Expr)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", ws, "=", ws, expr(Expr).
@@ -362,6 +464,7 @@ mul_rest(E, E) --> [].
 
 primary(lit(N))    --> number(N), !.
 primary(lit(S))    --> "'", qchars(Cs), "'", { atom_codes(S, Cs) }, !.
+primary(equate(Name)) --> "?", word(Name), !.
 primary(call(Name, Args)) -->
     word(Name), ws, "(", ws, expr_list(Args), ws, ")", !.
 primary(array_ref(Name, Index)) -->
@@ -413,13 +516,15 @@ ident_cont(C) :- C >= 0'0, C =< 0'9.
 
 is_keyword(Name) :-
     upcase_atom(Name, U),
-    member(U, ['MEMBER','MAP','END','PROCEDURE','CODE','RETURN',
+    member(U, ['MEMBER','PROGRAM','MAP','END','PROCEDURE','CODE','RETURN',
                'LONG','CSTRING','C','NAME','EXPORT','FILE','DRIVER',
                'CREATE','PRE','RECORD','GROUP','MODULE','RAW','PASCAL',
                'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET',
                'NEXT','OPEN','CLOSE','GET','PUT','ADD','CLEAR',
                'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER',
-               'TO','CASE','OF','DIM','AND','OR']).
+               'TO','CASE','OF','DIM','AND','OR',
+               'WINDOW','ACCEPT','DISPLAY','ACCEPTED',
+               'PROMPT','ENTRY','BUTTON','STRING','AT','USE','CENTER']).
 
 % Integer literal
 number(N) -->
