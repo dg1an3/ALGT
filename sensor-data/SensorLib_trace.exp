@@ -1,0 +1,7 @@
+EXPORTS
+  SSOpen
+  SSClose
+  SSAddReading
+  SSGetReading
+  SSCalculateWeightedAverage
+  SSCleanupLowReadings
