@@ -27,6 +27,30 @@ cp ../hello-world/bin/ClaRUN.dll bin/   # Clarion runtime dependency
 
 **Important:** Clarion 11 produces 32-bit DLLs, so a 32-bit Python is required (`3.11.9-win32`).
 
+### diagnosis-store/
+Clarion DLL with DOS flat-file storage for cancer diagnosis records, called from Python via a wrapper module.
+
+**Key files:**
+- `DiagnosisStore.clw` — Clarion DLL source with 8 exported CRUD + approval functions
+- `DiagnosisStore.cwproj` — MSBuild project (links `ClaDOS.lib` for the DOS file driver)
+- `diagnosis_store.py` — Python wrapper: `DiagnosisStore` context manager, `Diagnosis` dataclass, Clarion date conversion
+- `test_diagnosis_store.py` — 8 tests covering create/read/update/approve/delete/list/persistence
+
+**Build & test:**
+```bash
+cd diagnosis-store
+/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe DiagnosisStore.cwproj
+cp ../hello-world/bin/ClaRUN.dll bin/   # Clarion runtime
+~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe test_diagnosis_store.py
+```
+
+**Architecture:** Python → `ctypes.CDLL` → `DiagnosisStore.dll` → `Diagnosis.dat` (flat file)
+
+**Key lessons learned:**
+- Do NOT use `*CSTRING` params with `C` calling convention — Clarion passes hidden length params that corrupt the stack. Use `LONG` pointers + `RtlMoveMemory` instead.
+- File drivers need `<Library>` (not `<FileDriver>`) in `.cwproj`. Runtime driver DLL (e.g. `ClaDOS.dll`) must be in `bin/`.
+- Struct passing: `LONG` pointer param + `MemCopy` via `RtlMoveMemory`, with `ADDRESS()` and `SIZE()`. Python side uses `_pack_ = 1` to match Clarion's default GROUP packing.
+
 ## Clarion DLL Conventions
 
 - Use `MEMBER()` (no args) at top of `.clw` — not `PROGRAM`
