@@ -34,27 +34,21 @@ ApprovedDate  LONG
 
 NextID    LONG(0)
 FilePos   LONG(0)
-TmpStr    CSTRING(256)
 
   MAP
     MODULE('kernel32')
       MemCopy(LONG dest, LONG src, LONG len),RAW,PASCAL,NAME('RtlMoveMemory')
     END
     FindRecord(LONG id),LONG,PRIVATE
-    CopyStr(LONG destPtr, LONG srcPtr, LONG maxLen),PRIVATE
     DSOpenStore(),LONG,C,NAME('DSOpenStore'),EXPORT
     DSCloseStore(),LONG,C,NAME('DSCloseStore'),EXPORT
-    DSCreateDiagnosis(LONG,LONG,LONG,LONG,LONG,LONG,LONG,LONG),LONG,C,NAME('DSCreateDiagnosis'),EXPORT
+    DSCreateDiagnosis(LONG,*CSTRING,*CSTRING,*CSTRING,*CSTRING,*CSTRING,*CSTRING,LONG),LONG,C,NAME('DSCreateDiagnosis'),EXPORT
     DSGetDiagnosis(LONG,LONG),LONG,C,NAME('DSGetDiagnosis'),EXPORT
     DSUpdateDiagnosis(LONG,LONG),LONG,C,NAME('DSUpdateDiagnosis'),EXPORT
-    DSApproveDiagnosis(LONG,LONG),LONG,C,NAME('DSApproveDiagnosis'),EXPORT
+    DSApproveDiagnosis(LONG,*CSTRING),LONG,C,NAME('DSApproveDiagnosis'),EXPORT
     DSDeleteDiagnosis(LONG),LONG,C,NAME('DSDeleteDiagnosis'),EXPORT
     DSListByPatient(LONG,LONG,LONG,LONG),LONG,C,NAME('DSListByPatient'),EXPORT
   END
-
-CopyStr PROCEDURE(LONG destPtr, LONG srcPtr, LONG maxLen)
-  CODE
-  MemCopy(destPtr, srcPtr, maxLen)
 
 FindRecord PROCEDURE(LONG id)
   CODE
@@ -94,18 +88,18 @@ DSCloseStore PROCEDURE()
   CLOSE(DiagFile)
   RETURN 0
 
-DSCreateDiagnosis PROCEDURE(LONG patientID, LONG icdPtr, LONG descPtr, LONG tPtr, LONG nPtr, LONG mPtr, LONG oPtr, LONG diagDate)
+DSCreateDiagnosis PROCEDURE(LONG patientID, *CSTRING icdCode, *CSTRING desc, *CSTRING tstage, *CSTRING nstage, *CSTRING mstage, *CSTRING ostage, LONG diagDate)
   CODE
   CLEAR(DX:Record)
   DX:RecordID = NextID
   NextID += 1
   DX:PatientID = patientID
-  CopyStr(ADDRESS(DX:ICDCode), icdPtr, 11)
-  CopyStr(ADDRESS(DX:Description), descPtr, 255)
-  CopyStr(ADDRESS(DX:TStage), tPtr, 7)
-  CopyStr(ADDRESS(DX:NStage), nPtr, 7)
-  CopyStr(ADDRESS(DX:MStage), mPtr, 7)
-  CopyStr(ADDRESS(DX:OverallStage), oPtr, 7)
+  DX:ICDCode = icdCode
+  DX:Description = desc
+  DX:TStage = tstage
+  DX:NStage = nstage
+  DX:MStage = mstage
+  DX:OverallStage = ostage
   IF diagDate = 0
     DX:DiagDate = TODAY()
   ELSE
@@ -157,7 +151,7 @@ DSUpdateDiagnosis PROCEDURE(LONG id, LONG bufPtr)
   IF ERRORCODE() THEN RETURN -2.
   RETURN 0
 
-DSApproveDiagnosis PROCEDURE(LONG id, LONG namePtr)
+DSApproveDiagnosis PROCEDURE(LONG id, *CSTRING approvedBy)
   CODE
   FilePos = FindRecord(id)
   IF FilePos = 0 THEN RETURN -1.
@@ -165,7 +159,7 @@ DSApproveDiagnosis PROCEDURE(LONG id, LONG namePtr)
   IF ERRORCODE() THEN RETURN -1.
   IF DX:Status <> 0 THEN RETURN -3.
   DX:Status = 1
-  CopyStr(ADDRESS(DX:ApprovedBy), namePtr, 63)
+  DX:ApprovedBy = approvedBy
   DX:ApprovedDate = TODAY()
   PUT(DiagFile)
   IF ERRORCODE() THEN RETURN -2.

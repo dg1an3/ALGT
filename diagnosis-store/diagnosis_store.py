@@ -1,4 +1,9 @@
-"""Python wrapper for the DiagnosisStore Clarion DLL."""
+"""Python wrapper for the DiagnosisStore Clarion DLL.
+
+Clarion's *CSTRING parameters with C calling convention pass a hidden
+length LONG before the pointer on the stack. The _cstr_args() helper
+produces (len, pointer) pairs to match this convention.
+"""
 
 import ctypes
 import os
@@ -21,6 +26,16 @@ def _clarion_to_date(n: int) -> Optional[date]:
     if n == 0:
         return None
     return _CLARION_EPOCH + timedelta(days=n)
+
+
+def _cstr_args(s: str, bufsize: int) -> tuple:
+    """Return (length, c_char_p) pair matching Clarion *CSTRING C convention.
+
+    Clarion passes a hidden LONG length before each *CSTRING pointer.
+    bufsize is the CSTRING(n) declared size from the Clarion source.
+    """
+    buf = ctypes.create_string_buffer(s.encode('ascii'), bufsize)
+    return (bufsize, ctypes.cast(buf, ctypes.c_char_p))
 
 
 class DiagnosisStatus(IntEnum):
@@ -120,7 +135,12 @@ class DiagnosisStoreError(Exception):
 
 
 class DiagnosisStore:
-    """Context manager wrapping the DiagnosisStore Clarion DLL."""
+    """Context manager wrapping the DiagnosisStore Clarion DLL.
+
+    Clarion *CSTRING params with C calling convention pass a hidden
+    length LONG before each string pointer on the stack. All string
+    arguments are sent as (length, pointer) pairs.
+    """
 
     def __init__(self, dll_path: Optional[str] = None):
         if dll_path is None:
@@ -138,15 +158,16 @@ class DiagnosisStore:
         lib.DSCloseStore.argtypes = []
         lib.DSCloseStore.restype = ctypes.c_long
 
+        # *CSTRING params each become (c_long length, c_char_p pointer)
         lib.DSCreateDiagnosis.argtypes = [
-            ctypes.c_long,    # patientID
-            ctypes.c_char_p,  # icdCode
-            ctypes.c_char_p,  # desc
-            ctypes.c_char_p,  # tstage
-            ctypes.c_char_p,  # nstage
-            ctypes.c_char_p,  # mstage
-            ctypes.c_char_p,  # ostage
-            ctypes.c_long,    # diagDate
+            ctypes.c_long,                     # patientID
+            ctypes.c_long, ctypes.c_char_p,    # icdCode:   len, ptr
+            ctypes.c_long, ctypes.c_char_p,    # desc:      len, ptr
+            ctypes.c_long, ctypes.c_char_p,    # tstage:    len, ptr
+            ctypes.c_long, ctypes.c_char_p,    # nstage:    len, ptr
+            ctypes.c_long, ctypes.c_char_p,    # mstage:    len, ptr
+            ctypes.c_long, ctypes.c_char_p,    # ostage:    len, ptr
+            ctypes.c_long,                     # diagDate
         ]
         lib.DSCreateDiagnosis.restype = ctypes.c_long
 
@@ -156,7 +177,11 @@ class DiagnosisStore:
         lib.DSUpdateDiagnosis.argtypes = [ctypes.c_long, ctypes.c_long]
         lib.DSUpdateDiagnosis.restype = ctypes.c_long
 
-        lib.DSApproveDiagnosis.argtypes = [ctypes.c_long, ctypes.c_long]
+        # *CSTRING approvedBy becomes (c_long length, c_char_p pointer)
+        lib.DSApproveDiagnosis.argtypes = [
+            ctypes.c_long,                     # id
+            ctypes.c_long, ctypes.c_char_p,    # approvedBy: len, ptr
+        ]
         lib.DSApproveDiagnosis.restype = ctypes.c_long
 
         lib.DSDeleteDiagnosis.argtypes = [ctypes.c_long]
@@ -199,12 +224,12 @@ class DiagnosisStore:
         clarion_date = _date_to_clarion(diag_date) if diag_date else 0
         rc = self._lib.DSCreateDiagnosis(
             patient_id,
-            icd_code.encode('ascii'),
-            description.encode('ascii'),
-            t_stage.encode('ascii'),
-            n_stage.encode('ascii'),
-            m_stage.encode('ascii'),
-            overall_stage.encode('ascii'),
+            *_cstr_args(icd_code, 12),
+            *_cstr_args(description, 256),
+            *_cstr_args(t_stage, 8),
+            *_cstr_args(n_stage, 8),
+            *_cstr_args(m_stage, 8),
+            *_cstr_args(overall_stage, 8),
             clarion_date,
         )
         if rc < 0:
@@ -220,7 +245,6 @@ class DiagnosisStore:
 
     def update(self, record_id: int, **fields) -> None:
         """Update a draft diagnosis. Pass field names as keyword args."""
-        # Read current record first
         current = self.get(record_id)
         for key, value in fields.items():
             if not hasattr(current, key):
@@ -232,8 +256,10 @@ class DiagnosisStore:
 
     def approve(self, record_id: int, approved_by: str) -> None:
         """Approve a draft diagnosis."""
-        buf = ctypes.create_string_buffer(approved_by.encode('ascii'))
-        rc = self._lib.DSApproveDiagnosis(record_id, ctypes.addressof(buf))
+        rc = self._lib.DSApproveDiagnosis(
+            record_id,
+            *_cstr_args(approved_by, 64),
+        )
         self._check(rc)
 
     def delete(self, record_id: int) -> None:

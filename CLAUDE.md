@@ -47,7 +47,7 @@ cp ../hello-world/bin/ClaRUN.dll bin/   # Clarion runtime
 **Architecture:** Python → `ctypes.CDLL` → `DiagnosisStore.dll` → `Diagnosis.dat` (flat file)
 
 **Key lessons learned:**
-- Do NOT use `*CSTRING` params with `C` calling convention — Clarion passes hidden length params that corrupt the stack. Use `LONG` pointers + `RtlMoveMemory` instead.
+- `*CSTRING` params with `C` calling convention pass a hidden `LONG length` before each string pointer on the stack. From Python, pass `(bufsize, c_char_p)` per `*CSTRING` param to match. See `_cstr_args()` helper in `diagnosis_store.py`.
 - File drivers need `<Library>` (not `<FileDriver>`) in `.cwproj`. Runtime driver DLL (e.g. `ClaDOS.dll`) must be in `bin/`.
 - Struct passing: `LONG` pointer param + `MemCopy` via `RtlMoveMemory`, with `ADDRESS()` and `SIZE()`. Python side uses `_pack_ = 1` to match Clarion's default GROUP packing.
 
