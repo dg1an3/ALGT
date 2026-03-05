@@ -8,6 +8,10 @@
     parse_clarion/2,
     exec_procedure/4,
     init_file_io/0,
+    set_trace/1,
+    get_trace/1,
+    clear_trace/0,
+    print_trace/0,
     program//1
 ]).
 
@@ -18,6 +22,52 @@
 :- dynamic file_records/2.     % file_records(FileName, [RecordValuesList, ...])
 :- dynamic file_cursor/2.      % file_cursor(FileName, Position)  % 0 = before first
 :- dynamic last_errorcode/1.   % last_errorcode(Code)
+
+%% Execution trace state
+:- dynamic trace_enabled/0.
+:- dynamic trace_entry/1.
+
+set_trace(on) :- retractall(trace_enabled), assert(trace_enabled).
+set_trace(off) :- retractall(trace_enabled).
+
+emit_trace(Entry) :- ( trace_enabled -> assert(trace_entry(Entry)) ; true ).
+
+get_trace(Log) :- findall(E, trace_entry(E), Log).
+clear_trace :- retractall(trace_entry(_)).
+
+print_trace :-
+    findall(E, trace_entry(E), Log),
+    print_trace_entries(Log).
+
+print_trace_entries([]).
+print_trace_entries([E|Es]) :-
+    print_trace_entry(E),
+    print_trace_entries(Es).
+
+print_trace_entry(proc_enter(Name, Args)) :-
+    format("CALL ~w(", [Name]),
+    print_args(Args),
+    format(")~n").
+print_trace_entry(proc_exit(_Name, Result)) :-
+    format("  -> ~w~n", [Result]).
+print_trace_entry(stmt(Name, Type, Details)) :-
+    format("  ~w: ~w ~w~n", [Name, Type, Details]).
+
+print_args([]).
+print_args([A]) :- format("~w", [A]).
+print_args([A,B|Rest]) :- format("~w, ", [A]), print_args([B|Rest]).
+
+% Extract current procedure name from env (uses the most recent proc_enter trace)
+trace_current_proc(_, ProcName) :-
+    trace_enabled,
+    !,
+    ( predicate_property(trace_entry(_), defined),
+      findall(N, trace_entry(proc_enter(N, _)), Ns),
+      Ns \= [],
+      last(Ns, ProcName) -> true
+    ; ProcName = '?'
+    ).
+trace_current_proc(_, '?').
 
 %% ==========================================================================
 %% AST definition
@@ -574,6 +624,7 @@ replace_nth1_list(N, [X|Rest], Elem, [X|NewRest]) :-
 exec_procedure(program(Files, Groups, Globals, Map, Procs), ProcName, ArgValues, Result) :-
     AST = program(Files, Groups, Globals, Map, Procs),
     memberchk(procedure(ProcName, Params, _RetType, Locals, Body), Procs),
+    emit_trace(proc_enter(ProcName, ArgValues)),
     bind_params(Params, ArgValues, ParamEnv),
     init_locals(Locals, LocalEnv),
     init_globals(Globals, GlobalEnv),
@@ -583,8 +634,9 @@ exec_procedure(program(Files, Groups, Globals, Map, Procs), ProcName, ArgValues,
     append(ArrayEnv, Env0, Env1),
     Env = [program_ast(AST)|Env1],
     ( exec_body(Body, Env, _NewEnv, Result) -> true
-    ; Result = void % Procedures might not return anything
-    ).
+    ; Result = void
+    ),
+    emit_trace(proc_exit(ProcName, Result)).
 
 bind_params([], [], []).
 bind_params([param(Name, _)|Ps], [V|Vs], [Name=V|Es]) :-
@@ -610,25 +662,34 @@ init_arrays([_|Gs], AST, Es) :- init_arrays(Gs, AST, Es).
 exec_body([], Env, Env, _).
 
 exec_body([return(Expr)|_], Env, Env, Result) :- !,
-    eval(Expr, Env, Result).
+    eval(Expr, Env, Result),
+    trace_current_proc(Env, ProcName),
+    emit_trace(stmt(ProcName, return, Result)).
 
 exec_body([assign(Var, Expr)|Rest], Env, FinalEnv, Result) :- !,
     eval(Expr, Env, Val),
+    trace_current_proc(Env, ProcName),
+    emit_trace(stmt(ProcName, assign, Var=Val)),
     update_env(Var, Val, Env, Env1),
     exec_body(Rest, Env1, FinalEnv, Result).
 
 exec_body([if(Cond, Then, Else)|Rest], Env, FinalEnv, Result) :- !,
     eval(Cond, Env, Val),
-    ( Val \= 0 -> Body = Then ; Body = Else ),
+    ( Val \= 0 -> Body = Then, Branch = true ; Body = Else, Branch = false ),
+    trace_current_proc(Env, ProcName),
+    emit_trace(stmt(ProcName, 'if', cond=Val/Branch)),
     ( exec_body(Body, Env, Env1, Result) ->
-        ( nonvar(Result) -> FinalEnv = Env1 % Returned from IF
+        ( nonvar(Result) -> FinalEnv = Env1
         ; exec_body(Rest, Env1, FinalEnv, Result)
         )
     ; exec_body(Rest, Env, FinalEnv, Result)
     ).
 
 exec_body([loop(Body)|Rest], Env, FinalEnv, Result) :- !,
+    trace_current_proc(Env, ProcName),
+    emit_trace(stmt(ProcName, loop, enter)),
     exec_loop(Body, Env, Env1, LoopResult),
+    emit_trace(stmt(ProcName, loop, exit)),
     ( LoopResult = return(R) -> Result = R, FinalEnv = Env1
     ; exec_body(Rest, Env1, FinalEnv, Result)
     ).
@@ -636,6 +697,8 @@ exec_body([loop(Body)|Rest], Env, FinalEnv, Result) :- !,
 exec_body([loop_for(Var, Start, End, Body)|Rest], Env, FinalEnv, Result) :- !,
     eval(Start, Env, SVal),
     eval(End, Env, EVal),
+    trace_current_proc(Env, ProcName),
+    emit_trace(stmt(ProcName, loop_for, Var=SVal-EVal)),
     update_env(Var, SVal, Env, Env0),
     exec_loop_for(Var, EVal, Body, Env0, Env1, LoopResult),
     ( LoopResult = return(R) -> Result = R, FinalEnv = Env1
@@ -653,10 +716,14 @@ exec_body([case(Expr, Ofs, Else)|Rest], Env, FinalEnv, Result) :- !,
     ).
 
 exec_body([call(Name, Args)|Rest], Env, FinalEnv, Result) :- !,
+    trace_current_proc(Env, ProcName),
+    emit_trace(stmt(ProcName, call, Name)),
     exec_stmt_call(Name, Args, Env, Env1),
     exec_body(Rest, Env1, FinalEnv, Result).
 
-exec_body([break|_], Env, Env, break) :- !.
+exec_body([break|_], Env, Env, break) :- !,
+    trace_current_proc(Env, ProcName),
+    emit_trace(stmt(ProcName, break, '')).
 
 exec_body([_|Rest], Env, FinalEnv, Result) :-
     exec_body(Rest, Env, FinalEnv, Result).

@@ -6,7 +6,46 @@ Experiments learning Clarion language semantics: building, DLL exports, and Pyth
 * Separate clarion.pl in to clarion_parser.pl and clarion_interpreter.pl (and separate tests as well)
 * Implement an ODBC-based data store, and then get the clarion_interpreter to support this as well
 * Add a project with a GUI form, and then determine how best to simulate that with the interpreter (web interface?)
-* Document strategy for determining that execution traces match between interpreter and compiled code -- can we temporarily instrument clarion code with logging statements?  add instrumentation to both sides — for example, having the Prolog interpreter emit a log of (procedure, statement, variable_state) tuples at each step, and adding equivalent logging to the Python wrapper around the DLL calls. Would that kind of step-level tracing be useful?
+* ~~Document strategy for determining that execution traces match between interpreter and compiled code~~ DONE — see Execution Trace Comparison section below
+
+## Execution Trace Comparison
+
+Strategy for verifying the Prolog interpreter produces the same behavior as compiled Clarion DLLs.
+
+### Level 1: Procedure-level traces (implemented)
+
+Both sides emit `CALL ProcName(args) -> result` lines and are compared with `diff`.
+
+**Prolog side** (`prolog-interp/trace_sensorlib.pl`):
+- `set_trace(on)` enables the trace infrastructure in `clarion.pl`
+- `exec_procedure` emits `proc_enter`/`proc_exit` entries via `assert`
+- `print_trace` formats the log; grep `^CALL.*->` for procedure-level lines
+
+**Python side** (`sensor-data/trace_sensorlib.py`):
+- `trace_call(lib, name, *args)` wraps each `ctypes` DLL call with logging
+- Outputs the same `CALL name(args) -> result` format
+
+**Comparison**:
+```bash
+diff <(cd sensor-data && python trace_sensorlib.py | grep "^CALL") \
+     <(cd prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
+```
+
+### Level 2: Statement-level traces (Prolog interpreter only)
+
+The Prolog interpreter traces every statement: `assign`, `call`, `if` (with condition value and branch taken), `loop` enter/exit, `break`, and `return`. Enabled via `set_trace(on)`.
+
+This level is not available from the compiled DLL without source instrumentation.
+
+### Level 3: Instrumented Clarion source (future)
+
+To get statement-level traces from the compiled DLL:
+1. Add a `TraceLog(LONG bufPtr)` export to a shared logging DLL
+2. Insert `TraceLog('SSAddReading:after_clear')` calls at key points in the `.clw` source
+3. Both sides (Prolog interpreter + instrumented DLL) emit the same trace point IDs
+4. Compare the trace point sequences with `diff`
+
+This requires recompiling the Clarion DLL with the instrumentation, so it's best used for targeted debugging rather than continuous CI.
 
 ## Projects
 
@@ -57,12 +96,31 @@ cp ../hello-world/bin/ClaRUN.dll bin/   # Clarion runtime
 - File drivers need `<Library>` (not `<FileDriver>`) in `.cwproj`. Runtime driver DLL (e.g. `ClaDOS.dll`) must be in `bin/`.
 - Struct passing: `LONG` pointer param + `MemCopy` via `RtlMoveMemory`, with `ADDRESS()` and `SIZE()`. Python side uses `_pack_ = 1` to match Clarion's default GROUP packing.
 
+### sensor-data/
+Clarion DLL with DOS flat-file sensor readings, weighted average calculations, and record cleanup. Used as the primary test case for execution trace comparison between the Prolog interpreter and compiled Clarion.
+
+**Key files:**
+- `SensorLib.clw` — Clarion DLL: SSOpen, SSClose, SSAddReading, SSGetReading, SSCalculateWeightedAverage, SSCleanupLowReadings
+- `SensorLib.cwproj` — MSBuild project (links `ClaDOS.lib`)
+- `test_sensorlib.py` — Python test (all assertions pass)
+- `trace_sensorlib.py` — Procedure-level trace output for diff comparison
+
+**Build & test:**
+```bash
+cd sensor-data
+/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe SensorLib.cwproj
+~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe test_sensorlib.py
+```
+
+**Architecture:** Python → `ctypes.CDLL` → `SensorLib.dll` → `Sensors.dat` (DOS flat file)
+
 ### prolog-interp/
 SWI-Prolog interpreter for Clarion source code. Single-pass DCG grammar parses `.clw` files into an AST, then a separate interpreter executes the AST.
 
 **Key files:**
-- `clarion.pl` — DCG grammar (source → AST) + interpreter (AST → results)
-- `test_clarion.pl` — Test suite
+- `clarion.pl` — DCG grammar (source → AST) + interpreter (AST → results) + file I/O simulation + execution tracing
+- `test_clarion.pl` — Test suite (28 tests)
+- `trace_sensorlib.pl` — Execution trace output for diff comparison with Python side
 
 **Run tests:**
 ```bash
@@ -70,7 +128,13 @@ cd prolog-interp
 swipl -g "main,halt" -t "halt(1)" test_clarion.pl
 ```
 
-**Current status:** Parses and executes `python-dll/MathLib.clw` (arithmetic procedures).
+**Run trace comparison:**
+```bash
+diff <(cd sensor-data && python trace_sensorlib.py | grep "^CALL") \
+     <(cd prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
+```
+
+**Current status:** Parses and executes MathLib, DiagnosisStore, SensorLib, and StatsLib. Full file I/O simulation (OPEN/CREATE/SET/NEXT/ADD/PUT/CLEAR) with stateful record storage. Execution trace mode (`set_trace(on)`) logs procedure entry/exit and every statement.
 
 **Expansion plan — DiagnosisStore support (4 chunks):**
 
