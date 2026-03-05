@@ -3,7 +3,7 @@
 *.dll
 *.lib
 *.obj
-*.exp
+# *.exp are source files (export definitions), not build outputs
 *.map
 *.res
 *.o
