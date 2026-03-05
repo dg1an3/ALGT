@@ -13,9 +13,10 @@ main :-
     read_file_to_codes('FormDemo.clw', Codes, []),
     parse_clarion(Codes, AST),
     set_trace(on),
-    % Simulate: user enters SensorID=42, Reading=500, Weight=20,
-    %           clicks Calculate (equate 1), then Close (equate 3)
-    Events = [set('SensorID', 42), set('Reading', 500), set('Weight', 20), 1, 3],
+    % Equates: TypeList=1, CalcBtn=2, ClearBtn=3, CloseBtn=4
+    % Simulate: enter values, default list selection (Standard=1),
+    %           click Calculate (2), then Close (4)
+    Events = [set('SensorID', 42), set('Reading', 500), set('Weight', 20), 2, 4],
     exec_program(AST, Events, _Result),
     get_trace(Log),
     print_form_trace(Log).

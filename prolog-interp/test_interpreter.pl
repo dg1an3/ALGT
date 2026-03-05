@@ -386,9 +386,9 @@ test_formdemo_parse :-
     parse_clarion(Codes, AST),
     AST = program(_, _, Globals, _, Procs),
     format("  FormDemo.clw parse"),
-    ( length(Globals, 5),  % SensorID, Reading, Weight, Result, window
+    ( length(Globals, 6),  % SensorID, Reading, Weight, Result, SensorType, window
       Procs = [procedure('_main', [], void, [], Body)],
-      length(Body, 4)      % OPEN, ACCEPT, CLOSE, RETURN
+      length(Body, 5)      % OPEN, SELECT, ACCEPT, CLOSE, RETURN
     -> format(" [PASS]~n")
     ; format(" [FAIL]~n")
     ).

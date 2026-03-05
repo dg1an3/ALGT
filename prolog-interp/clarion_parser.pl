@@ -158,6 +158,12 @@ control_decl(string_ctl(Text, Attrs, UseVar)) -->
     control_attrs_with_use(Attrs, UseVar),
     { atom_codes(Text, TCs) }.
 
+% LIST drop-down: LIST,AT(...),USE(?name),DROP(n),FROM('items')
+control_decl(list_ctl(Attrs, UseRef, Drop, Items)) -->
+    kw("LIST"), ws,
+    control_attrs_with_use(AllAttrs, UseRef),
+    { extract_list_attrs(AllAttrs, Drop, Items, Attrs) }.
+
 % Format picture: @n9, @s30, etc.
 format_picture(Format) -->
     "@", [T], { T >= 0'a, T =< 0'z ; T >= 0'A, T =< 0'Z },
@@ -181,6 +187,29 @@ control_attr(at(X, Y)) -->
     kw("AT"), ws, "(", ws, number(X), ws, ",", ws, number(Y), ws, ")".
 control_attr(use(Ref)) -->
     kw("USE"), ws, "(", ws, use_ref(Ref), ws, ")".
+control_attr(drop(N)) -->
+    kw("DROP"), ws, "(", ws, number(N), ws, ")".
+control_attr(from(Items)) -->
+    kw("FROM"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")",
+    { atom_codes(ItemStr, Cs), split_pipe(ItemStr, Items) }.
+
+% Helper: split pipe-delimited atom into list of atoms
+split_pipe(Atom, Items) :-
+    atom_codes(Atom, Codes),
+    split_pipe_codes(Codes, Items).
+split_pipe_codes([], []) :- !.
+split_pipe_codes(Codes, [Item|Rest]) :-
+    ( append(Before, [0'||After], Codes) ->
+        atom_codes(Item, Before),
+        split_pipe_codes(After, Rest)
+    ; atom_codes(Item, Codes),
+      Rest = []
+    ).
+
+% Extract DROP and FROM from a list of control attrs
+extract_list_attrs(AllAttrs, Drop, Items, RestAttrs) :-
+    ( select(drop(Drop), AllAttrs, A1) -> true ; Drop = 1, A1 = AllAttrs ),
+    ( select(from(Items), A1, RestAttrs) -> true ; Items = [], RestAttrs = A1 ).
 
 use_ref(equate(Name)) --> "?", word(Name).
 use_ref(var(Name)) --> ident(Name).
@@ -524,7 +553,8 @@ is_keyword(Name) :-
                'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER',
                'TO','CASE','OF','DIM','AND','OR',
                'WINDOW','ACCEPT','DISPLAY','ACCEPTED',
-               'PROMPT','ENTRY','BUTTON','STRING','AT','USE','CENTER']).
+               'PROMPT','ENTRY','BUTTON','STRING','LIST','AT','USE',
+               'CENTER','DROP','FROM','CHOICE','SELECT']).
 
 % Integer literal
 number(N) -->

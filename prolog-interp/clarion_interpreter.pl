@@ -23,6 +23,7 @@
 :- dynamic event_queue/1.      % event_queue([Event, ...])
 :- dynamic last_accepted/1.    % last_accepted(EquateNum)
 :- dynamic equate_map/2.       % equate_map(Name, Number)
+:- dynamic list_choice/2.      % list_choice(EquateNum, SelectedIndex)
 
 set_events(Events) :-
     retractall(event_queue(_)),
@@ -32,6 +33,7 @@ init_gui :-
     retractall(event_queue(_)),
     retractall(last_accepted(_)),
     retractall(equate_map(_, _)),
+    retractall(list_choice(_, _)),
     assert(event_queue([])),
     assert(last_accepted(0)).
 
@@ -41,6 +43,11 @@ assign_equates([Control|Cs], N) :-
     ( control_equate(Control, Name) ->
         retractall(equate_map(Name, _)),
         assert(equate_map(Name, N)),
+        % Initialize list controls with selection index 1
+        ( Control = list_ctl(_, _, _, _) ->
+            assert(list_choice(N, 1))
+        ; true
+        ),
         N1 is N + 1,
         assign_equates(Cs, N1)
     ; assign_equates(Cs, N)
@@ -49,6 +56,7 @@ assign_equates([Control|Cs], N) :-
 control_equate(entry(_, _, equate(Name)), Name).
 control_equate(button(_, _, equate(Name)), Name).
 control_equate(string_ctl(_, _, equate(Name)), Name).
+control_equate(list_ctl(_, equate(Name), _, _), Name).
 
 %% exec_program(+AST, +Events, -Result)
 %% Execute a PROGRAM-style AST with simulated GUI events.
@@ -224,6 +232,14 @@ exec_stmt_call('CLEAR', [var(RecRef)], Env, NewEnv) :- !,
         clear_fields(Prefix, Fields, Env, NewEnv)
     ;
         NewEnv = Env
+    ).
+
+exec_stmt_call('SELECT', [equate(Name), IndexExpr], Env, Env) :- !,
+    eval(IndexExpr, Env, Index),
+    ( equate_map(Name, EqNum) ->
+        retractall(list_choice(EqNum, _)),
+        assert(list_choice(EqNum, Index))
+    ; true
     ).
 
 exec_stmt_call('MemCopy', _, Env, Env) :- !.
@@ -414,6 +430,14 @@ exec_accept_loop(Body, Env, FinalEnv, Result) :-
             % Field entry event — update variable, don't run body
             update_env(VarName, Value, Env, Env1),
             exec_accept_loop(Body, Env1, FinalEnv, Result)
+        ; Event = choice(EqName, Index) ->
+            % Drop-down selection event — update list choice
+            ( equate_map(EqName, EqNum) ->
+                retractall(list_choice(EqNum, _)),
+                assert(list_choice(EqNum, Index))
+            ; true
+            ),
+            exec_accept_loop(Body, Env, FinalEnv, Result)
         ;
             % Button event — set last_accepted and run body
             retractall(last_accepted(_)),
@@ -514,6 +538,8 @@ eval(call('ERRORCODE', []), _, V) :- !,
     ( last_errorcode(V) -> true ; V = 0 ).
 eval(call('ACCEPTED', []), _, V) :- !,
     ( last_accepted(V) -> true ; V = 0 ).
+eval(call('CHOICE', [equate(Name)]), _, V) :- !,
+    ( equate_map(Name, EqNum), list_choice(EqNum, V) -> true ; V = 1 ).
 eval(equate(Name), _, V) :- !,
     ( equate_map(Name, V) -> true ; V = 0 ).
 eval(call(Name, Args), Env, V) :- !,
