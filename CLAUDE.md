@@ -51,6 +51,54 @@ cp ../hello-world/bin/ClaRUN.dll bin/   # Clarion runtime
 - File drivers need `<Library>` (not `<FileDriver>`) in `.cwproj`. Runtime driver DLL (e.g. `ClaDOS.dll`) must be in `bin/`.
 - Struct passing: `LONG` pointer param + `MemCopy` via `RtlMoveMemory`, with `ADDRESS()` and `SIZE()`. Python side uses `_pack_ = 1` to match Clarion's default GROUP packing.
 
+### prolog-interp/
+SWI-Prolog interpreter for Clarion source code. Single-pass DCG grammar parses `.clw` files into an AST, then a separate interpreter executes the AST.
+
+**Key files:**
+- `clarion.pl` — DCG grammar (source → AST) + interpreter (AST → results)
+- `test_clarion.pl` — Test suite
+
+**Run tests:**
+```bash
+cd prolog-interp
+swipl -g "main,halt" -t "halt(1)" test_clarion.pl
+```
+
+**Current status:** Parses and executes `python-dll/MathLib.clw` (arithmetic procedures).
+
+**Expansion plan — DiagnosisStore support (4 chunks):**
+
+Each chunk extends the DCG grammar and interpreter to handle more of `DiagnosisStore.clw`.
+
+1. **Declarations & data model** (chunk 1)
+   - `FILE,DRIVER(),NAME(),CREATE,PRE() / RECORD / END / END`
+   - `GROUP,PRE() / fields / END`
+   - Field types: `CSTRING(n)`, `LONG`
+   - Global variables with initializers: `NextID LONG(0)`
+   - Local variables in procedures: `Count LONG(0)`
+   - Enhanced MAP: `MODULE()...END`, `PRIVATE`, `*CSTRING` param type, `RAW`/`PASCAL` attrs
+
+2. **Control flow** (chunk 2)
+   - `IF expr THEN statement .` (single-line, dot-terminated)
+   - `IF expr / stmts / END` (block form)
+   - `IF expr / stmts / ELSE / stmts / END`
+   - `LOOP / stmts / END`
+   - `BREAK`
+
+3. **Expressions & assignment** (chunk 3)
+   - Assignment: `var = expr`
+   - Compound assignment: `var += expr`
+   - Comparison operators: `=`, `<>`, `>=`
+   - Qualified names: `DX:RecordID`, `DB:ICDCode`
+   - Arithmetic in expressions: `bufPtr + Offset`, `Count * SIZE(DiagBuf)`
+   - Dot statement terminator
+
+4. **Builtins & procedure calls** (chunk 4)
+   - File I/O: `SET()`, `NEXT()`, `OPEN()`, `CREATE()`, `CLOSE()`, `GET()`, `PUT()`, `ADD()`, `CLEAR()`
+   - Intrinsics: `ERRORCODE()`, `TODAY()`, `ADDRESS()`, `SIZE()`, `POINTER()`
+   - User-defined procedure calls: `FindRecord(id)`
+   - External calls: `MemCopy(dest, src, len)`
+
 ## Clarion DLL Conventions
 
 - Use `MEMBER()` (no args) at top of `.clw` — not `PROGRAM`
