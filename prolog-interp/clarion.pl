@@ -6,7 +6,8 @@
 
 :- module(clarion, [
     parse_clarion/2,
-    exec_procedure/4
+    exec_procedure/4,
+    program//1
 ]).
 
 :- set_prolog_flag(double_quotes, codes).
@@ -36,9 +37,9 @@
 %
 %   Types: long, cstring(Size)
 %
-%   Statements: return(Expr), assign(Var, Expr)
+%   Statements: return(Expr), assign(Var, Expr), if(Cond, Then, Else), loop(Body), break
 %
-%   Expressions: lit(N), var(Name), add(A,B), mul(A,B)
+%   Expressions: lit(N), var(Name), add(A,B), mul(A,B), eq(A,B), neq(A,B), lt(A,B), lte(A,B), gt(A,B), gte(A,B), call(Name, Args)
 
 %% ==========================================================================
 %% DCG grammar
@@ -247,6 +248,25 @@ type(cstring) --> kw("CSTRING").
 statements([S|Ss]) --> statement(S), !, ws, statements(Ss).
 statements([]) --> [].
 
+statement(if(Cond, [Then], [])) -->
+    kw("IF"), ws, expr(Cond), ws, kw("THEN"), ws, statement(Then), ws, ".".
+
+% IF expr / stmts / [ELSE / stmts] / END
+statement(if(Cond, Then, Else)) -->
+    kw("IF"), ws, expr(Cond), ws,
+    statements(Then), ws,
+    if_else(Else), ws,
+    kw("END").
+
+% LOOP / stmts / END
+statement(loop(Body)) -->
+    kw("LOOP"), ws,
+    statements(Body), ws,
+    kw("END").
+
+statement(break) -->
+    kw("BREAK").
+
 statement(return(Expr)) -->
     kw("RETURN"), ws, "(", ws, expr(Expr), ws, ")".
 
@@ -256,9 +276,27 @@ statement(return(Expr)) -->
 statement(assign(Var, Expr)) -->
     ident(Var), ws, "=", ws, expr(Expr).
 
+statement(assign(Var, add(var(Var), Expr))) -->
+    ident(Var), ws, "+=", ws, expr(Expr).
+
+statement(call(Name, Args)) -->
+    word(Name), ws, "(", ws, expr_list(Args), ws, ")".
+
+if_else(Stmts) --> kw("ELSE"), ws, statements(Stmts).
+if_else([]) --> [].
+
 %% --- Expressions ---
 
-expr(E) --> add_expr(E).
+expr(E) --> compare_expr(E).
+
+compare_expr(E) --> add_expr(L), ws, compare_rest(L, E).
+compare_rest(L, eq(L, R)) --> "=", ws, add_expr(R).
+compare_rest(L, neq(L, R)) --> "<>", ws, add_expr(R).
+compare_rest(L, lt(L, R)) --> "<", ws, add_expr(R).
+compare_rest(L, lte(L, R)) --> "<=", ws, add_expr(R).
+compare_rest(L, gt(L, R)) --> ">", ws, add_expr(R).
+compare_rest(L, gte(L, R)) --> ">=", ws, add_expr(R).
+compare_rest(E, E) --> [].
 
 add_expr(E) --> mul_expr(L), ws, add_rest(L, E).
 add_rest(L, E) --> "+", ws, mul_expr(R), ws, add_rest(add(L, R), E).
@@ -269,8 +307,16 @@ mul_rest(L, E) --> "*", ws, primary(R), ws, mul_rest(mul(L, R), E).
 mul_rest(E, E) --> [].
 
 primary(lit(N))    --> number(N), !.
+primary(call(Name, Args)) -->
+    word(Name), ws, "(", ws, expr_list(Args), ws, ")", !.
 primary(var(Name)) --> ident(Name), !.
 primary(E)         --> "(", ws, expr(E), ws, ")".
+
+expr_list([E|Es]) --> expr(E), ws, expr_list_rest(Es).
+expr_list([]) --> [].
+
+expr_list_rest([E|Es]) --> ",", ws, expr(E), ws, expr_list_rest(Es).
+expr_list_rest([]) --> [].
 
 %% --- Lexical rules ---
 
@@ -292,7 +338,11 @@ word(Name) -->
 % Identifier: word that is not a keyword
 % Used where keywords would be ambiguous (var names, proc names)
 ident(Name) -->
-    word(Name), { \+ is_keyword(Name) }.
+    word(Part1),
+    ( ":", word(Part2) -> { atomic_list_concat([Part1, ':', Part2], Name) }
+    ; { Name = Part1 }
+    ),
+    { \+ is_keyword(Name) }.
 
 ident_start(C) :- C >= 0'a, C =< 0'z.
 ident_start(C) :- C >= 0'A, C =< 0'Z.
@@ -314,7 +364,10 @@ is_keyword(Name) :-
                'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER']).
 
 % Integer literal
-number(N) --> digit(D), digits(Ds), { number_codes(N, [D|Ds]) }.
+number(N) -->
+    ( "-", { Sign = [0'-] } ; { Sign = [] } ),
+    digit(D), digits(Ds),
+    { append(Sign, [D|Ds], Codes), number_codes(N, Codes) }.
 
 digit(D) --> [D], { D >= 0'0, D =< 0'9 }.
 digits([D|Ds]) --> digit(D), !, digits(Ds).
@@ -337,24 +390,126 @@ comment_body --> [].
 %% Interpreter
 %% ==========================================================================
 
-exec_procedure(program(_Files, _Groups, _Globals, _Map, Procs), ProcName, ArgValues, Result) :-
-    memberchk(procedure(ProcName, Params, _RetType, _Locals, Body), Procs),
-    bind_params(Params, ArgValues, Env),
-    exec_body(Body, Env, Result).
+exec_procedure(program(Files, Groups, Globals, Map, Procs), ProcName, ArgValues, Result) :-
+    AST = program(Files, Groups, Globals, Map, Procs),
+    memberchk(procedure(ProcName, Params, _RetType, Locals, Body), Procs),
+    bind_params(Params, ArgValues, ParamEnv),
+    init_locals(Locals, LocalEnv),
+    init_globals(Globals, GlobalEnv),
+    append(LocalEnv, ParamEnv, EnvL),
+    append(GlobalEnv, EnvL, Env0),
+    Env = [program_ast(AST)|Env0],
+    ( exec_body(Body, Env, _NewEnv, Result) -> true
+    ; Result = void % Procedures might not return anything
+    ).
 
 bind_params([], [], []).
 bind_params([param(Name, _)|Ps], [V|Vs], [Name=V|Es]) :-
     bind_params(Ps, Vs, Es).
 
-exec_body([return(Expr)|_], Env, Result) :-
-    eval(Expr, Env, Result).
-exec_body([assign(Var, Expr)|Rest], Env, Result) :-
-    eval(Expr, Env, Val),
-    exec_body(Rest, [Var=Val|Env], Result).
-exec_body([_|Rest], Env, Result) :-
-    exec_body(Rest, Env, Result).
+init_locals([], []).
+init_locals([local(Name, _, Init)|Ls], [Name=Init|Es]) :-
+    init_locals(Ls, Es).
 
-eval(lit(N), _, N).
-eval(var(Name), Env, V) :- memberchk(Name=V, Env).
-eval(add(A, B), Env, V) :- eval(A, Env, VA), eval(B, Env, VB), V is VA + VB.
-eval(mul(A, B), Env, V) :- eval(A, Env, VA), eval(B, Env, VB), V is VA * VB.
+init_globals([], []).
+init_globals([global(Name, _, Init)|Gs], [Name=Init|Es]) :-
+    init_globals(Gs, Es).
+
+% exec_body(Statements, Env, NewEnv, Result)
+exec_body([], Env, Env, _).
+
+exec_body([return(Expr)|_], Env, Env, Result) :- !,
+    eval(Expr, Env, Result).
+
+exec_body([assign(Var, Expr)|Rest], Env, FinalEnv, Result) :- !,
+    eval(Expr, Env, Val),
+    update_env(Var, Val, Env, Env1),
+    exec_body(Rest, Env1, FinalEnv, Result).
+
+exec_body([if(Cond, Then, Else)|Rest], Env, FinalEnv, Result) :- !,
+    eval(Cond, Env, Val),
+    ( Val \= 0 -> Body = Then ; Body = Else ),
+    ( exec_body(Body, Env, Env1, Result) ->
+        ( nonvar(Result) -> FinalEnv = Env1 % Returned from IF
+        ; exec_body(Rest, Env1, FinalEnv, Result)
+        )
+    ; exec_body(Rest, Env, FinalEnv, Result)
+    ).
+
+exec_body([loop(Body)|Rest], Env, FinalEnv, Result) :- !,
+    exec_loop(Body, Env, Env1, LoopResult),
+    ( LoopResult = return(R) -> Result = R, FinalEnv = Env1
+    ; exec_body(Rest, Env1, FinalEnv, Result)
+    ).
+
+exec_body([call(Name, Args)|Rest], Env, FinalEnv, Result) :- !,
+    eval(call(Name, Args), Env, _),
+    exec_body(Rest, Env, FinalEnv, Result).
+
+exec_body([break|_], Env, Env, break) :- !.
+
+exec_body([_|Rest], Env, FinalEnv, Result) :-
+    exec_body(Rest, Env, FinalEnv, Result).
+
+% exec_loop(Body, Env, NewEnv, LoopResult)
+exec_loop(Body, Env, FinalEnv, LoopResult) :-
+    exec_body(Body, Env, Env1, Result),
+    ( Result == break -> LoopResult = ok, FinalEnv = Env1
+    ; nonvar(Result) -> LoopResult = return(Result), FinalEnv = Env1
+    ; exec_loop(Body, Env1, FinalEnv, LoopResult)
+    ).
+
+update_env(Var, Val, [Var=_|Env], [Var=Val|Env]) :- !.
+update_env(Var, Val, [Other|Env], [Other|Env1]) :- update_env(Var, Val, Env, Env1).
+update_env(Var, Val, [], [Var=Val]).
+
+eval(lit(N), _, N) :- !.
+eval(var(Name), Env, V) :- !, (memberchk(Name=V, Env) -> true ; V = 0). % Default to 0 for uninit
+eval(call('SIZE', [var(Name)]), Env, V) :- !,
+    eval_size(Name, Env, V).
+eval(call('ADDRESS', [_]), _, 1234). % Mock address
+eval(call('POINTER', [_]), _, 1).    % Mock pointer
+eval(call('TODAY', []), _, 80000).   % Mock date
+eval(call('ERRORCODE', []), _, 1).    % Mock error to break loops
+eval(call('SET', [_]), _, 0).
+eval(call('NEXT', [_]), _, 1).
+eval(call('OPEN', [_]), _, 0).
+eval(call('CREATE', [_]), _, 0).
+eval(call('CLOSE', [_]), _, 0).
+eval(call('ADD', [_]), _, 0).
+eval(call('PUT', [_]), _, 0).
+eval(call('GET', [_, _]), _, 0).
+eval(call('CLEAR', [var(Name)]), Env, 0) :- !,
+    update_env(Name, 0, Env, _).
+eval(call('MemCopy', [_, _, _]), _, 0).
+eval(call(Name, Args), Env, V) :- !,
+    maplist(eval_in_env(Env), Args, ArgVals),
+    ( memberchk(program_ast(AST), Env) -> true ; fail ),
+    exec_procedure(AST, Name, ArgVals, V).
+eval(add(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), V is VA + VB.
+eval(mul(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), V is VA * VB.
+eval(eq(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA =:= VB -> V = 1 ; V = 0).
+eval(neq(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA \= VB -> V = 1 ; V = 0).
+eval(lt(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA < VB -> V = 1 ; V = 0).
+eval(lte(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA =< VB -> V = 1 ; V = 0).
+eval(gt(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA > VB -> V = 1 ; V = 0).
+eval(gte(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA >= VB -> V = 1 ; V = 0).
+
+eval_in_env(Env, Expr, Val) :- eval(Expr, Env, Val).
+
+eval_size(Name, Env, Size) :-
+    memberchk(program_ast(program(Files, Groups, _Globals, _Map, _Procs)), Env),
+    ( memberchk(group(Name, _, Fields), Groups) -> calc_fields_size(Fields, Size)
+    ; memberchk(file(Name, _, _, Fields), Files) -> calc_fields_size(Fields, Size)
+    ; Size = 4 % Default for LONG
+    ).
+
+calc_fields_size([], 0).
+calc_fields_size([field(_, Type)|Fs], Size) :-
+    type_size(Type, S1),
+    calc_fields_size(Fs, S2),
+    Size is S1 + S2.
+
+type_size(long, 4).
+type_size(cstring(N), N).
+type_size(cstring, 1). % Minimal

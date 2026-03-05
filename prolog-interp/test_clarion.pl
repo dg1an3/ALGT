@@ -328,4 +328,235 @@ main :-
     run(test_local_vars),
     run(test_cstring_params),
     run(test_diagstore_parse),
+    nl,
+    format("Chunk 2 — Control flow:~n"),
+    run(test_if_then_dot),
+    run(test_if_block),
+    run(test_if_else_block),
+    run(test_loop_break),
+    nl,
+    format("Chunk 3 — Expressions & assignment:~n"),
+    run(test_qualified_names),
+    run(test_compound_assign),
+    nl,
+    format("Chunk 4 — Builtins & procedure calls:~n"),
+    run(test_procedure_call),
+    run(test_size_intrinsic),
+    run(test_diagstore_full),
     format("~nAll tests complete.~n").
+
+%% ==========================================================================
+%% Integration test
+%% ==========================================================================
+
+test_diagstore_full :-
+    read_file_to_codes('../diagnosis-store/DiagnosisStore.clw', Codes, []),
+    parse_clarion(Codes, AST),
+    format("  DiagnosisStore.clw (full parse)"),
+    ( AST = program(_, _, _, _, _) -> format(" [PASS]~n") ; format(" [FAIL]~n") ),
+    format("  DiagnosisStore.clw DSOpenStore()"),
+    exec_procedure(AST, 'DSOpenStore', [], R1),
+    % Expecting -2 due to mocked error on OPEN/CREATE
+    ( R1 =:= -2 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ),
+    format("  DiagnosisStore.clw DSCreateDiagnosis(...)"),
+    % patientID, icdCode, desc, tstage, nstage, mstage, ostage, diagDate
+    exec_procedure(AST, 'DSCreateDiagnosis', [123, "C34.1", "Lung Cancer", "T2", "N0", "M0", "IIA", 0], R2),
+    % Expecting -2 due to mocked error on ADD
+    ( R2 =:= -2 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ).
+
+%% ==========================================================================
+%% Chunk 4 tests — Builtins & procedure calls
+%% ==========================================================================
+
+% Test: User-defined procedure call
+proc_call_source("
+  MEMBER()
+  MAP
+    Square(LONG),LONG
+    TestCall(LONG),LONG
+  END
+
+Square PROCEDURE(LONG n)
+  CODE
+  RETURN(n * n)
+
+TestCall PROCEDURE(LONG n)
+  CODE
+  RETURN(Square(n) + 1)
+").
+
+test_procedure_call :-
+    proc_call_source(Src),
+    parse_clarion(Src, AST),
+    format("  Procedure call (Square(n))"),
+    exec_procedure(AST, 'TestCall', [4], R1),
+    ( R1 =:= 17 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ).
+
+% Test: SIZE intrinsic
+size_source("
+  MEMBER()
+DiagBuf GROUP,PRE(DB)
+RecordID  LONG
+PatientID LONG
+        END
+  MAP
+    TestSize(),LONG
+  END
+
+TestSize PROCEDURE()
+  CODE
+  RETURN(SIZE(DiagBuf))
+").
+
+test_size_intrinsic :-
+    size_source(Src),
+    parse_clarion(Src, AST),
+    format("  SIZE(DiagBuf)"),
+    exec_procedure(AST, 'TestSize', [], R1),
+    ( R1 =:= 8 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ).
+
+%% ==========================================================================
+%% Chunk 3 tests — Expressions & assignment
+%% ==========================================================================
+
+% Test: Qualified names (DX:RecordID, DB:ICDCode)
+qualified_names_source("
+  MEMBER()
+DiagFile FILE,DRIVER('DOS'),PRE(DX)
+Record     RECORD
+RecordID     LONG
+           END
+         END
+  MAP
+    TestQual(),LONG
+  END
+
+TestQual PROCEDURE()
+  CODE
+  DX:RecordID = 100
+  RETURN(DX:RecordID)
+").
+
+test_qualified_names :-
+    qualified_names_source(Src),
+    parse_clarion(Src, AST),
+    format("  Qualified names (DX:RecordID)"),
+    exec_procedure(AST, 'TestQual', [], R1),
+    ( R1 =:= 100 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ).
+
+% Test: Compound assignment (var += expr)
+compound_assign_source("
+  MEMBER()
+  MAP
+    TestAdd(LONG),LONG
+  END
+
+TestAdd PROCEDURE(LONG val)
+i LONG(10)
+  CODE
+  i += val
+  RETURN(i)
+").
+
+test_compound_assign :-
+    compound_assign_source(Src),
+    parse_clarion(Src, AST),
+    format("  Compound assignment (i += val)"),
+    exec_procedure(AST, 'TestAdd', [5], R1),
+    ( R1 =:= 15 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ).
+
+%% ==========================================================================
+%% Chunk 2 tests — Control flow
+%% ==========================================================================
+
+% Test: IF expr THEN statement .
+if_then_dot_source("
+  MEMBER()
+  MAP
+    TestIf(LONG),LONG
+  END
+
+TestIf PROCEDURE(LONG val)
+  CODE
+  IF val = 1 THEN RETURN(10).
+  RETURN(20)
+").
+
+test_if_then_dot :-
+    if_then_dot_source(Src),
+    parse_clarion(Src, AST),
+    format("  IF expr THEN statement ."),
+    exec_procedure(AST, 'TestIf', [1], R1),
+    exec_procedure(AST, 'TestIf', [0], R2),
+    ( R1 =:= 10, R2 =:= 20 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w, R2=~w]~n", [R1, R2]) ).
+
+% Test: IF expr / stmts / END
+if_block_source("
+  MEMBER()
+  MAP
+    TestIf(LONG),LONG
+  END
+
+TestIf PROCEDURE(LONG val)
+  CODE
+  IF val = 1
+    RETURN(10)
+  END
+  RETURN(20)
+").
+
+test_if_block :-
+    if_block_source(Src),
+    parse_clarion(Src, AST),
+    format("  IF expr / stmts / END"),
+    exec_procedure(AST, 'TestIf', [1], R1),
+    exec_procedure(AST, 'TestIf', [0], R2),
+    ( R1 =:= 10, R2 =:= 20 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w, R2=~w]~n", [R1, R2]) ).
+
+% Test: IF expr / stmts / ELSE / stmts / END
+if_else_block_source("
+  MEMBER()
+  MAP
+    TestIf(LONG),LONG
+  END
+
+TestIf PROCEDURE(LONG val)
+  CODE
+  IF val = 1
+    RETURN(10)
+  ELSE
+    RETURN(30)
+  END
+").
+
+test_if_else_block :-
+    if_else_block_source(Src),
+    parse_clarion(Src, AST),
+    format("  IF expr / stmts / ELSE / stmts / END"),
+    exec_procedure(AST, 'TestIf', [1], R1),
+    exec_procedure(AST, 'TestIf', [0], R2),
+    ( R1 =:= 10, R2 =:= 30 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w, R2=~w]~n", [R1, R2]) ).
+
+% Test: LOOP / stmts / END and BREAK
+loop_break_source("
+  MEMBER()
+  MAP
+    TestLoop(LONG),LONG
+  END
+
+TestLoop PROCEDURE(LONG count)
+i LONG(0)
+  CODE
+  LOOP
+    IF i = count THEN BREAK.
+    i = i + 1
+  END
+  RETURN(i)
+").
+
+test_loop_break :-
+    loop_break_source(Src),
+    parse_clarion(Src, AST),
+    format("  LOOP / stmts / END and BREAK"),
+    exec_procedure(AST, 'TestLoop', [5], R1),
+    ( R1 =:= 5 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ).
