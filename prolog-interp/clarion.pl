@@ -7,10 +7,17 @@
 :- module(clarion, [
     parse_clarion/2,
     exec_procedure/4,
+    init_file_io/0,
     program//1
 ]).
 
 :- set_prolog_flag(double_quotes, codes).
+
+%% File I/O simulation state (persists across exec_procedure calls)
+:- dynamic file_exists/1.      % file_exists(FileName)
+:- dynamic file_records/2.     % file_records(FileName, [RecordValuesList, ...])
+:- dynamic file_cursor/2.      % file_cursor(FileName, Position)  % 0 = before first
+:- dynamic last_errorcode/1.   % last_errorcode(Code)
 
 %% ==========================================================================
 %% AST definition
@@ -288,9 +295,6 @@ statement(break) -->
     kw("BREAK").
 
 statement(return(Expr)) -->
-    kw("RETURN"), ws, "(", ws, expr(Expr), ws, ")".
-
-statement(return(Expr)) -->
     kw("RETURN"), ws, expr(Expr).
 
 statement(assign(array_ref(Name, Index), Expr)) -->
@@ -322,7 +326,15 @@ case_else([]) --> [].
 
 %% --- Expressions ---
 
-expr(E) --> compare_expr(E).
+expr(E) --> or_expr(E).
+
+or_expr(E) --> and_expr(L), ws, or_rest(L, E).
+or_rest(L, or(L, R)) --> kw("OR"), ws, and_expr(R).
+or_rest(E, E) --> [].
+
+and_expr(E) --> compare_expr(L), ws, and_rest(L, E).
+and_rest(L, and(L, R)) --> kw("AND"), ws, compare_expr(R).
+and_rest(E, E) --> [].
 
 compare_expr(E) --> add_expr(L), ws, compare_rest(L, E).
 compare_rest(L, eq(L, R)) --> "=", ws, add_expr(R).
@@ -402,7 +414,7 @@ is_keyword(Name) :-
                'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET',
                'NEXT','OPEN','CLOSE','GET','PUT','ADD','CLEAR',
                'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER',
-               'TO','CASE','OF','DIM']).
+               'TO','CASE','OF','DIM','AND','OR']).
 
 % Integer literal
 number(N) -->
@@ -429,6 +441,134 @@ comment_body --> [].
 
 %% ==========================================================================
 %% Interpreter
+%% ==========================================================================
+
+%% --- File I/O initialization ---
+
+init_file_io :-
+    retractall(file_exists(_)),
+    retractall(file_records(_, _)),
+    retractall(file_cursor(_, _)),
+    retractall(last_errorcode(_)),
+    assert(last_errorcode(0)).
+
+set_errorcode(Code) :-
+    retractall(last_errorcode(_)),
+    assert(last_errorcode(Code)).
+
+%% --- Statement-level call dispatch (handles file builtins + user procs) ---
+%% exec_stmt_call(+Name, +RawArgs, +Env, -NewEnv)
+
+exec_stmt_call('OPEN', [var(FileName)], Env, Env) :- !,
+    ( file_exists(FileName) -> set_errorcode(0)
+    ; set_errorcode(2)  % File not found
+    ).
+
+exec_stmt_call('CREATE', [var(FileName)], Env, Env) :- !,
+    retractall(file_exists(FileName)),
+    retractall(file_records(FileName, _)),
+    assert(file_exists(FileName)),
+    assert(file_records(FileName, [])),
+    set_errorcode(0).
+
+exec_stmt_call('CLOSE', [var(_FileName)], Env, Env) :- !,
+    set_errorcode(0).
+
+exec_stmt_call('SET', [var(FileName)], Env, Env) :- !,
+    retractall(file_cursor(FileName, _)),
+    assert(file_cursor(FileName, 0)).
+
+exec_stmt_call('NEXT', [var(FileName)], Env, NewEnv) :- !,
+    ( file_cursor(FileName, Pos) -> true ; Pos = 0 ),
+    NextPos is Pos + 1,
+    retractall(file_cursor(FileName, _)),
+    assert(file_cursor(FileName, NextPos)),
+    ( file_records(FileName, Records),
+      nth1(NextPos, Records, Record) ->
+        set_errorcode(0),
+        memberchk(program_ast(AST), Env),
+        AST = program(Files, _, _, _, _),
+        memberchk(file(FileName, Prefix, _, Fields), Files),
+        load_record_to_env(Prefix, Fields, Record, Env, NewEnv)
+    ;
+        set_errorcode(33),  % End of file
+        NewEnv = Env
+    ).
+
+exec_stmt_call('ADD', [var(FileName)], Env, Env) :- !,
+    memberchk(program_ast(AST), Env),
+    AST = program(Files, _, _, _, _),
+    memberchk(file(FileName, Prefix, _, Fields), Files),
+    read_record_from_env(Prefix, Fields, Env, Record),
+    ( file_records(FileName, Records) ->
+        retractall(file_records(FileName, _)),
+        append(Records, [Record], NewRecords),
+        assert(file_records(FileName, NewRecords))
+    ;
+        assert(file_records(FileName, [Record]))
+    ),
+    set_errorcode(0).
+
+exec_stmt_call('PUT', [var(FileName)], Env, Env) :- !,
+    ( file_cursor(FileName, Pos), Pos > 0 ->
+        memberchk(program_ast(AST), Env),
+        AST = program(Files, _, _, _, _),
+        memberchk(file(FileName, Prefix, _, Fields), Files),
+        read_record_from_env(Prefix, Fields, Env, Record),
+        file_records(FileName, Records),
+        replace_nth1_list(Pos, Records, Record, NewRecords),
+        retractall(file_records(FileName, _)),
+        assert(file_records(FileName, NewRecords)),
+        set_errorcode(0)
+    ;
+        set_errorcode(1)
+    ).
+
+exec_stmt_call('CLEAR', [var(RecRef)], Env, NewEnv) :- !,
+    memberchk(program_ast(AST), Env),
+    AST = program(Files, _, _, _, _),
+    atom_codes(RecRef, RecRefCodes),
+    ( append(PrefixCodes, [0':|_], RecRefCodes) ->
+        atom_codes(Prefix, PrefixCodes),
+        memberchk(file(_, Prefix, _, Fields), Files),
+        clear_fields(Prefix, Fields, Env, NewEnv)
+    ;
+        NewEnv = Env
+    ).
+
+exec_stmt_call('MemCopy', _, Env, Env) :- !.
+
+% User-defined procedure call (fallback)
+exec_stmt_call(Name, Args, Env, Env) :-
+    maplist(eval_in_env(Env), Args, ArgVals),
+    memberchk(program_ast(AST), Env),
+    exec_procedure(AST, Name, ArgVals, _).
+
+%% --- File I/O helpers ---
+
+load_record_to_env(_, [], [], Env, Env).
+load_record_to_env(Prefix, [field(FName, _)|Fs], [V|Vs], Env, NewEnv) :-
+    atomic_list_concat([Prefix, ':', FName], QName),
+    update_env(QName, V, Env, Env1),
+    load_record_to_env(Prefix, Fs, Vs, Env1, NewEnv).
+
+read_record_from_env(_, [], _, []).
+read_record_from_env(Prefix, [field(FName, _)|Fs], Env, [V|Vs]) :-
+    atomic_list_concat([Prefix, ':', FName], QName),
+    ( memberchk(QName=V, Env) -> true ; V = 0 ),
+    read_record_from_env(Prefix, Fs, Env, Vs).
+
+clear_fields(_, [], Env, Env).
+clear_fields(Prefix, [field(FName, _)|Fs], Env, NewEnv) :-
+    atomic_list_concat([Prefix, ':', FName], QName),
+    update_env(QName, 0, Env, Env1),
+    clear_fields(Prefix, Fs, Env1, NewEnv).
+
+replace_nth1_list(1, [_|Rest], Elem, [Elem|Rest]) :- !.
+replace_nth1_list(N, [X|Rest], Elem, [X|NewRest]) :-
+    N > 1, N1 is N - 1,
+    replace_nth1_list(N1, Rest, Elem, NewRest).
+
 %% ==========================================================================
 
 exec_procedure(program(Files, Groups, Globals, Map, Procs), ProcName, ArgValues, Result) :-
@@ -513,8 +653,8 @@ exec_body([case(Expr, Ofs, Else)|Rest], Env, FinalEnv, Result) :- !,
     ).
 
 exec_body([call(Name, Args)|Rest], Env, FinalEnv, Result) :- !,
-    eval(call(Name, Args), Env, _),
-    exec_body(Rest, Env, FinalEnv, Result).
+    exec_stmt_call(Name, Args, Env, Env1),
+    exec_body(Rest, Env1, FinalEnv, Result).
 
 exec_body([break|_], Env, Env, break) :- !.
 
@@ -581,21 +721,11 @@ eval(array_ref(Name, IndexExpr), Env, V) :- !,
     ).
 eval(call('SIZE', [var(Name)]), Env, V) :- !,
     eval_size(Name, Env, V).
-eval(call('ADDRESS', [_]), _, 1234). % Mock address
-eval(call('POINTER', [_]), _, 1).    % Mock pointer
-eval(call('TODAY', []), _, 80000).   % Mock date
-eval(call('ERRORCODE', []), _, 1).    % Mock error to break loops
-eval(call('SET', [_]), _, 0).
-eval(call('NEXT', [_]), _, 1).
-eval(call('OPEN', [_]), _, 0).
-eval(call('CREATE', [_]), _, 0).
-eval(call('CLOSE', [_]), _, 0).
-eval(call('ADD', [_]), _, 0).
-eval(call('PUT', [_]), _, 0).
-eval(call('GET', [_, _]), _, 0).
-eval(call('CLEAR', [var(Name)]), Env, 0) :- !,
-    update_env(Name, 0, Env, _).
-eval(call('MemCopy', [_, _, _]), _, 0).
+eval(call('ADDRESS', [_]), _, 1234) :- !. % Mock address
+eval(call('POINTER', [_]), _, 1) :- !.    % Mock pointer
+eval(call('TODAY', []), _, 80000) :- !.   % Mock date
+eval(call('ERRORCODE', []), _, V) :- !,
+    ( last_errorcode(V) -> true ; V = 0 ).
 eval(call(Name, Args), Env, V) :- !,
     maplist(eval_in_env(Env), Args, ArgVals),
     ( memberchk(program_ast(AST), Env) -> true ; fail ),
@@ -604,6 +734,8 @@ eval(add(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), V is VA + VB.
 eval(sub(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), V is VA - VB.
 eval(mul(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), V is VA * VB.
 eval(div(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VB \= 0 -> V is VA // VB ; V = 0).
+eval(and(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA \= 0, VB \= 0 -> V = 1 ; V = 0).
+eval(or(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), ((VA \= 0 ; VB \= 0) -> V = 1 ; V = 0).
 eval(eq(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA =:= VB -> V = 1 ; V = 0).
 eval(neq(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA \= VB -> V = 1 ; V = 0).
 eval(lt(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA < VB -> V = 1 ; V = 0).

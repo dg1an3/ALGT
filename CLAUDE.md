@@ -2,6 +2,12 @@
 
 Experiments learning Clarion language semantics: building, DLL exports, and Python interop.
 
+## TODO FROM DEREK
+* Separate clarion.pl in to clarion_parser.pl and clarion_interpreter.pl (and separate tests as well)
+* Implement an ODBC-based data store, and then get the clarion_interpreter to support this as well
+* Add a project with a GUI form, and then determine how best to simulate that with the interpreter (web interface?)
+* Document strategy for determining that execution traces match between interpreter and compiled code -- can we temporarily instrument clarion code with logging statements?  add instrumentation to both sides — for example, having the Prolog interpreter emit a log of (procedure, statement, variable_state) tuples at each step, and adding equivalent logging to the Python wrapper around the DLL calls. Would that kind of step-level tracing be useful?
+
 ## Projects
 
 ### hello-world/

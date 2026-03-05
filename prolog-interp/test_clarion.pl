@@ -343,8 +343,55 @@ main :-
     run(test_procedure_call),
     run(test_size_intrinsic),
     run(test_diagstore_full),
+    run(test_sensorlib),
     run(test_stats_calc),
     format("~nAll tests complete.~n").
+
+test_sensorlib :-
+    File = '../sensor-data/SensorLib.clw',
+    ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
+    read_file_to_codes(File, Codes, []),
+    format("  SensorLib.clw parse"),
+    ( parse_clarion(Codes, AST) -> format(" [PASS]~n") ; format(" [FAIL: parse]~n"), fail ),
+
+    % Match the Python test_sensorlib.py execution trace exactly
+    init_file_io,
+
+    format("  SSOpen()"),
+    exec_procedure(AST, 'SSOpen', [], R0),
+    ( R0 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R0=~w]~n", [R0]) ),
+
+    % Add readings: Processed = (val * w) / 100
+    format("  SSAddReading(1, 100, 50)"),
+    exec_procedure(AST, 'SSAddReading', [1, 100, 50], R1),
+    ( R1 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ),
+
+    format("  SSAddReading(2, 200, 25)"),
+    exec_procedure(AST, 'SSAddReading', [2, 200, 25], R2),
+    ( R2 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ),
+
+    format("  SSAddReading(3, 300, 10)"),
+    exec_procedure(AST, 'SSAddReading', [3, 300, 10], R3),
+    ( R3 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R3=~w]~n", [R3]) ),
+
+    % Weighted average: (50+50+30)*100 / (50+25+10) = 13000/85 = 152
+    format("  SSCalculateWeightedAverage() = 152"),
+    exec_procedure(AST, 'SSCalculateWeightedAverage', [], Avg),
+    ( Avg =:= 152 -> format(" [PASS]~n") ; format(" [FAIL: Avg=~w]~n", [Avg]) ),
+
+    % Cleanup readings below 150: ID 1 (reading=100) removed
+    format("  SSCleanupLowReadings(150) = 1"),
+    exec_procedure(AST, 'SSCleanupLowReadings', [150], Removed),
+    ( Removed =:= 1 -> format(" [PASS]~n") ; format(" [FAIL: Removed=~w]~n", [Removed]) ),
+
+    % New average: (50+30)*100 / (25+10) = 8000/35 = 228
+    format("  SSCalculateWeightedAverage() = 228"),
+    exec_procedure(AST, 'SSCalculateWeightedAverage', [], Avg2),
+    ( Avg2 =:= 228 -> format(" [PASS]~n") ; format(" [FAIL: Avg2=~w]~n", [Avg2]) ),
+
+    format("  SSClose()"),
+    exec_procedure(AST, 'SSClose', [], R4),
+    ( R4 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R4=~w]~n", [R4]) ).
 
 test_stats_calc :-
     File = '../stats-calc/StatsLib.clw',
@@ -357,9 +404,9 @@ test_stats_calc :-
         ( R1 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) )
     ; format(" [FAIL: exec CalculateStats]~n")
     ),
-    format("  StatsLib.clw Classify(5)"),
+    format("  StatsLib.clw Classify(5) = 1 (Low)"),
     ( exec_procedure(AST, 'Classify', [5], R2) ->
-        ( R2 == 'Low' -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) )
+        ( R2 =:= 1 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) )
     ; format(" [FAIL: exec Classify]~n")
     ).
 
@@ -372,15 +419,13 @@ test_diagstore_full :-
     parse_clarion(Codes, AST),
     format("  DiagnosisStore.clw (full parse)"),
     ( AST = program(_, _, _, _, _) -> format(" [PASS]~n") ; format(" [FAIL]~n") ),
+    init_file_io,
     format("  DiagnosisStore.clw DSOpenStore()"),
     exec_procedure(AST, 'DSOpenStore', [], R1),
-    % Expecting -2 due to mocked error on OPEN/CREATE
-    ( R1 =:= -2 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ),
+    ( R1 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ),
     format("  DiagnosisStore.clw DSCreateDiagnosis(...)"),
-    % patientID, icdCode, desc, tstage, nstage, mstage, ostage, diagDate
     exec_procedure(AST, 'DSCreateDiagnosis', [123, "C34.1", "Lung Cancer", "T2", "N0", "M0", "IIA", 0], R2),
-    % Expecting -2 due to mocked error on ADD
-    ( R2 =:= -2 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ).
+    ( R2 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ).
 
 %% ==========================================================================
 %% Chunk 4 tests — Builtins & procedure calls
