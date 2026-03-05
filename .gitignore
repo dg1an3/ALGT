@@ -35,3 +35,8 @@ Desktop.ini
 __pycache__/
 *.pyc
 *.pyo
+
+# macOS / editors
+*~
+.DS_Store
+.vs

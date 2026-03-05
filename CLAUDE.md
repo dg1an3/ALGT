@@ -1,12 +1,47 @@
-# learn-clarion-semantics
+# ALGT + learn-clarion-semantics
 
-Experiments learning Clarion language semantics: building, DLL exports, and Python interop.
+Combined repository: formal algorithm verification (ALGT) + Clarion language semantics experiments.
 
 ## TODO FROM DEREK
 * ~~Separate clarion.pl in to clarion_parser.pl and clarion_interpreter.pl (and separate tests as well)~~ DONE
 * ~~Implement an ODBC-based data store, and then get the clarion_interpreter to support this as well~~ DONE — odbc-store/ project with SQL Server LocalDB + OWNER/KEY/DELETE parser support
 * ~~Add a project with a GUI form, and then determine how best to simulate that with the interpreter (web interface?)~~ DONE — form-demo/ project + event queue simulation in interpreter
 * ~~Document strategy for determining that execution traces match between interpreter and compiled code~~ DONE — see Execution Trace Comparison section below
+
+## Technology Stack
+
+- **Clarion 11.1**: 4GL language, compiles to 32-bit Windows DLLs/EXEs
+- **SWI Prolog**: Two Clarion interpreters (prolog-interp/ and clarion_interpreter/)
+- **Logtalk**: Object-oriented Prolog extension (ALGT domain models)
+- **Python 3.11 (32-bit)**: ctypes interop with Clarion DLLs
+- **MSBuild**: Clarion project builds (.cwproj)
+
+## Repository Structure
+
+### Clarion Projects (compiled, tested)
+- `hello-world/` — Simple PROGRAM exe
+- `python-dll/` — DLL with exported functions callable from Python
+- `diagnosis-store/` — DOS flat-file CRUD DLL with Python wrapper
+- `sensor-data/` — Sensor readings DLL, primary trace comparison test case
+- `stats-calc/` — Statistical calculations DLL
+- `form-demo/` — GUI form with WINDOW/ACCEPT event loop
+- `form-cli/` — CLI form with EventReader, .evt file format
+- `odbc-store/` — ODBC DLL with SQL Server LocalDB
+- `clarion_examples/` — Reference .clw files (syntax documentation)
+
+### Clarion Interpreters (Prolog)
+- `prolog-interp/` — Original interpreter (2,764 lines, 3 files, simple)
+- `clarion_interpreter/` — ALGT interpreter (7,629 lines, 18 files, modular)
+
+### ALGT Verification & Domain Models
+- `algt_tests/` — Formal verification of geometric algorithms (beam volume, mesh, margins)
+- `domain_models/` — Logtalk domain models (to be reorganized here)
+- `model_checker/` — Concurrent operation verification
+- `mcp_server/` — MCP server implementations (Prolog, Erlang, Elixir)
+
+### Supporting
+- `docs/` — Documentation
+- `run_tests.pl` — ALGT test runner
 
 ## Execution Trace Comparison
 
@@ -35,19 +70,11 @@ diff <(cd sensor-data && python trace_sensorlib.py | grep "^CALL") \
 
 The Prolog interpreter traces every statement: `assign`, `call`, `if` (with condition value and branch taken), `loop` enter/exit, `break`, and `return`. Enabled via `set_trace(on)`.
 
-This level is not available from the compiled DLL without source instrumentation.
-
 ### Level 3: Instrumented Clarion source (future)
 
-To get statement-level traces from the compiled DLL:
-1. Add a `TraceLog(LONG bufPtr)` export to a shared logging DLL
-2. Insert `TraceLog('SSAddReading:after_clear')` calls at key points in the `.clw` source
-3. Both sides (Prolog interpreter + instrumented DLL) emit the same trace point IDs
-4. Compare the trace point sequences with `diff`
+Insert `TraceLog('label')` calls at key points in `.clw` source, compare trace point sequences with `diff`.
 
-This requires recompiling the Clarion DLL with the instrumentation, so it's best used for targeted debugging rather than continuous CI.
-
-## Projects
+## Clarion Projects Detail
 
 ### hello-world/
 Simple Clarion EXE that displays a message box. Uses `PROGRAM` keyword.
@@ -55,166 +82,74 @@ Simple Clarion EXE that displays a message box. Uses `PROGRAM` keyword.
 ### python-dll/
 Clarion DLL with exported functions called from Python via `ctypes`.
 
-**Key files:**
-- `MathLib.clw` — Clarion source with `MathAdd` and `Multiply` procedures
-- `MathLib.cwproj` — MSBuild project (`OutputType=Library`, `Model=Dll`)
-- `MathLib.exp` — Export definitions
-- `MathLib.sln` — Solution file
-- `test_mathlib.py` — Python test script using `ctypes.CDLL`
+**Key files:** `MathLib.clw`, `MathLib.cwproj`, `test_mathlib.py`
 
 **Build & test:**
 ```bash
 cd python-dll
 /c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe MathLib.cwproj
-cp ../hello-world/bin/ClaRUN.dll bin/   # Clarion runtime dependency
+cp ../hello-world/bin/ClaRUN.dll bin/
 ~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe test_mathlib.py
 ```
 
 **Important:** Clarion 11 produces 32-bit DLLs, so a 32-bit Python is required (`3.11.9-win32`).
 
 ### diagnosis-store/
-Clarion DLL with DOS flat-file storage for cancer diagnosis records, called from Python via a wrapper module.
+Clarion DLL with DOS flat-file storage for cancer diagnosis records.
 
-**Key files:**
-- `DiagnosisStore.clw` — Clarion DLL source with 8 exported CRUD + approval functions
-- `DiagnosisStore.cwproj` — MSBuild project (links `ClaDOS.lib` for the DOS file driver)
-- `diagnosis_store.py` — Python wrapper: `DiagnosisStore` context manager, `Diagnosis` dataclass, Clarion date conversion
-- `test_diagnosis_store.py` — 8 tests covering create/read/update/approve/delete/list/persistence
-
-**Build & test:**
-```bash
-cd diagnosis-store
-/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe DiagnosisStore.cwproj
-cp ../hello-world/bin/ClaRUN.dll bin/   # Clarion runtime
-~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe test_diagnosis_store.py
-```
-
-**Architecture:** Python → `ctypes.CDLL` → `DiagnosisStore.dll` → `Diagnosis.dat` (flat file)
+**Key files:** `DiagnosisStore.clw`, `diagnosis_store.py`, `test_diagnosis_store.py`
 
 **Key lessons learned:**
-- `*CSTRING` params with `C` calling convention pass a hidden `LONG length` before each string pointer on the stack. From Python, pass `(bufsize, c_char_p)` per `*CSTRING` param to match. See `_cstr_args()` helper in `diagnosis_store.py`.
-- File drivers need `<Library>` (not `<FileDriver>`) in `.cwproj`. Runtime driver DLL (e.g. `ClaDOS.dll`) must be in `bin/`.
-- Struct passing: `LONG` pointer param + `MemCopy` via `RtlMoveMemory`, with `ADDRESS()` and `SIZE()`. Python side uses `_pack_ = 1` to match Clarion's default GROUP packing.
+- `*CSTRING` params with `C` calling convention pass a hidden `LONG length` before each string pointer on the stack
+- File drivers need `<Library>` (not `<FileDriver>`) in `.cwproj`
+- Struct passing: `LONG` pointer param + `MemCopy` via `RtlMoveMemory`
 
 ### sensor-data/
-Clarion DLL with DOS flat-file sensor readings, weighted average calculations, and record cleanup. Used as the primary test case for execution trace comparison between the Prolog interpreter and compiled Clarion.
+Clarion DLL with DOS flat-file sensor readings, weighted average calculations, and record cleanup.
 
-**Key files:**
-- `SensorLib.clw` — Clarion DLL: SSOpen, SSClose, SSAddReading, SSGetReading, SSCalculateWeightedAverage, SSCleanupLowReadings
-- `SensorLib.cwproj` — MSBuild project (links `ClaDOS.lib`)
-- `test_sensorlib.py` — Python test (all assertions pass)
-- `trace_sensorlib.py` — Procedure-level trace output for diff comparison
-
-**Build & test:**
-```bash
-cd sensor-data
-/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe SensorLib.cwproj
-~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe test_sensorlib.py
-```
-
-**Architecture:** Python → `ctypes.CDLL` → `SensorLib.dll` → `Sensors.dat` (DOS flat file)
+**Key files:** `SensorLib.clw`, `test_sensorlib.py`, `trace_sensorlib.py`
 
 ### form-demo/
-Clarion EXE with a GUI form for sensor data entry. Uses `PROGRAM` (not `MEMBER`), WINDOW declaration with controls, and ACCEPT event loop. Used as the test case for GUI simulation in the Prolog interpreter.
+Clarion EXE with a GUI form for sensor data entry. WINDOW/ACCEPT event loop.
 
-**Key files:**
-- `FormDemo.clw` — Clarion PROGRAM with WINDOW, ENTRY, BUTTON controls, ACCEPT/CASE event handling
-- `FormDemo.cwproj` — MSBuild project (`OutputType=WinExe`, `Model=Exe`)
+**Key files:** `FormDemo.clw`, `FormDemo.cwproj`, `test_formdemo_gui.py`, `compare_traces.py`
 
-**Build:**
-```bash
-cd form-demo
-/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe FormDemo.cwproj
-```
+### form-cli/
+CLI version of FormDemo using EventReader.clw and .evt event files.
 
-**GUI simulation approach:** The Prolog interpreter simulates the GUI event loop via an event queue. `exec_program(AST, Events, Result)` takes a list of simulated events (equate numbers for button presses), feeds them one-at-a-time through the ACCEPT loop, and executes the CASE body for each event. No actual GUI rendering — pure behavioral simulation.
+**Key files:** `FormDemo_CLI.clw`, `EventReader.clw`, `FormDemo_CLI.cwproj`, `gui-to-cli.md`
 
 ### odbc-store/
-Clarion DLL with ODBC-based sensor reading storage using SQL Server LocalDB. Demonstrates Clarion's ODBC file driver with the same file I/O operations (OPEN, SET, NEXT, ADD, DELETE, CLOSE) used for flat files.
+Clarion DLL with ODBC-based sensor reading storage using SQL Server.
 
-**Key files:**
-- `OdbcStore.clw` — Clarion DLL: ODBCOpen, ODBCClose, ODBCAddReading, ODBCGetReading, ODBCCountReadings, ODBCDeleteAll
-- `OdbcStore.cwproj` — MSBuild project (links `ClaODB.lib`)
-- `setup_db.py` — One-time setup: creates OdbcDemo database, User DSN, and SensorReadings table
-- `test_odbcstore.py` — Python test (16 assertions pass)
-
-**Setup & test:**
-```bash
-cd odbc-store
-sqllocaldb start MSSQLLocalDB
-~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe setup_db.py
-/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe OdbcStore.cwproj
-~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe test_odbcstore.py
-```
-
-**Architecture:** Python → `ctypes.CDLL` → `OdbcStore.dll` → ODBC → SQL Server LocalDB (`OdbcDemo.SensorReadings`)
-
-**Key lessons learned:**
-- Clarion's ODBC driver uses `DRIVER('ODBC')` with `OWNER('DSN_name')` for the connection
-- `{` and `}` in Clarion string literals conflict with `<nn>` character escaping; use a DSN instead of DSN-less connection strings with `{Driver Name}`
-- ODBC DELETE requires a KEY with PRIMARY on the FILE declaration
-- Runtime DLLs: `ClaODB.dll` and `Claodbcs.dll` must be in `bin/` alongside the built DLL
+**Key files:** `OdbcStore.clw`, `setup_db.py`, `test_odbcstore.py`
 
 ### prolog-interp/
-SWI-Prolog interpreter for Clarion source code. Single-pass DCG grammar parses `.clw` files into an AST, then a separate interpreter executes the AST.
+Original SWI-Prolog interpreter for Clarion source code.
 
-**Key files:**
-- `clarion_parser.pl` — DCG grammar module (source → AST), supports MEMBER and PROGRAM forms, WINDOW/ACCEPT/controls
-- `clarion_interpreter.pl` — Interpreter module (AST → results) + file I/O simulation + GUI event simulation + execution tracing
-- `clarion.pl` — Convenience re-export of both modules (backward compatibility)
-- `test_parser.pl` — Parser-only tests (12 tests)
-- `test_interpreter.pl` — Interpreter-only tests (28 tests, includes GUI simulation)
-- `test_clarion.pl` — Combined test suite (28 tests, uses clarion.pl re-export)
-- `trace_sensorlib.pl` — Execution trace output for diff comparison with Python side
+**Key files:** `clarion_parser.pl`, `clarion_interpreter.pl`, `clarion.pl`, test suites
 
 **Run tests:**
 ```bash
 cd prolog-interp
-swipl -g "main,halt" -t "halt(1)" test_parser.pl       # parser only
-swipl -g "main,halt" -t "halt(1)" test_interpreter.pl   # interpreter only
-swipl -g "main,halt" -t "halt(1)" test_clarion.pl       # all tests
+swipl -g "main,halt" -t "halt(1)" test_parser.pl
+swipl -g "main,halt" -t "halt(1)" test_interpreter.pl
 ```
 
-**Run trace comparison:**
-```bash
-diff <(cd sensor-data && python trace_sensorlib.py | grep "^CALL") \
-     <(cd prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
-```
+## ALGT Components
 
-**Current status:** Parses and executes MathLib, DiagnosisStore, SensorLib, StatsLib, FormDemo, and OdbcStore. Full file I/O simulation (OPEN/CREATE/SET/NEXT/ADD/PUT/DELETE/CLEAR) with stateful record storage. GUI event simulation via `exec_program(AST, Events, Result)` for PROGRAM-style forms with WINDOW/ACCEPT. Global variable persistence across procedure calls. Execution trace mode (`set_trace(on)`) logs procedure entry/exit and every statement. Supports ODBC file declarations (OWNER, KEY/PRIMARY).
+### Algorithm Verification Tests (`algt_tests/`)
+Formal verification of geometric algorithms for medical imaging:
+- Beam Volume, Mesh Generation, Isodensity, Structure Projection, Margins, SSD
 
-**Expansion plan — DiagnosisStore support (4 chunks):**
+### Clarion Interpreter (`clarion_interpreter/`)
+Modular interpreter: lexer, parser, interpreter core, builtins, state management, control flow, expression evaluation, class support, execution tracer, UI backend, scenario DSL.
 
-Each chunk extends the DCG grammar and interpreter to handle more of `DiagnosisStore.clw`.
+### Model Checker (`model_checker/`)
+Verifies interleaved concurrent operations to identify race conditions.
 
-1. **Declarations & data model** (chunk 1)
-   - `FILE,DRIVER(),NAME(),CREATE,PRE() / RECORD / END / END`
-   - `GROUP,PRE() / fields / END`
-   - Field types: `CSTRING(n)`, `LONG`
-   - Global variables with initializers: `NextID LONG(0)`
-   - Local variables in procedures: `Count LONG(0)`
-   - Enhanced MAP: `MODULE()...END`, `PRIVATE`, `*CSTRING` param type, `RAW`/`PASCAL` attrs
-
-2. **Control flow** (chunk 2)
-   - `IF expr THEN statement .` (single-line, dot-terminated)
-   - `IF expr / stmts / END` (block form)
-   - `IF expr / stmts / ELSE / stmts / END`
-   - `LOOP / stmts / END`
-   - `BREAK`
-
-3. **Expressions & assignment** (chunk 3)
-   - Assignment: `var = expr`
-   - Compound assignment: `var += expr`
-   - Comparison operators: `=`, `<>`, `>=`
-   - Qualified names: `DX:RecordID`, `DB:ICDCode`
-   - Arithmetic in expressions: `bufPtr + Offset`, `Count * SIZE(DiagBuf)`
-   - Dot statement terminator
-
-4. **Builtins & procedure calls** (chunk 4)
-   - File I/O: `SET()`, `NEXT()`, `OPEN()`, `CREATE()`, `CLOSE()`, `GET()`, `PUT()`, `ADD()`, `CLEAR()`
-   - Intrinsics: `ERRORCODE()`, `TODAY()`, `ADDRESS()`, `SIZE()`, `POINTER()`
-   - User-defined procedure calls: `FindRecord(id)`
-   - External calls: `MemCopy(dest, src, len)`
+### MCP Servers (`mcp_server/`, `mcp_server_erlang/`, `mcp_server_elixir/`)
+Model Context Protocol server implementations for Claude Code integration.
 
 ## Clarion DLL Conventions
 
@@ -232,3 +167,16 @@ Each chunk extends the DCG grammar and interpreter to handle more of `DiagnosisS
 - Clarion 11.1 installed at `C:\Clarion11.1\`
 - MSBuild targets: `C:\Clarion11.1\bin\SoftVelocity.Build.Clarion.targets`
 - Build with: `/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe <project>.cwproj`
+
+## Development Guidelines
+
+### Prolog/Logtalk
+- Use descriptive predicate names with underscores
+- Use DCG for parsing when appropriate
+- Prefix Logtalk protocols with `i` (e.g., `iimage_import_manager`)
+
+### Medical Software (ALGT)
+- Correctness is critical for patient safety
+- Geometric calculations must be precise
+- Always maintain test coverage
+- Don't weaken assertions without justification
