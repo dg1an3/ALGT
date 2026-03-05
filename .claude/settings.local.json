@@ -5,7 +5,8 @@
       "Bash(/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe:*)",
       "Bash(printf:*)",
       "Bash(~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe:*)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(swipl:*)"
     ]
   }
 }
