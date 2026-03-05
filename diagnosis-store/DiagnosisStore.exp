@@ -1,0 +1,9 @@
+EXPORTS
+  DSOpenStore
+  DSCloseStore
+  DSCreateDiagnosis
+  DSGetDiagnosis
+  DSUpdateDiagnosis
+  DSApproveDiagnosis
+  DSDeleteDiagnosis
+  DSListByPatient
