@@ -1,0 +1,7 @@
+ODBCOpen
+ODBCClose
+ODBCAddReading
+ODBCGetReading
+ODBCCountReadings
+ODBCDeleteAll
+ODBCGetLastError

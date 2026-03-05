@@ -34,6 +34,7 @@ init_gui :-
     retractall(last_accepted(_)),
     retractall(equate_map(_, _)),
     retractall(list_choice(_, _)),
+    retractall(global_var(_, _)),
     assert(event_queue([])),
     assert(last_accepted(0)).
 
@@ -79,12 +80,14 @@ exec_program(AST, Events, Result) :-
 :- dynamic file_records/2.     % file_records(FileName, [RecordValuesList, ...])
 :- dynamic file_cursor/2.      % file_cursor(FileName, Position)  % 0 = before first
 :- dynamic last_errorcode/1.   % last_errorcode(Code)
+:- dynamic global_var/2.       % global_var(Name, Value) — persists across procedure calls
 
 init_file_io :-
     retractall(file_exists(_)),
     retractall(file_records(_, _)),
     retractall(file_cursor(_, _)),
     retractall(last_errorcode(_)),
+    retractall(global_var(_, _)),
     assert(last_errorcode(0)).
 
 set_errorcode(Code) :-
@@ -234,6 +237,21 @@ exec_stmt_call('CLEAR', [var(RecRef)], Env, NewEnv) :- !,
         NewEnv = Env
     ).
 
+exec_stmt_call('DELETE', [var(FileName)], Env, Env) :- !,
+    ( file_cursor(FileName, Pos), Pos > 0 ->
+        file_records(FileName, Records),
+        delete_nth1_list(Pos, Records, NewRecords),
+        retractall(file_records(FileName, _)),
+        assert(file_records(FileName, NewRecords)),
+        % Adjust cursor back since we removed the current record
+        NewPos is Pos - 1,
+        retractall(file_cursor(FileName, _)),
+        assert(file_cursor(FileName, NewPos)),
+        set_errorcode(0)
+    ;
+        set_errorcode(1)
+    ).
+
 exec_stmt_call('SELECT', [equate(Name), IndexExpr], Env, Env) :- !,
     eval(IndexExpr, Env, Index),
     ( equate_map(Name, EqNum) ->
@@ -272,6 +290,11 @@ clear_fields(Prefix, [field(FName, _)|Fs], Env, NewEnv) :-
     update_env(QName, 0, Env, Env1),
     clear_fields(Prefix, Fs, Env1, NewEnv).
 
+delete_nth1_list(1, [_|Rest], Rest) :- !.
+delete_nth1_list(N, [X|Rest], [X|NewRest]) :-
+    N > 1, N1 is N - 1,
+    delete_nth1_list(N1, Rest, NewRest).
+
 replace_nth1_list(1, [_|Rest], Elem, [Elem|Rest]) :- !.
 replace_nth1_list(N, [X|Rest], Elem, [X|NewRest]) :-
     N > 1, N1 is N - 1,
@@ -293,9 +316,10 @@ exec_procedure(program(Files, Groups, Globals, Map, Procs), ProcName, ArgValues,
     init_arrays(Globals, AST, ArrayEnv),
     append(ArrayEnv, Env0, Env1),
     Env = [program_ast(AST)|Env1],
-    ( exec_body(Body, Env, _NewEnv, Result) -> true
-    ; Result = void
+    ( exec_body(Body, Env, NewEnv, Result) -> true
+    ; Result = void, NewEnv = Env
     ),
+    persist_globals(Globals, NewEnv),
     emit_trace(proc_exit(ProcName, Result)).
 
 bind_params([], [], []).
@@ -307,9 +331,20 @@ init_locals([local(Name, _, Init)|Ls], [Name=Init|Es]) :-
     init_locals(Ls, Es).
 
 init_globals([], []).
-init_globals([global(Name, _, Init)|Gs], [Name=Init|Es]) :-
+init_globals([global(Name, _, Init)|Gs], [Name=Val|Es]) :-
+    ( global_var(Name, Val) -> true ; Val = Init ),
     init_globals(Gs, Es).
 init_globals([_|Gs], Es) :- init_globals(Gs, Es).
+
+persist_globals([], _).
+persist_globals([global(Name, _, _)|Gs], Env) :-
+    ( memberchk(Name=Val, Env) ->
+        retractall(global_var(Name, _)),
+        assert(global_var(Name, Val))
+    ; true
+    ),
+    persist_globals(Gs, Env).
+persist_globals([_|Gs], Env) :- persist_globals(Gs, Env).
 
 init_arrays([], _, []).
 init_arrays([array(Name, _, Size)|Gs], AST, [Name=Array|Es]) :-

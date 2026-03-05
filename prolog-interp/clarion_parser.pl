@@ -87,6 +87,7 @@ top_decl_items([]) --> [].
 top_decl_item(file(Name, Prefix, Attrs, Fields)) -->
     ident(Name), ws, kw("FILE"), ws, !,
     file_attrs(Attrs0, Prefix), ws,
+    key_decls(_Keys), ws,
     record_block(Fields), ws,
     kw("END"),
     { exclude_pre(Attrs0, Attrs) }.
@@ -246,6 +247,9 @@ file_attr(name(FName), none) -->
     kw("NAME"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")",
     { atom_codes(FName, Cs) }.
 file_attr(create, none) --> kw("CREATE").
+file_attr(owner(Owner), none) -->
+    kw("OWNER"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")",
+    { atom_codes(Owner, Cs) }.
 file_attr(pre(Pre), Pre) --> kw("PRE"), ws, "(", ws, ident(Pre), ws, ")".
 
 merge_pre(none, none, none) :- !.
@@ -256,6 +260,27 @@ merge_pre(_, P, P).
 exclude_pre([], []).
 exclude_pre([pre(_)|As], Bs) :- !, exclude_pre(As, Bs).
 exclude_pre([A|As], [A|Bs]) :- exclude_pre(As, Bs).
+
+% KEY declarations (optional, between FILE attrs and RECORD)
+key_decls([K|Ks]) --> key_decl(K), !, ws, key_decls(Ks).
+key_decls([]) --> [].
+
+key_decl(key(Name, Fields, Attrs)) -->
+    word(Name), ws, kw("KEY"), ws, "(", ws, key_field_list(Fields), ws, ")", ws,
+    key_attrs(Attrs).
+
+key_field_list([F|Fs]) --> ident(F), ws, key_field_rest(Fs).
+key_field_list([]) --> [].
+key_field_rest([F|Fs]) --> ",", ws, ident(F), ws, key_field_rest(Fs).
+key_field_rest([]) --> [].
+
+key_attrs([A|As]) --> ",", ws, key_attr(A), ws, key_attrs(As).
+key_attrs([]) --> [].
+
+key_attr(primary) --> kw("PRIMARY").
+key_attr(nocase) --> kw("NOCASE").
+key_attr(opt) --> kw("OPT").
+key_attr(dup) --> kw("DUP").
 
 % RECORD block
 record_block(Fields) -->
@@ -440,6 +465,9 @@ statement(assign(Var, Expr)) -->
 statement(assign(Var, add(var(Var), Expr))) -->
     ident(Var), ws, "+=", ws, expr(Expr).
 
+statement(call('DELETE', [var(Name)])) -->
+    kw("DELETE"), ws, "(", ws, ident(Name), ws, ")".
+
 statement(call(Name, Args)) -->
     word(Name), ws, "(", ws, expr_list(Args), ws, ")".
 
@@ -552,6 +580,7 @@ is_keyword(Name) :-
                'NEXT','OPEN','CLOSE','GET','PUT','ADD','CLEAR',
                'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER',
                'TO','CASE','OF','DIM','AND','OR',
+               'DELETE','KEY','PRIMARY','OWNER',
                'WINDOW','ACCEPT','DISPLAY','ACCEPTED',
                'PROMPT','ENTRY','BUTTON','STRING','LIST','AT','USE',
                'CENTER','DROP','FROM','CHOICE','SELECT']).

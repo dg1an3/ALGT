@@ -4,7 +4,7 @@ Experiments learning Clarion language semantics: building, DLL exports, and Pyth
 
 ## TODO FROM DEREK
 * ~~Separate clarion.pl in to clarion_parser.pl and clarion_interpreter.pl (and separate tests as well)~~ DONE
-* Implement an ODBC-based data store, and then get the clarion_interpreter to support this as well
+* ~~Implement an ODBC-based data store, and then get the clarion_interpreter to support this as well~~ DONE — odbc-store/ project with SQL Server LocalDB + OWNER/KEY/DELETE parser support
 * ~~Add a project with a GUI form, and then determine how best to simulate that with the interpreter (web interface?)~~ DONE — form-demo/ project + event queue simulation in interpreter
 * ~~Document strategy for determining that execution traces match between interpreter and compiled code~~ DONE — see Execution Trace Comparison section below
 
@@ -129,6 +129,32 @@ cd form-demo
 
 **GUI simulation approach:** The Prolog interpreter simulates the GUI event loop via an event queue. `exec_program(AST, Events, Result)` takes a list of simulated events (equate numbers for button presses), feeds them one-at-a-time through the ACCEPT loop, and executes the CASE body for each event. No actual GUI rendering — pure behavioral simulation.
 
+### odbc-store/
+Clarion DLL with ODBC-based sensor reading storage using SQL Server LocalDB. Demonstrates Clarion's ODBC file driver with the same file I/O operations (OPEN, SET, NEXT, ADD, DELETE, CLOSE) used for flat files.
+
+**Key files:**
+- `OdbcStore.clw` — Clarion DLL: ODBCOpen, ODBCClose, ODBCAddReading, ODBCGetReading, ODBCCountReadings, ODBCDeleteAll
+- `OdbcStore.cwproj` — MSBuild project (links `ClaODB.lib`)
+- `setup_db.py` — One-time setup: creates OdbcDemo database, User DSN, and SensorReadings table
+- `test_odbcstore.py` — Python test (16 assertions pass)
+
+**Setup & test:**
+```bash
+cd odbc-store
+sqllocaldb start MSSQLLocalDB
+~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe setup_db.py
+/c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe OdbcStore.cwproj
+~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe test_odbcstore.py
+```
+
+**Architecture:** Python → `ctypes.CDLL` → `OdbcStore.dll` → ODBC → SQL Server LocalDB (`OdbcDemo.SensorReadings`)
+
+**Key lessons learned:**
+- Clarion's ODBC driver uses `DRIVER('ODBC')` with `OWNER('DSN_name')` for the connection
+- `{` and `}` in Clarion string literals conflict with `<nn>` character escaping; use a DSN instead of DSN-less connection strings with `{Driver Name}`
+- ODBC DELETE requires a KEY with PRIMARY on the FILE declaration
+- Runtime DLLs: `ClaODB.dll` and `Claodbcs.dll` must be in `bin/` alongside the built DLL
+
 ### prolog-interp/
 SWI-Prolog interpreter for Clarion source code. Single-pass DCG grammar parses `.clw` files into an AST, then a separate interpreter executes the AST.
 
@@ -155,7 +181,7 @@ diff <(cd sensor-data && python trace_sensorlib.py | grep "^CALL") \
      <(cd prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
 ```
 
-**Current status:** Parses and executes MathLib, DiagnosisStore, SensorLib, StatsLib, and FormDemo. Full file I/O simulation (OPEN/CREATE/SET/NEXT/ADD/PUT/CLEAR) with stateful record storage. GUI event simulation via `exec_program(AST, Events, Result)` for PROGRAM-style forms with WINDOW/ACCEPT. Execution trace mode (`set_trace(on)`) logs procedure entry/exit and every statement.
+**Current status:** Parses and executes MathLib, DiagnosisStore, SensorLib, StatsLib, FormDemo, and OdbcStore. Full file I/O simulation (OPEN/CREATE/SET/NEXT/ADD/PUT/DELETE/CLEAR) with stateful record storage. GUI event simulation via `exec_program(AST, Events, Result)` for PROGRAM-style forms with WINDOW/ACCEPT. Global variable persistence across procedure calls. Execution trace mode (`set_trace(on)`) logs procedure entry/exit and every statement. Supports ODBC file declarations (OWNER, KEY/PRIMARY).
 
 **Expansion plan — DiagnosisStore support (4 chunks):**
 

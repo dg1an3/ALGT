@@ -232,9 +232,9 @@ test_diagstore_exec :-
     format("  DSOpenStore()"),
     exec_procedure(AST, 'DSOpenStore', [], R1),
     ( R1 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ),
-    format("  DSCreateDiagnosis(...)"),
+    format("  DSCreateDiagnosis(...) = 1"),
     exec_procedure(AST, 'DSCreateDiagnosis', [123, "C34.1", "Lung Cancer", "T2", "N0", "M0", "IIA", 0], R2),
-    ( R2 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ).
+    ( R2 =:= 1 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ).
 
 test_sensorlib_exec :-
     File = '../sensor-data/SensorLib.clw',
@@ -394,6 +394,61 @@ test_formdemo_parse :-
     ).
 
 %% ==========================================================================
+%% ODBC store tests (parsed from OdbcStore.clw, executed in-memory)
+%% ==========================================================================
+
+test_odbcstore_parse :-
+    File = '../odbc-store/OdbcStore.clw',
+    ( exists_file(File) -> true ; format("  [FAIL: ~w not found]~n", [File]), fail ),
+    read_file_to_codes(File, Codes, []),
+    parse_clarion(Codes, AST),
+    AST = program(Files, Groups, Globals, _Map, Procs),
+    format("  OdbcStore.clw parse"),
+    ( length(Files, 1), length(Groups, 1), length(Globals, 3), length(Procs, 7),
+      member(file('SensorReadings', 'SR', Attrs, Fields), Files),
+      member(owner('OdbcDemo'), Attrs),
+      member(driver('ODBC'), Attrs),
+      length(Fields, 5)
+    -> format(" [PASS]~n")
+    ; format(" [FAIL]~n")
+    ).
+
+test_odbcstore_exec :-
+    File = '../odbc-store/OdbcStore.clw',
+    ( exists_file(File) -> true ; format("  [FAIL: ~w not found]~n", [File]), fail ),
+    read_file_to_codes(File, Codes, []),
+    parse_clarion(Codes, AST),
+    init_file_io,
+
+    format("  ODBCOpen()"),
+    exec_procedure(AST, 'ODBCOpen', [], R0),
+    ( R0 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R0=~w]~n", [R0]) ),
+
+    format("  ODBCAddReading(1, 100, 10) = 1"),
+    exec_procedure(AST, 'ODBCAddReading', [1, 100, 10], R1),
+    ( R1 =:= 1 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ),
+
+    format("  ODBCAddReading(2, 200, 20) = 2"),
+    exec_procedure(AST, 'ODBCAddReading', [2, 200, 20], R2),
+    ( R2 =:= 2 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ),
+
+    format("  ODBCCountReadings() = 2"),
+    exec_procedure(AST, 'ODBCCountReadings', [], Count),
+    ( Count =:= 2 -> format(" [PASS]~n") ; format(" [FAIL: Count=~w]~n", [Count]) ),
+
+    format("  ODBCDeleteAll() = 0"),
+    exec_procedure(AST, 'ODBCDeleteAll', [], R3),
+    ( R3 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R3=~w]~n", [R3]) ),
+
+    format("  ODBCCountReadings() after delete = 0"),
+    exec_procedure(AST, 'ODBCCountReadings', [], Count2),
+    ( Count2 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: Count2=~w]~n", [Count2]) ),
+
+    format("  ODBCClose()"),
+    exec_procedure(AST, 'ODBCClose', [], R4),
+    ( R4 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R4=~w]~n", [R4]) ).
+
+%% ==========================================================================
 %% Main
 %% ==========================================================================
 
@@ -436,4 +491,8 @@ main :-
     run(test_form_multi_calc),
     run(test_form_no_events),
     run(test_formdemo_parse),
+    nl,
+    format("ODBC store (in-memory):~n"),
+    run(test_odbcstore_parse),
+    run(test_odbcstore_exec),
     format("~nAll interpreter tests complete.~n").

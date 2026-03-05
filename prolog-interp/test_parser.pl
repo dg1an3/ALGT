@@ -293,6 +293,21 @@ test_diagstore_full_parse :-
     ; format(" [FAIL]~n")
     ).
 
+test_odbcstore_parse :-
+    File = '../odbc-store/OdbcStore.clw',
+    ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
+    read_file_to_codes(File, Codes, []),
+    format("  OdbcStore.clw parse"),
+    ( parse_clarion(Codes, AST),
+      AST = program(Files, Groups, Globals, _, Procs),
+      length(Files, 1), length(Groups, 1), length(Globals, 3), length(Procs, 7),
+      member(file('SensorReadings', 'SR', Attrs, _), Files),
+      member(owner('OdbcDemo'), Attrs),
+      member(driver('ODBC'), Attrs)
+    -> format(" [PASS]~n")
+    ; format(" [FAIL]~n")
+    ).
+
 %% ==========================================================================
 %% Main
 %% ==========================================================================
@@ -320,4 +335,5 @@ main :-
     run(test_sensorlib_parse),
     run(test_statslib_parse),
     run(test_diagstore_full_parse),
+    run(test_odbcstore_parse),
     format("~nAll parser tests complete.~n").

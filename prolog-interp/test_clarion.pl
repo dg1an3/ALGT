@@ -423,9 +423,9 @@ test_diagstore_full :-
     format("  DiagnosisStore.clw DSOpenStore()"),
     exec_procedure(AST, 'DSOpenStore', [], R1),
     ( R1 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) ),
-    format("  DiagnosisStore.clw DSCreateDiagnosis(...)"),
+    format("  DiagnosisStore.clw DSCreateDiagnosis(...) = 1"),
     exec_procedure(AST, 'DSCreateDiagnosis', [123, "C34.1", "Lung Cancer", "T2", "N0", "M0", "IIA", 0], R2),
-    ( R2 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ).
+    ( R2 =:= 1 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ).
 
 %% ==========================================================================
 %% Chunk 4 tests — Builtins & procedure calls
