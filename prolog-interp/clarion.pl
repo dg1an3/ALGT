@@ -37,9 +37,9 @@
 %
 %   Types: long, cstring(Size)
 %
-%   Statements: return(Expr), assign(Var, Expr), if(Cond, Then, Else), loop(Body), break
+%   Statements: return(Expr), assign(Var, Expr), if(Cond, Then, Else), loop(Body), loop_for(Var, Start, End, Body), case(Expr, Ofs, Else), break
 %
-%   Expressions: lit(N), var(Name), add(A,B), mul(A,B), eq(A,B), neq(A,B), lt(A,B), lte(A,B), gt(A,B), gte(A,B), call(Name, Args)
+%   Expressions: lit(N), var(Name), array_ref(Name, Index), add(A,B), sub(A,B), mul(A,B), div(A,B), eq(A,B), neq(A,B), lt(A,B), lte(A,B), gt(A,B), gte(A,B), call(Name, Args)
 
 %% ==========================================================================
 %% DCG grammar
@@ -84,10 +84,15 @@ top_decl_item(group(Name, Prefix, Fields)) -->
     field_list(Fields), ws,
     kw("END").
 
+% Array declaration: Name TYPE,DIM(n)
+top_decl_item(array(Name, Type, Size)) -->
+    ident(Name), ws, type(Type), ws,
+    ",", ws, kw("DIM"), ws, "(", ws, number(Size), ws, ")".
+
 % Global variable: Name TYPE(Init)
 top_decl_item(global(Name, Type, Init)) -->
     ident(Name), ws, type(Type), ws,
-    "(", ws, number(Init), ws, ")".
+    ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
 
 partition_decls([], [], [], []).
 partition_decls([file(N,P,A,F)|Is], [file(N,P,A,F)|Fs], Gs, Vs) :-
@@ -95,6 +100,8 @@ partition_decls([file(N,P,A,F)|Is], [file(N,P,A,F)|Fs], Gs, Vs) :-
 partition_decls([group(N,P,F)|Is], Fs, [group(N,P,F)|Gs], Vs) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([global(N,T,I)|Is], Fs, Gs, [global(N,T,I)|Vs]) :-
+    partition_decls(Is, Fs, Gs, Vs).
+partition_decls([array(N,T,S)|Is], Fs, Gs, [array(N,T,S)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 
 %% --- FILE attributes ---
@@ -224,7 +231,7 @@ local_vars([]) --> [].
 
 local_var(local(Name, Type, Init)) -->
     word(Name), ws, type(Type), ws,
-    "(", ws, number(Init), ws, ")".
+    ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
 
 %% --- Procedure parameter list ---
 
@@ -258,10 +265,23 @@ statement(if(Cond, Then, Else)) -->
     if_else(Else), ws,
     kw("END").
 
+% LOOP var = start TO end / stmts / END
+statement(loop_for(Var, Start, End, Body)) -->
+    kw("LOOP"), ws, ident(Var), ws, "=", ws, expr(Start), ws, kw("TO"), ws, expr(End), ws,
+    statements(Body), ws,
+    kw("END").
+
 % LOOP / stmts / END
 statement(loop(Body)) -->
     kw("LOOP"), ws,
     statements(Body), ws,
+    kw("END").
+
+% CASE expr / OF val / stmts / ... / ELSE / stmts / END
+statement(case(Expr, Ofs, Else)) -->
+    kw("CASE"), ws, expr(Expr), ws,
+    of_blocks(Ofs), ws,
+    case_else(Else), ws,
     kw("END").
 
 statement(break) -->
@@ -272,6 +292,9 @@ statement(return(Expr)) -->
 
 statement(return(Expr)) -->
     kw("RETURN"), ws, expr(Expr).
+
+statement(assign(array_ref(Name, Index), Expr)) -->
+    ident(Name), ws, "[", ws, expr(Index), ws, "]", ws, "=", ws, expr(Expr).
 
 statement(assign(Var, Expr)) -->
     ident(Var), ws, "=", ws, expr(Expr).
@@ -284,6 +307,18 @@ statement(call(Name, Args)) -->
 
 if_else(Stmts) --> kw("ELSE"), ws, statements(Stmts).
 if_else([]) --> [].
+
+of_blocks([O|Os]) --> of_block(O), ws, of_blocks(Os).
+of_blocks([]) --> [].
+
+of_block(of(Range, Stmts)) -->
+    kw("OF"), ws, range(Range), ws, statements(Stmts).
+
+range(range(Start, End)) --> expr(Start), ws, kw("TO"), ws, expr(End).
+range(single(Val)) --> expr(Val).
+
+case_else(Stmts) --> kw("ELSE"), ws, statements(Stmts).
+case_else([]) --> [].
 
 %% --- Expressions ---
 
@@ -300,15 +335,20 @@ compare_rest(E, E) --> [].
 
 add_expr(E) --> mul_expr(L), ws, add_rest(L, E).
 add_rest(L, E) --> "+", ws, mul_expr(R), ws, add_rest(add(L, R), E).
+add_rest(L, E) --> "-", ws, mul_expr(R), ws, add_rest(sub(L, R), E).
 add_rest(E, E) --> [].
 
 mul_expr(E) --> primary(L), ws, mul_rest(L, E).
 mul_rest(L, E) --> "*", ws, primary(R), ws, mul_rest(mul(L, R), E).
+mul_rest(L, E) --> "/", ws, primary(R), ws, mul_rest(div(L, R), E).
 mul_rest(E, E) --> [].
 
 primary(lit(N))    --> number(N), !.
+primary(lit(S))    --> "'", qchars(Cs), "'", { atom_codes(S, Cs) }, !.
 primary(call(Name, Args)) -->
     word(Name), ws, "(", ws, expr_list(Args), ws, ")", !.
+primary(array_ref(Name, Index)) -->
+    ident(Name), ws, "[", ws, expr(Index), ws, "]", !.
 primary(var(Name)) --> ident(Name), !.
 primary(E)         --> "(", ws, expr(E), ws, ")".
 
@@ -361,7 +401,8 @@ is_keyword(Name) :-
                'CREATE','PRE','RECORD','GROUP','MODULE','RAW','PASCAL',
                'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET',
                'NEXT','OPEN','CLOSE','GET','PUT','ADD','CLEAR',
-               'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER']).
+               'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER',
+               'TO','CASE','OF','DIM']).
 
 % Integer literal
 number(N) -->
@@ -398,7 +439,9 @@ exec_procedure(program(Files, Groups, Globals, Map, Procs), ProcName, ArgValues,
     init_globals(Globals, GlobalEnv),
     append(LocalEnv, ParamEnv, EnvL),
     append(GlobalEnv, EnvL, Env0),
-    Env = [program_ast(AST)|Env0],
+    init_arrays(Globals, AST, ArrayEnv),
+    append(ArrayEnv, Env0, Env1),
+    Env = [program_ast(AST)|Env1],
     ( exec_body(Body, Env, _NewEnv, Result) -> true
     ; Result = void % Procedures might not return anything
     ).
@@ -414,6 +457,14 @@ init_locals([local(Name, _, Init)|Ls], [Name=Init|Es]) :-
 init_globals([], []).
 init_globals([global(Name, _, Init)|Gs], [Name=Init|Es]) :-
     init_globals(Gs, Es).
+init_globals([_|Gs], Es) :- init_globals(Gs, Es).
+
+init_arrays([], _, []).
+init_arrays([array(Name, _, Size)|Gs], AST, [Name=Array|Es]) :-
+    length(Array, Size),
+    maplist(=(0), Array),
+    init_arrays(Gs, AST, Es).
+init_arrays([_|Gs], AST, Es) :- init_arrays(Gs, AST, Es).
 
 % exec_body(Statements, Env, NewEnv, Result)
 exec_body([], Env, Env, _).
@@ -442,6 +493,25 @@ exec_body([loop(Body)|Rest], Env, FinalEnv, Result) :- !,
     ; exec_body(Rest, Env1, FinalEnv, Result)
     ).
 
+exec_body([loop_for(Var, Start, End, Body)|Rest], Env, FinalEnv, Result) :- !,
+    eval(Start, Env, SVal),
+    eval(End, Env, EVal),
+    update_env(Var, SVal, Env, Env0),
+    exec_loop_for(Var, EVal, Body, Env0, Env1, LoopResult),
+    ( LoopResult = return(R) -> Result = R, FinalEnv = Env1
+    ; exec_body(Rest, Env1, FinalEnv, Result)
+    ).
+
+exec_body([case(Expr, Ofs, Else)|Rest], Env, FinalEnv, Result) :- !,
+    eval(Expr, Env, Val),
+    ( find_of(Val, Ofs, Env, OfBody) -> Body = OfBody ; Body = Else ),
+    ( exec_body(Body, Env, Env1, Result) ->
+        ( nonvar(Result) -> FinalEnv = Env1
+        ; exec_body(Rest, Env1, FinalEnv, Result)
+        )
+    ; exec_body(Rest, Env, FinalEnv, Result)
+    ).
+
 exec_body([call(Name, Args)|Rest], Env, FinalEnv, Result) :- !,
     eval(call(Name, Args), Env, _),
     exec_body(Rest, Env, FinalEnv, Result).
@@ -459,12 +529,56 @@ exec_loop(Body, Env, FinalEnv, LoopResult) :-
     ; exec_loop(Body, Env1, FinalEnv, LoopResult)
     ).
 
+% exec_loop_for(Var, EndVal, Body, Env, NewEnv, LoopResult)
+exec_loop_for(Var, EndVal, Body, Env, FinalEnv, LoopResult) :-
+    memberchk(Var=Current, Env),
+    ( Current > EndVal -> LoopResult = ok, FinalEnv = Env
+    ; exec_body(Body, Env, Env1, Result),
+      ( Result == break -> LoopResult = ok, FinalEnv = Env1
+      ; nonvar(Result) -> LoopResult = return(Result), FinalEnv = Env1
+      ; Next is Current + 1,
+        update_env(Var, Next, Env1, Env2),
+        exec_loop_for(Var, EndVal, Body, Env2, FinalEnv, LoopResult)
+      )
+    ).
+
+find_of(Val, [of(Range, Body)|_], Env, Body) :-
+    check_range(Val, Range, Env), !.
+find_of(Val, [_|Os], Env, Body) :-
+    find_of(Val, Os, Env, Body).
+
+check_range(Val, single(E), Env) :-
+    eval(E, Env, V), Val =:= V.
+check_range(Val, range(S, E), Env) :-
+    eval(S, Env, SVal), eval(E, Env, EVal),
+    Val >= SVal, Val =< EVal.
+
+update_env(array_ref(Name, IndexExpr), Val, Env, NewEnv) :- !,
+    eval(IndexExpr, Env, Index),
+    ( memberchk(Name=Array, Env) ->
+        ( Index > 0, update_nth1(Index, Array, Val, NewArray) ->
+            update_env(Name, NewArray, Env, NewEnv)
+        ; NewEnv = Env % Out of bounds
+        )
+    ; NewEnv = Env % Array not found
+    ).
 update_env(Var, Val, [Var=_|Env], [Var=Val|Env]) :- !.
 update_env(Var, Val, [Other|Env], [Other|Env1]) :- update_env(Var, Val, Env, Env1).
 update_env(Var, Val, [], [Var=Val]).
 
+update_nth1(1, [_|Rest], Val, [Val|Rest]) :- !.
+update_nth1(N, [X|Rest], Val, [X|NewRest]) :-
+    N > 1, N1 is N - 1,
+    update_nth1(N1, Rest, Val, NewRest).
+
 eval(lit(N), _, N) :- !.
 eval(var(Name), Env, V) :- !, (memberchk(Name=V, Env) -> true ; V = 0). % Default to 0 for uninit
+eval(array_ref(Name, IndexExpr), Env, V) :- !,
+    eval(IndexExpr, Env, Index),
+    ( memberchk(Name=Array, Env) ->
+        ( Index > 0, nth1(Index, Array, V) -> true ; V = 0 )
+    ; V = 0
+    ).
 eval(call('SIZE', [var(Name)]), Env, V) :- !,
     eval_size(Name, Env, V).
 eval(call('ADDRESS', [_]), _, 1234). % Mock address
@@ -487,7 +601,9 @@ eval(call(Name, Args), Env, V) :- !,
     ( memberchk(program_ast(AST), Env) -> true ; fail ),
     exec_procedure(AST, Name, ArgVals, V).
 eval(add(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), V is VA + VB.
+eval(sub(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), V is VA - VB.
 eval(mul(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), V is VA * VB.
+eval(div(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VB \= 0 -> V is VA // VB ; V = 0).
 eval(eq(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA =:= VB -> V = 1 ; V = 0).
 eval(neq(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA \= VB -> V = 1 ; V = 0).
 eval(lt(A, B), Env, V) :- !, eval(A, Env, VA), eval(B, Env, VB), (VA < VB -> V = 1 ; V = 0).

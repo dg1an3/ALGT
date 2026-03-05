@@ -343,7 +343,25 @@ main :-
     run(test_procedure_call),
     run(test_size_intrinsic),
     run(test_diagstore_full),
+    run(test_stats_calc),
     format("~nAll tests complete.~n").
+
+test_stats_calc :-
+    File = '../stats-calc/StatsLib.clw',
+    ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
+    read_file_to_codes(File, Codes, []),
+    format("  StatsLib.clw (complex features)"),
+    ( parse_clarion(Codes, AST) -> format(" [PASS]~n") ; format(" [FAIL: parse]~n"), fail ),
+    format("  StatsLib.clw CalculateStats(3)"),
+    ( exec_procedure(AST, 'CalculateStats', [3], R1) ->
+        ( R1 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R1=~w]~n", [R1]) )
+    ; format(" [FAIL: exec CalculateStats]~n")
+    ),
+    format("  StatsLib.clw Classify(5)"),
+    ( exec_procedure(AST, 'Classify', [5], R2) ->
+        ( R2 == 'Low' -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) )
+    ; format(" [FAIL: exec Classify]~n")
+    ).
 
 %% ==========================================================================
 %% Integration test
