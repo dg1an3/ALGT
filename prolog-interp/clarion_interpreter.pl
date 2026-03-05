@@ -141,7 +141,8 @@ exec_stmt_call('OPEN', [var(Name)], Env, Env) :- !,
     ( memberchk(program_ast(AST), Env),
       AST = program(_, _, Globals, _, _),
       member(window(Name, _, _, _), Globals)
-    -> true  % Window open is a no-op
+    -> trace_current_proc(Env, ProcName),
+       emit_trace(stmt(ProcName, open, Name))
     ; ( file_exists(Name) -> set_errorcode(0)
       ; set_errorcode(2)  % File not found
       )
@@ -154,8 +155,14 @@ exec_stmt_call('CREATE', [var(FileName)], Env, Env) :- !,
     assert(file_records(FileName, [])),
     set_errorcode(0).
 
-exec_stmt_call('CLOSE', [var(_Name)], Env, Env) :- !,
-    set_errorcode(0).  % No-op for both files and windows
+exec_stmt_call('CLOSE', [var(Name)], Env, Env) :- !,
+    ( memberchk(program_ast(AST), Env),
+      AST = program(_, _, Globals, _, _),
+      member(window(Name, _, _, _), Globals)
+    -> trace_current_proc(Env, ProcName),
+       emit_trace(stmt(ProcName, close, Name))
+    ; set_errorcode(0)
+    ).
 
 exec_stmt_call('SET', [var(FileName)], Env, Env) :- !,
     retractall(file_cursor(FileName, _)),
@@ -357,18 +364,30 @@ exec_body([case(Expr, Ofs, Else)|Rest], Env, FinalEnv, Result) :- !,
     ).
 
 exec_body([call(Name, Args)|Rest], Env, FinalEnv, Result) :- !,
-    trace_current_proc(Env, ProcName),
-    emit_trace(stmt(ProcName, call, Name)),
+    ( (Name == 'OPEN' ; Name == 'CLOSE'),
+      Args = [var(WName)],
+      memberchk(program_ast(AST), Env),
+      AST = program(_, _, Globals, _, _),
+      member(window(WName, _, _, _), Globals)
+    -> true  % Window open/close — trace emitted by exec_stmt_call
+    ; trace_current_proc(Env, ProcName),
+      emit_trace(stmt(ProcName, call, Name))
+    ),
     exec_stmt_call(Name, Args, Env, Env1),
     exec_body(Rest, Env1, FinalEnv, Result).
 
 exec_body([accept(Body)|Rest], Env, FinalEnv, Result) :- !,
+    trace_current_proc(Env, ProcName),
+    emit_trace(stmt(ProcName, accept, enter)),
     exec_accept_loop(Body, Env, Env1, AcceptResult),
+    emit_trace(stmt(ProcName, accept, exit)),
     ( AcceptResult = return(R) -> Result = R, FinalEnv = Env1
     ; exec_body(Rest, Env1, FinalEnv, Result)
     ).
 
 exec_body([display|Rest], Env, FinalEnv, Result) :- !,
+    trace_current_proc(Env, ProcName),
+    emit_trace(stmt(ProcName, display, '')),
     exec_body(Rest, Env, FinalEnv, Result).
 
 exec_body([break|_], Env, Env, break) :- !,
@@ -383,17 +402,31 @@ exec_body([_|Rest], Env, FinalEnv, Result) :-
 %% ==========================================================================
 
 % Consume events from the queue one at a time, execute the body for each.
+% Events can be:
+%   Integer — button press (equate number), triggers ACCEPTED() and runs body
+%   set(VarName, Value) — simulates field entry, updates env without running body
 % BREAK inside the body ends the accept loop.
 exec_accept_loop(Body, Env, FinalEnv, Result) :-
     ( event_queue(Events), Events = [Event|RestEvents] ->
         retractall(event_queue(_)),
         assert(event_queue(RestEvents)),
-        retractall(last_accepted(_)),
-        assert(last_accepted(Event)),
-        exec_body(Body, Env, Env1, BodyResult),
-        ( BodyResult == break -> Result = ok, FinalEnv = Env1
-        ; nonvar(BodyResult) -> Result = return(BodyResult), FinalEnv = Env1
-        ; exec_accept_loop(Body, Env1, FinalEnv, Result)
+        ( Event = set(VarName, Value) ->
+            % Field entry event — update variable, don't run body
+            update_env(VarName, Value, Env, Env1),
+            exec_accept_loop(Body, Env1, FinalEnv, Result)
+        ;
+            % Button event — set last_accepted and run body
+            retractall(last_accepted(_)),
+            assert(last_accepted(Event)),
+            ( equate_map(EqName, Event) ->
+                emit_trace(stmt('_main', accepted, EqName))
+            ; true
+            ),
+            exec_body(Body, Env, Env1, BodyResult),
+            ( BodyResult == break -> Result = ok, FinalEnv = Env1
+            ; nonvar(BodyResult) -> Result = return(BodyResult), FinalEnv = Env1
+            ; exec_accept_loop(Body, Env1, FinalEnv, Result)
+            )
         )
     ; Result = ok, FinalEnv = Env  % No more events, exit accept
     ).
