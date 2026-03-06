@@ -11,31 +11,37 @@ Combined repository: formal algorithm verification (ALGT) + Clarion language sem
 ## Technology Stack
 
 - **Clarion 11.1**: 4GL language, compiles to 32-bit Windows DLLs/EXEs
-- **SWI Prolog**: Two Clarion interpreters (prolog-interp/ and clarion_interpreter/)
+- **SWI Prolog**: Two Clarion interpreters (clarion_interpreters/prolog-interp/ and clarion_interpreters/clarion_interpreter/)
 - **Logtalk**: Object-oriented Prolog extension (ALGT domain models)
 - **Python 3.11 (32-bit)**: ctypes interop with Clarion DLLs
 - **MSBuild**: Clarion project builds (.cwproj)
 
 ## Repository Structure
 
-### Clarion Projects (compiled, tested)
+### Clarion Projects (compiled, tested) — `clarion_projects/`
 - `hello-world/` — Simple PROGRAM exe
 - `python-dll/` — DLL with exported functions callable from Python
 - `diagnosis-store/` — DOS flat-file CRUD DLL with Python wrapper
 - `sensor-data/` — Sensor readings DLL, primary trace comparison test case
 - `stats-calc/` — Statistical calculations DLL
-- `form-demo/` — GUI form with WINDOW/ACCEPT event loop
-- `form-cli/` — CLI form with EventReader, .evt file format
 - `odbc-store/` — ODBC DLL with SQL Server LocalDB
 - `clarion_examples/` — Reference .clw files (syntax documentation)
 
-### Clarion Interpreters (Prolog)
-- `prolog-interp/` — Original interpreter (2,764 lines, 3 files, simple)
+### Clarion GUI Projects (top-level)
+- `form-demo/` — GUI form with WINDOW/ACCEPT event loop
+- `form-cli/` — CLI form with EventReader, .evt file format
+
+### Clarion Interpreters (Prolog) — `clarion_interpreters/`
+- `prolog-interp/` — Original interpreter (2,764 lines, 8 files, simple)
 - `clarion_interpreter/` — ALGT interpreter (7,629 lines, 18 files, modular)
 
 ### ALGT Verification & Domain Models
 - `algt_tests/` — Formal verification of geometric algorithms (beam volume, mesh, margins)
-- `domain_models/` — Logtalk domain models (to be reorganized here)
+- `domain_models/` — Logtalk domain models and workflows
+  - `imaging_services/` — Image import manager, protocol definitions
+  - `subject_image_domain_model/` — Subject image domain
+  - `treatment_image_domain_model/` — Treatment image domain
+  - `appointment_domain_model/` — Appointment domain
 - `model_checker/` — Concurrent operation verification
 - `mcp_server/` — MCP server implementations (Prolog, Erlang, Elixir)
 
@@ -51,19 +57,19 @@ Strategy for verifying the Prolog interpreter produces the same behavior as comp
 
 Both sides emit `CALL ProcName(args) -> result` lines and are compared with `diff`.
 
-**Prolog side** (`prolog-interp/trace_sensorlib.pl`):
+**Prolog side** (`clarion_interpreters/prolog-interp/trace_sensorlib.pl`):
 - `set_trace(on)` enables the trace infrastructure in `clarion.pl`
 - `exec_procedure` emits `proc_enter`/`proc_exit` entries via `assert`
 - `print_trace` formats the log; grep `^CALL.*->` for procedure-level lines
 
-**Python side** (`sensor-data/trace_sensorlib.py`):
+**Python side** (`clarion_projects/sensor-data/trace_sensorlib.py`):
 - `trace_call(lib, name, *args)` wraps each `ctypes` DLL call with logging
 - Outputs the same `CALL name(args) -> result` format
 
 **Comparison**:
 ```bash
-diff <(cd sensor-data && python trace_sensorlib.py | grep "^CALL") \
-     <(cd prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
+diff <(cd clarion_projects/sensor-data && python trace_sensorlib.py | grep "^CALL") \
+     <(cd clarion_interpreters/prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
 ```
 
 ### Level 2: Statement-level traces (Prolog interpreter only)
@@ -76,17 +82,17 @@ Insert `TraceLog('label')` calls at key points in `.clw` source, compare trace p
 
 ## Clarion Projects Detail
 
-### hello-world/
+### hello-world/ (`clarion_projects/`)
 Simple Clarion EXE that displays a message box. Uses `PROGRAM` keyword.
 
-### python-dll/
+### python-dll/ (`clarion_projects/`)
 Clarion DLL with exported functions called from Python via `ctypes`.
 
 **Key files:** `MathLib.clw`, `MathLib.cwproj`, `test_mathlib.py`
 
 **Build & test:**
 ```bash
-cd python-dll
+cd clarion_projects/python-dll
 /c/Windows/Microsoft.NET/Framework/v4.0.30319/MSBuild.exe MathLib.cwproj
 cp ../hello-world/bin/ClaRUN.dll bin/
 ~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe test_mathlib.py
@@ -94,7 +100,7 @@ cp ../hello-world/bin/ClaRUN.dll bin/
 
 **Important:** Clarion 11 produces 32-bit DLLs, so a 32-bit Python is required (`3.11.9-win32`).
 
-### diagnosis-store/
+### diagnosis-store/ (`clarion_projects/`)
 Clarion DLL with DOS flat-file storage for cancer diagnosis records.
 
 **Key files:** `DiagnosisStore.clw`, `diagnosis_store.py`, `test_diagnosis_store.py`
@@ -104,34 +110,34 @@ Clarion DLL with DOS flat-file storage for cancer diagnosis records.
 - File drivers need `<Library>` (not `<FileDriver>`) in `.cwproj`
 - Struct passing: `LONG` pointer param + `MemCopy` via `RtlMoveMemory`
 
-### sensor-data/
+### sensor-data/ (`clarion_projects/`)
 Clarion DLL with DOS flat-file sensor readings, weighted average calculations, and record cleanup.
 
 **Key files:** `SensorLib.clw`, `test_sensorlib.py`, `trace_sensorlib.py`
 
-### form-demo/
+### form-demo/ (top-level)
 Clarion EXE with a GUI form for sensor data entry. WINDOW/ACCEPT event loop.
 
 **Key files:** `FormDemo.clw`, `FormDemo.cwproj`, `test_formdemo_gui.py`, `compare_traces.py`
 
-### form-cli/
+### form-cli/ (top-level)
 CLI version of FormDemo using EventReader.clw and .evt event files.
 
 **Key files:** `FormDemo_CLI.clw`, `EventReader.clw`, `FormDemo_CLI.cwproj`, `gui-to-cli.md`
 
-### odbc-store/
+### odbc-store/ (`clarion_projects/`)
 Clarion DLL with ODBC-based sensor reading storage using SQL Server.
 
 **Key files:** `OdbcStore.clw`, `setup_db.py`, `test_odbcstore.py`
 
-### prolog-interp/
+### prolog-interp/ (`clarion_interpreters/`)
 Original SWI-Prolog interpreter for Clarion source code.
 
 **Key files:** `clarion_parser.pl`, `clarion_interpreter.pl`, `clarion.pl`, test suites
 
 **Run tests:**
 ```bash
-cd prolog-interp
+cd clarion_interpreters/prolog-interp
 swipl -g "main,halt" -t "halt(1)" test_parser.pl
 swipl -g "main,halt" -t "halt(1)" test_interpreter.pl
 ```
@@ -142,7 +148,7 @@ swipl -g "main,halt" -t "halt(1)" test_interpreter.pl
 Formal verification of geometric algorithms for medical imaging:
 - Beam Volume, Mesh Generation, Isodensity, Structure Projection, Margins, SSD
 
-### Clarion Interpreter (`clarion_interpreter/`)
+### Clarion Interpreter (`clarion_interpreters/clarion_interpreter/`)
 Modular interpreter: lexer, parser, interpreter core, builtins, state management, control flow, expression evaluation, class support, execution tracer, UI backend, scenario DSL.
 
 ### Model Checker (`model_checker/`)

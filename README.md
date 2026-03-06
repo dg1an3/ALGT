@@ -37,8 +37,8 @@ cd ALGT
 ### Clarion Interpreter
 ```prolog
 swipl
-?- use_module(clarion_interpreter/clarion).
-?- run_file('clarion_examples/hello_world.clw').
+?- use_module(clarion_interpreters/clarion_interpreter/clarion).
+?- run_file('clarion_projects/clarion_examples/hello_world.clw').
 ```
 
 ### ALGT Verification Tests
@@ -60,29 +60,32 @@ swipl -s model_checker/model_checker.pl
 ## Project Structure
 
 ```
-├── algt_tests/              # Algorithm verification test suite
-│   ├── ALGT_BEAM_VOLUME.pl  # Beam volume generation tests
-│   ├── ALGT_MESH_GEN.pl     # Mesh generation tests
+├── clarion_projects/              # Compiled Clarion projects
+│   ├── hello-world/               # Simple PROGRAM exe
+│   ├── python-dll/                # DLL with exported functions (Python ctypes)
+│   ├── diagnosis-store/           # DOS flat-file CRUD DLL
+│   ├── sensor-data/               # Sensor readings DLL, trace comparison
+│   ├── stats-calc/                # Statistical calculations DLL
+│   ├── odbc-store/                # ODBC DLL with SQL Server LocalDB
+│   └── clarion_examples/          # Reference .clw files
+├── clarion_interpreters/          # Prolog interpreters for Clarion
+│   ├── prolog-interp/             # Original interpreter (2,764 lines, 8 files)
+│   └── clarion_interpreter/       # ALGT interpreter (7,629 lines, 18 files)
+├── form-demo/                     # GUI form with WINDOW/ACCEPT event loop
+├── form-cli/                      # CLI form with EventReader, .evt format
+├── algt_tests/                    # Algorithm verification test suite
+│   ├── ALGT_BEAM_VOLUME.pl        # Beam volume generation tests
+│   ├── ALGT_MESH_GEN.pl           # Mesh generation tests
 │   └── ...
-├── imaging_services/        # Domain services and workflows (Logtalk)
-│   ├── contracts.lgt        # Protocol definitions
-│   ├── image_import_manager.lgt
-│   └── ...
-├── model_checker/           # Concurrent operation verification
-│   ├── model_checker.pl
-│   └── README.md
-├── clarion_interpreter/                     # Clarion interpreter
-│   ├── clarion.pl           # Main entry point
-│   ├── lexer.pl             # Tokenizer
-│   ├── parser.pl            # Parser (DCG)
-│   ├── interpreter.pl       # Interpreter core
-│   ├── ui_backend.pl        # Pluggable UI backends
-│   ├── scenario_dsl.pl      # Test scenario DSL
-│   └── scenario_ahk.pl      # AutoHotkey generator
-├── clarion_examples/                # Sample Clarion programs
-├── subject_image_domain_model/
-├── treatment_image_domain_model/
-├── appointment_domain_model/
+├── domain_models/                 # Logtalk domain models & workflows
+│   ├── imaging_services/          # Image import manager, contracts
+│   ├── subject_image_domain_model/
+│   ├── treatment_image_domain_model/
+│   └── appointment_domain_model/
+├── model_checker/                 # Concurrent operation verification
+├── mcp_server/                    # MCP server (Prolog)
+├── mcp_server_erlang/             # MCP server (Erlang)
+├── mcp_server_elixir/             # MCP server (Elixir)
 └── docs/
 ```
 
@@ -95,9 +98,14 @@ Test cases that formally verify geometric algorithms critical to medical imaging
 - **ALGT_ISODENSITY**: Dose distribution calculations
 - **ALGT_STRUCT_PROJ**: Geometric structure projections
 
-### Clarion Interpreter
-Full interpreter for Clarion language supporting:
-- Variables, expressions, control flow
+### Clarion Interpreters
+Two Prolog interpreters for the Clarion language, under `clarion_interpreters/`:
+
+**prolog-interp/** — Original interpreter (2,764 lines, 8 files, simple)
+- Single-file architecture with parser, interpreter, and tracing
+
+**clarion_interpreter/** — ALGT interpreter (7,629 lines, 18 files, modular)
+- Full interpreter supporting variables, expressions, control flow
 - Procedures, routines, classes
 - File I/O operations (in-memory simulation)
 - UI simulation with pluggable backends
