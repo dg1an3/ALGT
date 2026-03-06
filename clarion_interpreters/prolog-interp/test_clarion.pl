@@ -44,7 +44,7 @@ test_multiply :-
     ( Result =:= 30 -> format(" [PASS]~n") ; format(" [FAIL: expected 30]~n") ).
 
 test_from_file :-
-    read_file_to_codes('../python-dll/MathLib.clw', Codes, []),
+    read_file_to_codes('../../clarion_projects/python-dll/MathLib.clw', Codes, []),
     parse_clarion(Codes, AST),
     exec_procedure(AST, 'MathAdd', [10, 20], R1),
     exec_procedure(AST, 'Multiply', [7, 8], R2),
@@ -348,7 +348,7 @@ main :-
     format("~nAll tests complete.~n").
 
 test_sensorlib :-
-    File = '../sensor-data/SensorLib.clw',
+    File = '../../clarion_projects/sensor-data/SensorLib.clw',
     ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     format("  SensorLib.clw parse"),
@@ -394,7 +394,7 @@ test_sensorlib :-
     ( R4 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R4=~w]~n", [R4]) ).
 
 test_stats_calc :-
-    File = '../stats-calc/StatsLib.clw',
+    File = '../../clarion_projects/stats-calc/StatsLib.clw',
     ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     format("  StatsLib.clw (complex features)"),
@@ -415,7 +415,7 @@ test_stats_calc :-
 %% ==========================================================================
 
 test_diagstore_full :-
-    read_file_to_codes('../diagnosis-store/DiagnosisStore.clw', Codes, []),
+    read_file_to_codes('../../clarion_projects/diagnosis-store/DiagnosisStore.clw', Codes, []),
     parse_clarion(Codes, AST),
     format("  DiagnosisStore.clw (full parse)"),
     ( AST = program(_, _, _, _, _) -> format(" [PASS]~n") ; format(" [FAIL]~n") ),

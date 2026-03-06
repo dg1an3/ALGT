@@ -8,7 +8,7 @@
 :- set_prolog_flag(double_quotes, codes).
 
 main :-
-    read_file_to_codes('../sensor-data/SensorLib.clw', Codes, []),
+    read_file_to_codes('../../clarion_projects/sensor-data/SensorLib.clw', Codes, []),
     parse_clarion(Codes, AST),
 
     init_file_io,

@@ -2,7 +2,7 @@
 :- set_prolog_flag(double_quotes, codes).
 
 debug_sensor :-
-    read_file_to_codes('../sensor-data/SensorLib.clw', Codes, []),
+    read_file_to_codes('../../clarion_projects/sensor-data/SensorLib.clw', Codes, []),
     ( parse_clarion(Codes, AST) ->
         writeln('Full SensorLib.clw parse: PASS'),
         AST = program(F,G,Gl,M,P),

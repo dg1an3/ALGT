@@ -39,7 +39,7 @@ test_multiply :-
     ( Result =:= 30 -> format(" [PASS]~n") ; format(" [FAIL: expected 30]~n") ).
 
 test_from_file :-
-    read_file_to_codes('../python-dll/MathLib.clw', Codes, []),
+    read_file_to_codes('../../clarion_projects/python-dll/MathLib.clw', Codes, []),
     parse_clarion(Codes, AST),
     exec_procedure(AST, 'MathAdd', [10, 20], R1),
     exec_procedure(AST, 'Multiply', [7, 8], R2),
@@ -226,7 +226,7 @@ TestSize PROCEDURE()
 %% ==========================================================================
 
 test_diagstore_exec :-
-    read_file_to_codes('../diagnosis-store/DiagnosisStore.clw', Codes, []),
+    read_file_to_codes('../../clarion_projects/diagnosis-store/DiagnosisStore.clw', Codes, []),
     parse_clarion(Codes, AST),
     init_file_io,
     format("  DSOpenStore()"),
@@ -237,7 +237,7 @@ test_diagstore_exec :-
     ( R2 =:= 1 -> format(" [PASS]~n") ; format(" [FAIL: R2=~w]~n", [R2]) ).
 
 test_sensorlib_exec :-
-    File = '../sensor-data/SensorLib.clw',
+    File = '../../clarion_projects/sensor-data/SensorLib.clw',
     ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     parse_clarion(Codes, AST),
@@ -276,7 +276,7 @@ test_sensorlib_exec :-
     ( R4 =:= 0 -> format(" [PASS]~n") ; format(" [FAIL: R4=~w]~n", [R4]) ).
 
 test_stats_calc :-
-    File = '../stats-calc/StatsLib.clw',
+    File = '../../clarion_projects/stats-calc/StatsLib.clw',
     ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     parse_clarion(Codes, AST),
@@ -380,7 +380,7 @@ test_form_no_events :-
     ).
 
 test_formdemo_parse :-
-    File = '../form-demo/FormDemo.clw',
+    File = '../../clarion_projects/form-demo/FormDemo.clw',
     ( exists_file(File) -> true ; format("  [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     parse_clarion(Codes, AST),
@@ -398,7 +398,7 @@ test_formdemo_parse :-
 %% ==========================================================================
 
 test_odbcstore_parse :-
-    File = '../odbc-store/OdbcStore.clw',
+    File = '../../clarion_projects/odbc-store/OdbcStore.clw',
     ( exists_file(File) -> true ; format("  [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     parse_clarion(Codes, AST),
@@ -414,7 +414,7 @@ test_odbcstore_parse :-
     ).
 
 test_odbcstore_exec :-
-    File = '../odbc-store/OdbcStore.clw',
+    File = '../../clarion_projects/odbc-store/OdbcStore.clw',
     ( exists_file(File) -> true ; format("  [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     parse_clarion(Codes, AST),

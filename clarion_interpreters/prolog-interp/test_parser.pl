@@ -30,7 +30,7 @@ test_parse :-
     ( AST = program([], [], [], _, [_,_]) -> format(" [PASS]~n") ; format(" [FAIL]~n") ).
 
 test_from_file_parse :-
-    read_file_to_codes('../python-dll/MathLib.clw', Codes, []),
+    read_file_to_codes('../../clarion_projects/python-dll/MathLib.clw', Codes, []),
     parse_clarion(Codes, AST),
     format("  MathLib.clw file parse"),
     ( AST = program([], [], [], _, [_,_]) -> format(" [PASS]~n") ; format(" [FAIL]~n") ).
@@ -264,7 +264,7 @@ FilePos   LONG(0)
     ).
 
 test_sensorlib_parse :-
-    File = '../sensor-data/SensorLib.clw',
+    File = '../../clarion_projects/sensor-data/SensorLib.clw',
     ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     format("  SensorLib.clw parse"),
@@ -276,14 +276,14 @@ test_sensorlib_parse :-
     ).
 
 test_statslib_parse :-
-    File = '../stats-calc/StatsLib.clw',
+    File = '../../clarion_projects/stats-calc/StatsLib.clw',
     ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     format("  StatsLib.clw parse"),
     ( parse_clarion(Codes, _AST) -> format(" [PASS]~n") ; format(" [FAIL]~n") ).
 
 test_diagstore_full_parse :-
-    File = '../diagnosis-store/DiagnosisStore.clw',
+    File = '../../clarion_projects/diagnosis-store/DiagnosisStore.clw',
     ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     format("  DiagnosisStore.clw full parse"),
@@ -294,7 +294,7 @@ test_diagstore_full_parse :-
     ).
 
 test_odbcstore_parse :-
-    File = '../odbc-store/OdbcStore.clw',
+    File = '../../clarion_projects/odbc-store/OdbcStore.clw',
     ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
     read_file_to_codes(File, Codes, []),
     format("  OdbcStore.clw parse"),
