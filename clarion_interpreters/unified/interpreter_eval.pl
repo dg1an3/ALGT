@@ -112,10 +112,14 @@ eval_binop('>', L, R, Result) :- ( L > R -> Result = 1 ; Result = 0 ).
 eval_binop('<=', L, R, Result) :- ( L =< R -> Result = 1 ; Result = 0 ).
 eval_binop('>=', L, R, Result) :- ( L >= R -> Result = 1 ; Result = 0 ).
 
-% Logical
+% Logical (both upper and lower case atoms)
 eval_binop('AND', L, R, Result) :-
     ( (is_truthy(L), is_truthy(R)) -> Result = 1 ; Result = 0 ).
+eval_binop(and, L, R, Result) :-
+    ( (is_truthy(L), is_truthy(R)) -> Result = 1 ; Result = 0 ).
 eval_binop('OR', L, R, Result) :-
+    ( (is_truthy(L) ; is_truthy(R)) -> Result = 1 ; Result = 0 ).
+eval_binop(or, L, R, Result) :-
     ( (is_truthy(L) ; is_truthy(R)) -> Result = 1 ; Result = 0 ).
 
 %------------------------------------------------------------
