@@ -72,6 +72,55 @@ diff <(cd clarion_projects/sensor-data && python trace_sensorlib.py | grep "^CAL
      <(cd clarion_interpreters/prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
 ```
 
+### Level 1b: CDB debugger traces (implemented)
+
+Uses the Windows CDB debugger (from Windows SDK Debugging Tools) to set hardware breakpoints on the compiled DLL's exported functions, capturing arguments from the x86 stack and return values from `eax`. This provides ground-truth traces directly from the compiled binary — no Python wrapper instrumentation involved.
+
+**Prerequisites**:
+- CDB (x86): `C:\Program Files (x86)\Windows Kits\10\Debuggers\x86\cdb.exe`
+- 32-bit Python (host process for loading the DLL via ctypes)
+
+**How it works**:
+
+1. CDB launches 32-bit Python as the debuggee
+2. `sxe ld:SensorLib` breaks when the DLL is loaded by ctypes
+3. Deferred breakpoints (`bu`) are set on each export symbol (e.g., `SensorLib!SSOpen`)
+4. At each breakpoint, CDB reads arguments from the stack (`dd esp+4 L1` for first arg, `esp+8` for second, etc.) — this is the C calling convention where args are pushed right-to-left
+5. `gu` (Go Up) executes the function to completion, then CDB reads the return value from `eax`
+6. The trace is normalized to `CALL ProcName(args) -> result` and compared with the Prolog interpreter
+
+**Key files** (`clarion_projects/sensor-data/`):
+- `cdb_breakpoints.txt` — CDB command script with breakpoint definitions
+- `cdb_trace_target.py` — Python script that loads the DLL (debuggee)
+- `compare_cdb_prolog.py` — Automated comparison: runs both CDB and Prolog, parses traces, diffs
+
+**Run the comparison**:
+```bash
+cd clarion_projects/sensor-data
+python compare_cdb_prolog.py
+```
+
+**Example output**:
+```
+--- Comparison ---
+  OK: CALL SSOpen() -> 0
+  OK: CALL SSAddReading(1, 100, 50) -> 0
+  OK: CALL SSAddReading(2, 200, 25) -> 0
+  OK: CALL SSAddReading(3, 300, 10) -> 0
+  OK: CALL SSCalculateWeightedAverage() -> 152
+  OK: CALL SSCleanupLowReadings(150) -> 1
+  OK: CALL SSCalculateWeightedAverage() -> 228
+  OK: CALL SSClose() -> 0
+
+RESULT: All 8 trace entries match!
+```
+
+**Adding breakpoints for new procedures**: In `cdb_breakpoints.txt`, add a line:
+```
+bu SensorLib!NewProc ".echo TRACE_ENTER NewProc; .echo   arg1(name)=; dd esp+4 L1; gu; .echo TRACE_EXIT NewProc eax=; r eax; gc"
+```
+For each `LONG` argument, read from `esp+4`, `esp+8`, `esp+c`, etc. (4 bytes per arg in C calling convention).
+
 ### Level 2: Statement-level traces (Prolog interpreter only)
 
 The Prolog interpreter traces every statement: `assign`, `call`, `if` (with condition value and branch taken), `loop` enter/exit, `break`, and `return`. Enabled via `set_trace(on)`.
@@ -113,7 +162,7 @@ Clarion DLL with DOS flat-file storage for cancer diagnosis records.
 ### sensor-data/ (`clarion_projects/`)
 Clarion DLL with DOS flat-file sensor readings, weighted average calculations, and record cleanup.
 
-**Key files:** `SensorLib.clw`, `test_sensorlib.py`, `trace_sensorlib.py`
+**Key files:** `SensorLib.clw`, `test_sensorlib.py`, `trace_sensorlib.py`, `compare_cdb_prolog.py`, `cdb_breakpoints.txt`, `cdb_trace_target.py`
 
 ### form-demo/ (top-level)
 Clarion EXE with a GUI form for sensor data entry. WINDOW/ACCEPT event loop.

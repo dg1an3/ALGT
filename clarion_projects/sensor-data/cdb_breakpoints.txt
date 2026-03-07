@@ -1,0 +1,12 @@
+* CDB breakpoint script for SensorLib.dll tracing
+* Wait for SensorLib.dll to load, then set breakpoints
+sxe ld:SensorLib
+g
+.echo *** CDB: SensorLib.dll loaded, setting breakpoints ***
+bu SensorLib!SSOpen ".echo TRACE_ENTER SSOpen; gu; .echo TRACE_EXIT SSOpen eax=; r eax; gc"
+bu SensorLib!SSAddReading ".echo TRACE_ENTER SSAddReading; .echo   arg1(id)=; dd esp+4 L1; .echo   arg2(val)=; dd esp+8 L1; .echo   arg3(w)=; dd esp+c L1; gu; .echo TRACE_EXIT SSAddReading eax=; r eax; gc"
+bu SensorLib!SSCalculateWeightedAverage ".echo TRACE_ENTER SSCalculateWeightedAverage; gu; .echo TRACE_EXIT SSCalculateWeightedAverage eax=; r eax; gc"
+bu SensorLib!SSCleanupLowReadings ".echo TRACE_ENTER SSCleanupLowReadings; .echo   arg1(threshold)=; dd esp+4 L1; gu; .echo TRACE_EXIT SSCleanupLowReadings eax=; r eax; gc"
+bu SensorLib!SSClose ".echo TRACE_ENTER SSClose; gu; .echo TRACE_EXIT SSClose eax=; r eax; gc"
+.echo *** CDB: Breakpoints set, continuing ***
+g

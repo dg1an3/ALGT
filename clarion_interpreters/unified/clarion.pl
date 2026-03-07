@@ -66,16 +66,16 @@ run_file(FileName) :-
 %------------------------------------------------------------
 
 exec_procedure(Source, ProcName, Args, Result) :-
-    init_session(Source, Session),
-    call_procedure(Session, ProcName, Args, Result, _).
+    init_session(Source, Session), !,
+    call_procedure(Session, ProcName, Args, Result, _), !.
 
 %------------------------------------------------------------
 % Stateful session for multi-call DLL simulation
 %------------------------------------------------------------
 
 init_session(Source, Session) :-
-    parse_clarion(Source, SimpleAST),
-    bridge_ast(SimpleAST, ModAST),
+    parse_clarion(Source, SimpleAST), !,
+    bridge_ast(SimpleAST, ModAST), !,
     ModAST = program(_, GlobalDecls, _, Procedures),
     empty_state(InitState),
     interpreter:init_procedures(Procedures, InitState, State1),
@@ -84,7 +84,7 @@ init_session(Source, Session) :-
 
 call_procedure(StateIn, ProcName, Args, Result, StateOut) :-
     maplist(wrap_arg, Args, ArgExprs),
-    exec_call(ProcName, ArgExprs, StateIn, StateOut, Result).
+    exec_call(ProcName, ArgExprs, StateIn, StateOut, Result), !.
 
 wrap_arg(N, number(N)) :- number(N), !.
 wrap_arg(S, string(S)) :- atom(S), !.

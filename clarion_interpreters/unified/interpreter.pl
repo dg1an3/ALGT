@@ -171,11 +171,11 @@ exec_statements([Stmt|Stmts], StateIn, StateOut, Control) :-
 %------------------------------------------------------------
 
 % Procedure/function call
-exec_statement(call(Name, Args), StateIn, StateOut, normal) :-
+exec_statement(call(Name, Args), StateIn, StateOut, normal) :- !,
     exec_call(Name, Args, StateIn, StateOut, _Result).
 
 % Assignment (with tracing)
-exec_statement(assign(VarName, Expr), StateIn, StateOut, normal) :-
+exec_statement(assign(VarName, Expr), StateIn, StateOut, normal) :- !,
     eval_full_expr(Expr, StateIn, Value),
     % Trace: record the assignment
     ( is_tracing
@@ -190,11 +190,11 @@ exec_statement(assign(VarName, Expr), StateIn, StateOut, normal) :-
     set_var(VarName, Value, StateIn, StateOut).
 
 % Method call (as statement)
-exec_statement(method_call(ObjName, MethodName, Args), StateIn, StateOut, normal) :-
+exec_statement(method_call(ObjName, MethodName, Args), StateIn, StateOut, normal) :- !,
     exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, _Result).
 
 % SELF assignment
-exec_statement(self_assign(PropName, Expr), StateIn, StateOut, normal) :-
+exec_statement(self_assign(PropName, Expr), StateIn, StateOut, normal) :- !,
     eval_full_expr(Expr, StateIn, Value),
     get_self(StateIn, self_context(VarName, _, _)),
     get_var(VarName, StateIn, Instance),
@@ -202,11 +202,11 @@ exec_statement(self_assign(PropName, Expr), StateIn, StateOut, normal) :-
     set_var(VarName, NewInstance, StateIn, StateOut).
 
 % PARENT method call
-exec_statement(parent_call(MethodName, Args), StateIn, StateOut, normal) :-
+exec_statement(parent_call(MethodName, Args), StateIn, StateOut, normal) :- !,
     exec_parent_call(MethodName, Args, StateIn, StateOut, _Result).
 
 % GROUP/instance member assignment
-exec_statement(member_assign(VarName, FieldName, Expr), StateIn, StateOut, normal) :-
+exec_statement(member_assign(VarName, FieldName, Expr), StateIn, StateOut, normal) :- !,
     ( get_file_state(VarName, StateIn, FileState) ->
         eval_full_expr(Expr, StateIn, Value),
         set_buffer_field(FieldName, Value, FileState, NewFileState),
@@ -226,7 +226,7 @@ exec_statement(member_assign(VarName, FieldName, Expr), StateIn, StateOut, norma
     ).
 
 % Array assignment
-exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, normal) :-
+exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, normal) :- !,
     eval_full_expr(IndexExpr, StateIn, Index),
     eval_full_expr(Expr, StateIn, Value),
     get_var(ArrayName, StateIn, ArrayVal),
@@ -237,19 +237,19 @@ exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, norm
     ;  set_var(ArrayName, Value, StateIn, StateOut)
     ).
 
-exec_statement(assign_add(VarName, Expr), StateIn, StateOut, normal) :-
+exec_statement(assign_add(VarName, Expr), StateIn, StateOut, normal) :- !,
     eval_full_expr(Expr, StateIn, Val),
     get_var(VarName, StateIn, CurrentVal),
     NewVal is CurrentVal + Val,
     set_var(VarName, NewVal, StateIn, StateOut).
 
 % Return statements
-exec_statement(return, State, State, return).
-exec_statement(return(Expr), StateIn, StateIn, return(Value)) :-
+exec_statement(return, State, State, return) :- !.
+exec_statement(return(Expr), StateIn, StateIn, return(Value)) :- !,
     eval_full_expr(Expr, StateIn, Value).
 
 % IF statement (4-arg form with ELSIF) - with tracing
-exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn, StateOut, Control) :-
+exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn, StateOut, Control) :- !,
     eval_full_expr(Cond, StateIn, CondVal),
     IsTruthy = is_truthy(CondVal),
     ( call(IsTruthy) -> BranchTaken = true ; BranchTaken = false ),
@@ -266,7 +266,7 @@ exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn, StateOut, 
     ).
 
 % IF statement (3-arg legacy form) - with tracing
-exec_statement(if(Cond, ThenStmts, ElseStmts), StateIn, StateOut, Control) :-
+exec_statement(if(Cond, ThenStmts, ElseStmts), StateIn, StateOut, Control) :- !,
     \+ is_list(ElseStmts),
     eval_full_expr(Cond, StateIn, CondVal),
     ( is_truthy(CondVal) -> BranchTaken = true ; BranchTaken = false ),
@@ -283,7 +283,7 @@ exec_statement(if(Cond, ThenStmts, ElseStmts), StateIn, StateOut, Control) :-
     ).
 
 % Loop statements - with tracing
-exec_statement(loop(Body), StateIn, StateOut, Control) :-
+exec_statement(loop(Body), StateIn, StateOut, Control) :- !,
     ( is_tracing
     -> trace_loop_start(infinite, info{})
     ;  true
@@ -294,7 +294,7 @@ exec_statement(loop(Body), StateIn, StateOut, Control) :-
     ;  true
     ).
 
-exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn, StateOut, Control) :-
+exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn, StateOut, Control) :- !,
     eval_full_expr(FromExpr, StateIn, From),
     eval_full_expr(ToExpr, StateIn, To),
     ( is_tracing
@@ -309,7 +309,7 @@ exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn, StateOut, Control)
     ;  true
     ).
 
-exec_statement(loop_while(Cond, Body), StateIn, StateOut, Control) :-
+exec_statement(loop_while(Cond, Body), StateIn, StateOut, Control) :- !,
     ( is_tracing
     -> trace_loop_start(loop_while, info{condition: Cond}),
        add_graph_node(loop, loop{type: loop_while, condition: Cond}, _)
@@ -321,7 +321,7 @@ exec_statement(loop_while(Cond, Body), StateIn, StateOut, Control) :-
     ;  true
     ).
 
-exec_statement(loop_until(Cond, Body), StateIn, StateOut, Control) :-
+exec_statement(loop_until(Cond, Body), StateIn, StateOut, Control) :- !,
     ( is_tracing
     -> trace_loop_start(loop_until, info{condition: Cond}),
        add_graph_node(loop, loop{type: loop_until, condition: Cond}, _)
@@ -334,11 +334,11 @@ exec_statement(loop_until(Cond, Body), StateIn, StateOut, Control) :-
     ).
 
 % BREAK and CYCLE
-exec_statement(break, State, State, break).
-exec_statement(cycle, State, State, cycle).
+exec_statement(break, State, State, break) :- !.
+exec_statement(cycle, State, State, cycle) :- !.
 
 % CASE statement - with tracing
-exec_statement(case(Expr, Cases, ElseStmts), StateIn, StateOut, Control) :-
+exec_statement(case(Expr, Cases, ElseStmts), StateIn, StateOut, Control) :- !,
     eval_full_expr(Expr, StateIn, Value),
     ( is_tracing
     -> add_graph_node(branch, branch{type: case, expr: Expr, value: Value}, NodeId),
@@ -348,21 +348,21 @@ exec_statement(case(Expr, Cases, ElseStmts), StateIn, StateOut, Control) :-
     exec_case_traced(Value, Cases, ElseStmts, StateIn, StateOut, Control, 0).
 
 % DO routine call
-exec_statement(do(RoutineName), StateIn, StateOut, Control) :-
+exec_statement(do(RoutineName), StateIn, StateOut, Control) :- !,
     exec_routine(RoutineName, StateIn, StateOut, Control).
 
 % EXIT (from routine)
-exec_statement(exit, State, State, exit).
+exec_statement(exit, State, State, exit) :- !.
 
 % ACCEPT loop
-exec_statement(accept(Body), StateIn, StateOut, Control) :-
+exec_statement(accept(Body), StateIn, StateOut, Control) :- !,
     exec_accept_loop(Body, StateIn, StateOut, Control, open_window).
 
 % Window/Control operations (no-ops for non-GUI)
-exec_statement(control_prop_assign(_, _, _), State, State, normal).
-exec_statement(select(_), State, State, normal).
-exec_statement(beep, State, State, normal).
-exec_statement(display, State, State, normal).
+exec_statement(control_prop_assign(_, _, _), State, State, normal) :- !.
+exec_statement(select(_), State, State, normal) :- !.
+exec_statement(beep, State, State, normal) :- !.
+exec_statement(display, State, State, normal) :- !.
 
 % Catch-all
 exec_statement(Stmt, State, State, normal) :-
@@ -373,6 +373,11 @@ exec_statement(Stmt, State, State, normal) :-
 %------------------------------------------------------------
 
 % Full expression evaluation that handles calls and method calls
+% Binop must use eval_full_expr for sub-expressions (they may contain calls)
+eval_full_expr(binop(Op, Left, Right), State, Result) :- !,
+    eval_full_expr(Left, State, LVal),
+    eval_full_expr(Right, State, RVal),
+    eval_binop(Op, LVal, RVal, Result).
 eval_full_expr(call(Name, Args), StateIn, Result) :- !,
     exec_call(Name, Args, StateIn, _, Result).
 eval_full_expr(method_call(ObjName, MethodName, Args), StateIn, Result) :- !,
@@ -526,7 +531,10 @@ exec_accept_loop(Body, StateIn, StateOut, Control, Phase) :-
 exec_call(Name, Args, StateIn, StateOut, Result) :-
     ( builtin_call(Name, Args, StateIn, StateOut, Result)
     -> true
-    ; get_proc(Name, StateIn, procedure(Name, Params, LocalVars, code(Body))),
+    ; ( get_proc(Name, StateIn, procedure(Name, Params, LocalVars, code(Body)))
+      -> true
+      ; throw(error(undefined_procedure(Name), context(exec_call/5, 'Undefined procedure')))
+      ),
       eval_args(Args, StateIn, ArgVals),
       % Trace: procedure entry
       ( is_tracing

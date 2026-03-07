@@ -65,11 +65,33 @@ builtin_call('VAL', [Expr], StateIn, StateIn, Code) :-
     eval_expr(Expr, StateIn, Char),
     ( atom(Char) -> atom_codes(Char, [Code|_]) ; string_codes(Char, [Code|_]) ).
 
-% TODAY() - current date (returns 0 for now, would need real date math)
-builtin_call('TODAY', [], StateIn, StateIn, 0).
+% TODAY() - current date (mock Clarion date value)
+builtin_call('TODAY', [], StateIn, StateIn, 80000).
 
 % CLOCK() - current time (returns 0 for now)
 builtin_call('CLOCK', [], StateIn, StateIn, 0).
+
+% SIZE(var) - returns byte size of a GROUP or FILE record
+builtin_call('SIZE', [var(Name)], StateIn, StateIn, Size) :-
+    ( get_file_state(Name, StateIn, file_state(_, _, _, Fields, _, _, _, _))
+    -> length(Fields, NFields), Size is NFields * 4
+    ; get_var(Name, StateIn, group_val(Fields, _))
+    -> length(Fields, NFields), Size is NFields * 4
+    ; Size = 0
+    ).
+
+% ADDRESS(var) - returns mock memory address
+builtin_call('ADDRESS', [_], StateIn, StateIn, 1234).
+
+% POINTER(file) - returns current file pointer position
+builtin_call('POINTER', [var(FileName)], StateIn, StateIn, Pos) :-
+    ( get_file_state(FileName, StateIn, file_state(_, _, _, _, _, _, P, _))
+    -> Pos is P + 1  % Clarion POINTER is 1-based
+    ; Pos = 0
+    ).
+
+% CHOICE(control) - returns list control selection (mock)
+builtin_call('CHOICE', [_], StateIn, StateIn, 0).
 
 % FORMAT(value, picture) - Format a value according to picture
 builtin_call('FORMAT', [ValueExpr, PictureExpr], StateIn, StateIn, Result) :-

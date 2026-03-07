@@ -96,6 +96,7 @@ bridge_type_name(cstring, 'CSTRING').
 bridge_type_name(cstring(N), 'CSTRING') :- number(N).
 bridge_type_name(string, 'STRING').
 bridge_type_name(string(N), 'STRING') :- number(N).
+bridge_type_name(ref(T), TypeAtom) :- bridge_type_name(T, TypeAtom).
 bridge_type_name(T, T).  % pass through unknown types
 
 %------------------------------------------------------------
@@ -162,58 +163,68 @@ bridge_stmts([S|Ss], [BS|BSs]) :-
     bridge_stmts(Ss, BSs).
 
 % Assignment
-bridge_stmt(assign(Var, Expr), assign(Var, BExpr)) :-
+bridge_stmt(assign(Var, Expr), assign(Var, BExpr)) :- !,
     bridge_expr(Expr, BExpr).
 
 % Compound assignment (Var += Expr) - simple parser stores as assign(Var, add(var(Var), Expr))
 % The modular interpreter has assign_add but we can keep it as assign with binop
 
 % Procedure call
-bridge_stmt(call(Name, Args), call(Name, BArgs)) :-
+bridge_stmt(call(Name, Args), call(Name, BArgs)) :- !,
     bridge_exprs(Args, BArgs).
 
 % Return
-bridge_stmt(return(Expr), return(BExpr)) :-
+bridge_stmt(return(Expr), return(BExpr)) :- !,
     bridge_expr(Expr, BExpr).
-bridge_stmt(return, return).
+bridge_stmt(return, return) :- !.
 
 % Break, Cycle, Display, Exit
-bridge_stmt(break, break).
-bridge_stmt(cycle, cycle).
-bridge_stmt(display, display).
-bridge_stmt(exit, exit).
+bridge_stmt(break, break) :- !.
+bridge_stmt(cycle, cycle) :- !.
+bridge_stmt(display, display) :- !.
+bridge_stmt(exit, exit) :- !.
 
 % IF (simple parser: 3-arg if(Cond, Then, Else))
-bridge_stmt(if(Cond, Then, Else), if(BCond, BThen, [], BElse)) :-
+bridge_stmt(if(Cond, Then, Else), if(BCond, BThen, [], BElse)) :- !,
     bridge_expr(Cond, BCond),
     bridge_stmts(Then, BThen),
     bridge_stmts(Else, BElse).
 
 % LOOP (infinite)
-bridge_stmt(loop(Body), loop(BBody)) :-
+bridge_stmt(loop(Body), loop(BBody)) :- !,
     bridge_stmts(Body, BBody).
 
 % LOOP FOR (simple: loop_for; modular: loop_to)
-bridge_stmt(loop_for(Var, Start, End, Body), loop_to(Var, BStart, BEnd, BBody)) :-
+bridge_stmt(loop_for(Var, Start, End, Body), loop_to(Var, BStart, BEnd, BBody)) :- !,
     bridge_expr(Start, BStart),
     bridge_expr(End, BEnd),
     bridge_stmts(Body, BBody).
 
+% LOOP WHILE
+bridge_stmt(loop_while(Cond, Body), loop_while(BCond, BBody)) :- !,
+    bridge_expr(Cond, BCond),
+    bridge_stmts(Body, BBody).
+
+% LOOP UNTIL
+bridge_stmt(loop_until(Cond, Body), loop_until(BCond, BBody)) :- !,
+    bridge_expr(Cond, BCond),
+    bridge_stmts(Body, BBody).
+
 % CASE
-bridge_stmt(case(Expr, Ofs, Else), case(BExpr, BCases, BElse)) :-
+bridge_stmt(case(Expr, Ofs, Else), case(BExpr, BCases, BElse)) :- !,
     bridge_expr(Expr, BExpr),
     bridge_case_ofs(Ofs, BCases),
     bridge_stmts(Else, BElse).
 
 % ACCEPT
-bridge_stmt(accept(Body), accept(BBody)) :-
+bridge_stmt(accept(Body), accept(BBody)) :- !,
     bridge_stmts(Body, BBody).
 
 % DO routine
-bridge_stmt(do(Name), do(Name)).
+bridge_stmt(do(Name), do(Name)) :- !.
 
 % Array assignment
-bridge_stmt(assign_array(Name, Index, Expr), array_assign(Name, BIndex, BExpr)) :-
+bridge_stmt(assign_array(Name, Index, Expr), array_assign(Name, BIndex, BExpr)) :- !,
     bridge_expr(Index, BIndex),
     bridge_expr(Expr, BExpr).
 
@@ -252,40 +263,42 @@ bridge_expr(lit(N), number(N)) :- float(N), !.
 bridge_expr(lit(S), string(S)) :- atom(S), !.
 
 % Variables
-bridge_expr(var(Name), var(Name)).
+bridge_expr(var(Name), var(Name)) :- !.
 
 % Equates -> control references
-bridge_expr(equate(Name), control_ref(Name)).
+bridge_expr(equate(Name), control_ref(Name)) :- !.
 
 % Arithmetic operators
-bridge_expr(add(A, B), binop('+', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
-bridge_expr(sub(A, B), binop('-', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
-bridge_expr(mul(A, B), binop('*', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(add(A, B), binop('+', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(sub(A, B), binop('-', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(mul(A, B), binop('*', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
 
-% Division - simple parser produces infix div: e.g., mul(A,B) div lit(C)
-% This appears as a compound term: div(mul(A,B), lit(C))
-bridge_expr(div(A, B), binop('/', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
+% Division
+bridge_expr(div(A, B), binop('/', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+
+% Modulo
+bridge_expr(modulo(A, B), binop('%', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
 
 % Comparison operators
-bridge_expr(eq(A, B), binop('=', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
-bridge_expr(neq(A, B), binop('<>', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
-bridge_expr(lt(A, B), binop('<', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
-bridge_expr(lte(A, B), binop('<=', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
-bridge_expr(gt(A, B), binop('>', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
-bridge_expr(gte(A, B), binop('>=', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(eq(A, B), binop('=', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(neq(A, B), binop('<>', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(lt(A, B), binop('<', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(lte(A, B), binop('<=', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(gt(A, B), binop('>', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(gte(A, B), binop('>=', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
 
 % Logical operators
-bridge_expr(and(A, B), binop(and, BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
-bridge_expr(or(A, B), binop(or, BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(and(A, B), binop(and, BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(or(A, B), binop(or, BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
 
 % String concatenation
-bridge_expr(concat(A, B), binop('&', BA, BB)) :- bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(concat(A, B), binop('&', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
 
 % Function calls
-bridge_expr(call(Name, Args), call(Name, BArgs)) :- bridge_exprs(Args, BArgs).
+bridge_expr(call(Name, Args), call(Name, BArgs)) :- !, bridge_exprs(Args, BArgs).
 
 % Array reference
-bridge_expr(array_ref(Name, Index), array_access(Name, BIndex)) :- bridge_expr(Index, BIndex).
+bridge_expr(array_ref(Name, Index), array_access(Name, BIndex)) :- !, bridge_expr(Index, BIndex).
 
 % Pass through anything already in modular format or unrecognized
 bridge_expr(number(N), number(N)) :- !.

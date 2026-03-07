@@ -65,13 +65,14 @@ program(program(Files, Groups, Globals, MapEntries, Procs)) -->
     map_block(MapEntries), ws,
     procedures(Procs), ws.
 
-% PROGRAM form (EXE with inline CODE)
-program(program(Files, Groups, Globals, MapEntries, [MainProc])) -->
+% PROGRAM form (EXE with inline CODE + optional procedures)
+program(program(Files, Groups, Globals, MapEntries, [MainProc|Procs])) -->
     ws, kw("PROGRAM"), ws,
     map_block(MapEntries), ws,
     top_decls(Files, Groups, Globals), ws,
     kw("CODE"), ws,
     statements(Body), ws,
+    procedures(Procs),
     { MainProc = procedure('_main', [], void, [], Body) }.
 
 % --- Top-level declarations (FILE, GROUP, global vars) ---
@@ -320,9 +321,19 @@ map_entry_or_module(module_entry(ModName, Entries)) -->
     { atom_codes(ModName, Cs) }.
 
 % Regular map entry
+% Name(params),RetType,Attrs  format
 map_entry_or_module(map_entry(Name, Params, RetType, Attrs)) -->
     ident(Name), ws, "(", ws, map_param_list(Params), ws, ")", ws,
     map_return_and_attrs(RetType, Attrs).
+
+% Name PROCEDURE[(params)][,RetType][,Attrs] format
+map_entry_or_module(map_entry(Name, Params, RetType, Attrs)) -->
+    ident(Name), ws, kw("PROCEDURE"), ws,
+    map_proc_params(Params), ws,
+    map_return_and_attrs(RetType, Attrs).
+
+map_proc_params(Params) --> "(", ws, map_param_list(Params), ws, ")".
+map_proc_params([]) --> [].
 
 map_return_and_attrs(RetType, Attrs) -->
     ",", ws, map_ret_or_attr(RetType, Attrs).
@@ -363,14 +374,23 @@ opt_ident(anonymous) --> [].
 %% ==========================================================================
 
 procedures([P|Ps]) --> procedure(P), !, ws, procedures(Ps).
+procedures([P|Ps]) --> routine(P), !, ws, procedures(Ps).
 procedures([]) --> [].
 
 procedure(procedure(Name, Params, RetType, Locals, Body)) -->
     ident(Name), ws,
-    kw("PROCEDURE"), ws, "(", ws, proc_param_list(Params), ws, ")", ws,
+    kw("PROCEDURE"), ws,
+    proc_def_params(Params), ws,
     return_type(RetType), ws,
     local_vars(Locals), ws,
     kw("CODE"), ws,
+    statements(Body).
+
+proc_def_params(Params) --> "(", ws, proc_param_list(Params), ws, ")".
+proc_def_params([]) --> [].
+
+routine(routine(Name, Body)) -->
+    ident(Name), ws, kw("ROUTINE"), ws,
     statements(Body).
 
 return_type(RetType) --> ",", ws, type(RetType), ws.
@@ -398,8 +418,12 @@ proc_param(param(Name, Type)) --> type(Type), ws, ident(Name).
 %% --- Types ---
 
 type(long) --> kw("LONG").
+type(short) --> kw("SHORT").
+type(real) --> kw("REAL").
 type(cstring(Size)) --> kw("CSTRING"), ws, "(", ws, number(Size), ws, ")".
 type(cstring) --> kw("CSTRING").
+type(string(Size)) --> kw("STRING"), ws, "(", ws, number(Size), ws, ")".
+type(string) --> kw("STRING").
 
 %% ==========================================================================
 %% Statements
@@ -411,16 +435,28 @@ statements([]) --> [].
 statement(if(Cond, [Then], [])) -->
     kw("IF"), ws, expr(Cond), ws, kw("THEN"), ws, statement(Then), ws, ".".
 
-% IF expr / stmts / [ELSE / stmts] / END
+% IF expr / stmts / [ELSIF ... / ELSE / stmts] / END
 statement(if(Cond, Then, Else)) -->
     kw("IF"), ws, expr(Cond), ws,
     statements(Then), ws,
-    if_else(Else), ws,
+    elsif_else(Else), ws,
     kw("END").
 
 % LOOP var = start TO end / stmts / END
 statement(loop_for(Var, Start, End, Body)) -->
     kw("LOOP"), ws, ident(Var), ws, "=", ws, expr(Start), ws, kw("TO"), ws, expr(End), ws,
+    statements(Body), ws,
+    kw("END").
+
+% LOOP WHILE cond / stmts / END
+statement(loop_while(Cond, Body)) -->
+    kw("LOOP"), ws, kw("WHILE"), ws, expr(Cond), ws,
+    statements(Body), ws,
+    kw("END").
+
+% LOOP UNTIL cond / stmts / END
+statement(loop_until(Cond, Body)) -->
+    kw("LOOP"), ws, kw("UNTIL"), ws, expr(Cond), ws,
     statements(Body), ws,
     kw("END").
 
@@ -449,11 +485,21 @@ statement(display) -->
 statement(break) -->
     kw("BREAK").
 
+statement(cycle) -->
+    kw("CYCLE").
+
+statement(exit) -->
+    kw("EXIT").
+
+statement(do(Name)) -->
+    kw("DO"), ws, ident(Name).
+
+% RETURN expr - expression on same line (handles both RETURN(expr) and RETURN expr)
 statement(return(Expr)) -->
-    kw("RETURN"), ws, expr(Expr).
+    kw("RETURN"), ws_nonnl, expr(Expr).
 
 % Bare RETURN (no expression)
-statement(return(lit(0))) -->
+statement(return) -->
     kw("RETURN").
 
 statement(assign(array_ref(Name, Index), Expr)) -->
@@ -470,6 +516,14 @@ statement(call('DELETE', [var(Name)])) -->
 
 statement(call(Name, Args)) -->
     word(Name), ws, "(", ws, expr_list(Args), ws, ")".
+
+% ELSIF chain: wraps nested if() in a statement list
+elsif_else([if(Cond, Then, Rest)]) -->
+    kw("ELSIF"), ws, expr(Cond), ws,
+    statements(Then), ws,
+    elsif_else(Rest).
+elsif_else(Else) --> kw("ELSE"), ws, statements(Else).
+elsif_else([]) --> [].
 
 if_else(Stmts) --> kw("ELSE"), ws, statements(Stmts).
 if_else([]) --> [].
@@ -512,11 +566,13 @@ compare_rest(E, E) --> [].
 add_expr(E) --> mul_expr(L), ws, add_rest(L, E).
 add_rest(L, E) --> "+", ws, mul_expr(R), ws, add_rest(add(L, R), E).
 add_rest(L, E) --> "-", ws, mul_expr(R), ws, add_rest(sub(L, R), E).
+add_rest(L, E) --> "&", ws, mul_expr(R), ws, add_rest(concat(L, R), E).
 add_rest(E, E) --> [].
 
 mul_expr(E) --> primary(L), ws, mul_rest(L, E).
 mul_rest(L, E) --> "*", ws, primary(R), ws, mul_rest(mul(L, R), E).
 mul_rest(L, E) --> "/", ws, primary(R), ws, mul_rest(div(L, R), E).
+mul_rest(L, E) --> "%", ws, primary(R), ws, mul_rest(modulo(L, R), E).
 mul_rest(E, E) --> [].
 
 primary(lit(N))    --> number(N), !.
@@ -541,7 +597,6 @@ expr_list_rest([]) --> [].
 
 % Case-insensitive keyword (must not be followed by ident char)
 kw([]) --> \+ ( [C], { ident_cont(C) } ).
-kw([]) --> [].
 kw([K|Ks]) --> [C], { to_upper(C, U), to_upper(K, U) }, kw(Ks).
 
 to_upper(C, U) :- C >= 0'a, C =< 0'z, !, U is C - 32.
@@ -574,7 +629,7 @@ ident_cont(C) :- C >= 0'0, C =< 0'9.
 is_keyword(Name) :-
     upcase_atom(Name, U),
     member(U, ['MEMBER','PROGRAM','MAP','END','PROCEDURE','CODE','RETURN',
-               'LONG','CSTRING','C','NAME','EXPORT','FILE','DRIVER',
+               'LONG','CSTRING','NAME','EXPORT','FILE','DRIVER',
                'CREATE','PRE','RECORD','GROUP','MODULE','RAW','PASCAL',
                'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET',
                'NEXT','OPEN','CLOSE','GET','PUT','ADD','CLEAR',
@@ -583,7 +638,9 @@ is_keyword(Name) :-
                'DELETE','KEY','PRIMARY','OWNER',
                'WINDOW','ACCEPT','DISPLAY','ACCEPTED',
                'PROMPT','ENTRY','BUTTON','STRING','LIST','AT','USE',
-               'CENTER','DROP','FROM','CHOICE','SELECT']).
+               'CENTER','DROP','FROM','CHOICE','SELECT',
+               'WHILE','UNTIL','ELSIF','CYCLE','DO','ROUTINE','EXIT',
+               'SHORT','REAL','MESSAGE']).
 
 % Integer literal
 number(N) -->
@@ -602,7 +659,15 @@ qchars([]) --> [].
 % Whitespace and comments
 ws --> [C], { C =< 32 }, !, ws.
 ws --> "!", comment_body, !, ws.
+ws --> "|", line_continuation, !, ws.
 ws --> [].
+
+% Whitespace that doesn't cross newlines (for same-line constructs)
+ws_nonnl --> [C], { C =< 32, C \= 10, C \= 13 }, !, ws_nonnl.
+ws_nonnl --> [].
+
+line_continuation --> "\n", !.
+line_continuation --> [C], { C \= 0'\n }, !, line_continuation.
 
 comment_body --> "\n", !.
 comment_body --> [_], !, comment_body.
