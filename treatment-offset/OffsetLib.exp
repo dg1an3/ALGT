@@ -1,0 +1,7 @@
+NAME OffsetLib
+EXPORTS
+  OLInit
+  OLSetField
+  OLCalcBtn
+  OLClearBtn
+  OLGetVar
