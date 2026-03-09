@@ -1,6 +1,0 @@
-set SensorID 42
-set Reading 500
-set Weight 80
-set SensorType 2
-accepted CalcBtn
-accepted CloseBtn
