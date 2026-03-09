@@ -1,27 +1,30 @@
 """Target script for CDB debugging of OffsetLib.dll.
 
 CDB attaches to this 32-bit Python process and sets breakpoints on
-OffsetLib's exported functions. The script exercises a treatment offset
-entry scenario:
-  - Set Anterior=15mm, Superior=20mm, Lateral=10mm
-  - Set date=80001 (2026-03-09 in Clarion), time=4320000 (12:00:00)
-  - Set DataSource=2 (kV Imaging)
-  - Calculate magnitude: sqrt(15^2 + 20^2 + 10^2) = sqrt(725) = 26 (truncated)
-  - Query all variables
-  - Clear and query again
+OffsetLib's exported functions. Tests the direction dropdown and
+sign-flip logic:
+  - Set APValue=-15 (should flip to 15, APDir 1->2 Posterior)
+  - Set SIValue=20  (stays positive, SIDir stays 1 Superior)
+  - Set LRValue=-10 (should flip to 10, LRDir 1->2 Right)
+  - Calculate magnitude: sqrt(15^2 + 20^2 + 10^2) = sqrt(725) = 26
+  - Query all variables including directions
+  - Clear and verify reset
 """
 import ctypes
 import os
 import sys
 
 # Variable IDs matching OffsetLib.clw
-VAR_ANTERIOR = 1
-VAR_SUPERIOR = 2
-VAR_LATERAL = 3
-VAR_MAGNITUDE = 4
-VAR_DATE = 5
-VAR_TIME = 6
-VAR_SOURCE = 7
+VAR_APVALUE = 1
+VAR_APDIR = 2
+VAR_SIVALUE = 3
+VAR_SIDIR = 4
+VAR_LRVALUE = 5
+VAR_LRDIR = 6
+VAR_MAGNITUDE = 7
+VAR_DATE = 8
+VAR_TIME = 9
+VAR_SOURCE = 10
 
 
 def main():
@@ -37,27 +40,26 @@ def main():
     # Initialize
     lib.OLInit()
 
-    # Set shift values (mm)
-    lib.OLSetField(VAR_ANTERIOR, 15)    # 1.5 cm
-    lib.OLSetField(VAR_SUPERIOR, 20)    # 2.0 cm
-    lib.OLSetField(VAR_LATERAL, 10)     # 1.0 cm
+    # Set shift values — negative values trigger sign-flip
+    lib.OLSetField(VAR_APVALUE, -15)   # -15 -> APValue=15, APDir flips 1->2
+    lib.OLSetField(VAR_SIVALUE, 20)    # positive, SIDir stays 1
+    lib.OLSetField(VAR_LRVALUE, -10)   # -10 -> LRValue=10, LRDir flips 1->2
 
-    # Set date/time (Clarion format: days since 1800-12-28)
-    # 2026-03-09 = 82252 in Clarion date
+    # Set date/time/source
     lib.OLSetField(VAR_DATE, 82252)
-    # 12:00:00 = 4320000 centiseconds from midnight
     lib.OLSetField(VAR_TIME, 4320000)
-
-    # Set data source (2 = kV Imaging)
     lib.OLSetField(VAR_SOURCE, 2)
 
     # Calculate magnitude
     lib.OLCalcBtn()
 
     # Query all variable values after Calculate
-    lib.OLGetVar(VAR_ANTERIOR)
-    lib.OLGetVar(VAR_SUPERIOR)
-    lib.OLGetVar(VAR_LATERAL)
+    lib.OLGetVar(VAR_APVALUE)
+    lib.OLGetVar(VAR_APDIR)
+    lib.OLGetVar(VAR_SIVALUE)
+    lib.OLGetVar(VAR_SIDIR)
+    lib.OLGetVar(VAR_LRVALUE)
+    lib.OLGetVar(VAR_LRDIR)
     lib.OLGetVar(VAR_MAGNITUDE)
     lib.OLGetVar(VAR_DATE)
     lib.OLGetVar(VAR_TIME)
@@ -66,10 +68,13 @@ def main():
     # Clear
     lib.OLClearBtn()
 
-    # Query all after Clear
-    lib.OLGetVar(VAR_ANTERIOR)
-    lib.OLGetVar(VAR_SUPERIOR)
-    lib.OLGetVar(VAR_LATERAL)
+    # Query key variables after Clear
+    lib.OLGetVar(VAR_APVALUE)
+    lib.OLGetVar(VAR_APDIR)
+    lib.OLGetVar(VAR_SIVALUE)
+    lib.OLGetVar(VAR_SIDIR)
+    lib.OLGetVar(VAR_LRVALUE)
+    lib.OLGetVar(VAR_LRDIR)
     lib.OLGetVar(VAR_MAGNITUDE)
     lib.OLGetVar(VAR_SOURCE)
 

@@ -1,0 +1,14 @@
+* CDB breakpoint script for OffsetForm.dll — live GUI tracing
+* Traces button clicks (OFDoCalc, OFDoClear) and variable queries (OFGetVar)
+* during interactive form use.
+*
+* Usage: cdb -G -o -cf cdb_form_breakpoints.txt python run_form_dll.py
+sxe ld:OffsetForm
+g
+.echo *** CDB: OffsetForm.dll loaded, setting breakpoints ***
+bu OffsetForm!OFRunForm ".echo TRACE_ENTER OFRunForm; gc"
+bu OffsetForm!OFDoCalc ".echo TRACE_ENTER OFDoCalc; gu; .echo TRACE_EXIT OFDoCalc eax=; r eax; gc"
+bu OffsetForm!OFDoClear ".echo TRACE_ENTER OFDoClear; gu; .echo TRACE_EXIT OFDoClear eax=; r eax; gc"
+bu OffsetForm!OFGetVar ".echo TRACE_ENTER OFGetVar; .echo   arg1(id)=; dd esp+4 L1; gu; .echo TRACE_EXIT OFGetVar eax=; r eax; gc"
+.echo *** CDB: Breakpoints set — interact with the form ***
+g

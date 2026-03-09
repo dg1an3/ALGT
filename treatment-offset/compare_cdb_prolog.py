@@ -1,12 +1,12 @@
 """compare_cdb_prolog.py — Compare CDB debugger trace with Prolog interpreter trace
-for OffsetLib (treatment offset variable comparison).
+for OffsetLib (treatment offset variable comparison with direction sign-flip).
 
 Runs both:
 1. CDB attached to Python loading OffsetLib.dll (compiled Clarion)
 2. SWI-Prolog interpreter computing the same operations
 
 Compares function calls, arguments, return values, and internal variable
-values accessed via OLGetVar — including the ISqrt magnitude calculation.
+values — including sign-flip normalization and direction toggles.
 
 Usage: python compare_cdb_prolog.py
 """
@@ -23,8 +23,16 @@ PYTHON32 = os.path.expanduser(r"~\.pyenv\pyenv-win\versions\3.11.9-win32\python.
 
 # Variable ID -> name mapping
 VAR_NAMES = {
-    1: "Anterior", 2: "Superior", 3: "Lateral", 4: "Magnitude",
-    5: "OffsetDate", 6: "OffsetTime", 7: "DataSource"
+    1: "APValue", 2: "APDir", 3: "SIValue", 4: "SIDir",
+    5: "LRValue", 6: "LRDir", 7: "Magnitude",
+    8: "OffsetDate", 9: "OffsetTime", 10: "DataSource"
+}
+
+# Direction labels for readable output
+DIR_LABELS = {
+    2: {1: "Anterior", 2: "Posterior"},
+    4: {1: "Superior", 2: "Inferior"},
+    6: {1: "Left", 2: "Right"},
 }
 
 
@@ -98,9 +106,14 @@ def annotate_line(line):
     m = re.match(r'CALL OLGetVar\((\d+)\) -> (-?\d+)', line)
     if m:
         var_id = int(m.group(1))
-        val = m.group(2)
+        val = int(m.group(2))
         name = VAR_NAMES.get(var_id, f"?{var_id}")
-        return f"{line}  ({name}={val})"
+        annotation = f"{name}={val}"
+        # Add direction label for direction variables
+        if var_id in DIR_LABELS:
+            label = DIR_LABELS[var_id].get(val, "?")
+            annotation += f" ({label})"
+        return f"{line}  ({annotation})"
     return line
 
 
@@ -114,7 +127,7 @@ def main():
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     log_and_print("=" * 70, log_lines)
-    log_and_print("OffsetLib: CDB Debugger vs Prolog Interpreter Variable Comparison", log_lines)
+    log_and_print("OffsetLib: CDB vs Prolog — Direction Sign-Flip Comparison", log_lines)
     log_and_print(f"Run: {timestamp}", log_lines)
     log_and_print("=" * 70, log_lines)
 

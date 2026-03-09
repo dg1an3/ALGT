@@ -1,7 +1,8 @@
 * CDB breakpoint script for OffsetLib.dll tracing
 * Captures function calls with arguments and return values
-* Variable IDs: 1=Anterior, 2=Superior, 3=Lateral, 4=Magnitude,
-*               5=OffsetDate, 6=OffsetTime, 7=DataSource
+* Variable IDs: 1=APValue, 2=APDir, 3=SIValue, 4=SIDir,
+*   5=LRValue, 6=LRDir, 7=Magnitude, 8=Date, 9=Time, 10=Source
+* Negative values on 1/3/5 trigger sign-flip (negate + toggle direction)
 sxe ld:OffsetLib
 g
 .echo *** CDB: OffsetLib.dll loaded, setting breakpoints ***
