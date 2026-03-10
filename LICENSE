@@ -1,24 +1,39 @@
-Copyright (c) 2015, 2025, dg1an3
-All rights reserved.
+Copyright (C) 2007-2020 Derek G Lane
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+Permission is hereby granted to any individual or legal entity obtaining a copy of this licensed work (including the source
+code, documentation and/or related items, hereinafter collectively referred to as the "licensed work"), free of charge, to
+deal with the licensed work for any purpose, including without limitation, the rights to inspect, use, modify, reproduce,
+prepare derivative works of, publish, distribute and sublicense the licensed work, subject to the following conditions:
 
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
+1. The individual or the legal entity must conspicuously display, without modification, this License and notice on each
+redistributed or derivative copy of the Licensed Work.
+2. No Harm (Hippocratic License): The software may not be used by anyone for systems or activities that actively and knowingly
+endanger, harm, or otherwise threaten the physical, mental, economic, or general well-being of other individuals or groups, in
+violation of the United Nations Universal Declaration of Human Rights (https://www.un.org/en/universal-declaration-human-
+rights/).
+3. Services (Hippocratic License): If the Software is used to provide a service to others, the licensee shall, as a condition
+of use, require those others not to use the service in any way that violates the No Harm clause above.
+4. Anti-996 Clause 2: The individual or the legal entity must strictly comply with all applicable laws, regulations, rules and
+standards of the jurisdiction relating to labor and employment where the individual is physically located or where the
+individual was born or naturalized; or where the legal entity is registered or is operating (whichever is stricter). In case
+that the jurisdiction has no such laws, regulations, rules, and standards or its laws, regulations, rules and standards are
+unenforceable, the individual or the legal entity are required to comply with Core International Labor Standards.
+5. Anti-996 Clause 3: The individual or the legal entity shall not induce or force its employee(s), whether full-time or part-
+time, or its independent contractor(s), in any methods, to agree in oral or written form, to directly or indirectly restrict,
+weaken or relinquish his or her rights or remedies under such laws, regulations, rules, and standards relating to labor and
+employment as mentioned above, no matter whether such written or oral agreement are enforceable under the laws of the said
+jurisdiction, nor shall such individual or the legal entity limit, in any methods, the rights of its employee(s) or
+independent contractor(s) from reporting or complaining to the copyright holder or relevant authorities monitoring the
+compliance of the license about its violation(s) of the said license.
+6. Peonage Clause: No employee of the individual or legal entity shall be permitted to modify or inspect the source code of
+the software, or the source code of derivative works, as long as the employee is employed as a "supervisor", as defined in
+section 2(11) of the United States National Labor Relations Act.
+7. Enforceability: If any portion or provision of this License shall to any extent be declared illegal or unenforceable by a
+court of competent jurisdiction, then the remainder of this License, or the application of such portion or provision in
+circumstances other than those as to which it is so declared illegal or unenforceable, shall not be affected thereby, and each
+portion and provision of this Agreement shall be valid and enforceable to the fullest extent permitted by law.
 
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
