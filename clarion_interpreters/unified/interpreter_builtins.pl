@@ -90,8 +90,13 @@ builtin_call('POINTER', [var(FileName)], StateIn, StateIn, Pos) :-
     ; Pos = 0
     ).
 
-% CHOICE(control) - returns list control selection (mock)
-builtin_call('CHOICE', [_], StateIn, StateIn, 0).
+% CHOICE(control) - returns list control selection index
+builtin_call('CHOICE', [ControlRef], StateIn, StateIn, Value) :-
+    ( ControlRef = control_ref(Name) ->
+        atom_concat('__CHOICE__', Name, ChoiceKey),
+        ( get_var(ChoiceKey, StateIn, Value) -> true ; Value = 1 )
+    ; Value = 1
+    ).
 
 % FORMAT(value, picture) - Format a value according to picture
 builtin_call('FORMAT', [ValueExpr, PictureExpr], StateIn, StateIn, Result) :-
@@ -316,11 +321,20 @@ phase_to_event(close_window, 'EVENT:CloseWindow').
 phase_to_event(accepted, 'EVENT:Accepted').
 phase_to_event(_, 0).
 
-% ACCEPTED() - Get accepted control (stubbed for non-GUI)
-builtin_call('ACCEPTED', [], StateIn, StateIn, 0).
+% ACCEPTED() - Get last accepted control equate number
+builtin_call('ACCEPTED', [], StateIn, StateIn, Value) :-
+    ( get_var('__ACCEPTED__', StateIn, Value) -> true ; Value = 0 ).
 
 % SELECT(control) - Select a control (no-op for non-GUI)
 builtin_call('SELECT', [_Control], StateIn, StateIn, none).
+% SELECT(control, index) - Select item in list control, store choice
+builtin_call('SELECT', [ControlRef, IndexExpr], StateIn, StateOut, none) :-
+    eval_expr(IndexExpr, StateIn, Index),
+    ( ControlRef = control_ref(Name) ->
+        atom_concat('__CHOICE__', Name, ChoiceKey),
+        set_var(ChoiceKey, Index, StateIn, StateOut)
+    ; StateOut = StateIn
+    ).
 
 % BEEP - Make a beep sound (no-op for non-GUI)
 builtin_call('BEEP', [], StateIn, StateIn, none).

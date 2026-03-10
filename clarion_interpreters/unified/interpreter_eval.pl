@@ -48,8 +48,9 @@ eval_expr(not(Expr), State, Result) :-
     eval_expr(Expr, State, Val),
     ( is_truthy(Val) -> Result = 0 ; Result = 1 ).
 
-% Control reference (for GUI, returns the name as-is)
-eval_expr(control_ref(Name), _, Name).
+% Control reference (for GUI, returns equate number from state)
+eval_expr(control_ref(Name), State, Value) :-
+    ( get_var(equate(Name), State, Value) -> true ; Value = 0 ).
 
 % Array element access
 eval_expr(array_access(ArrayName, IndexExpr), State, Value) :-
