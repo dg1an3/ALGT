@@ -14,8 +14,20 @@
 
 :- use_module(simulator_state).
 :- use_module(simulator_eval).
+:- use_module(storage_backend).
 
 :- discontiguous builtin_call/5.
+
+%------------------------------------------------------------
+% Storage Backend Helper
+%------------------------------------------------------------
+
+get_file_driver(FileName, StateIn, Driver) :-
+    ( get_vars(StateIn, Vars),
+      member(var(file_driver(FileName), D), Vars)
+    -> Driver = D
+    ;  Driver = memory
+    ).
 
 %------------------------------------------------------------
 % String Functions
@@ -229,61 +241,67 @@ format_with_picture(Value, _, Result) :-
 % File I/O Functions
 %------------------------------------------------------------
 
-% CREATE(file) - Create a file (in-memory, always succeeds)
+% CREATE(file) - Create a file (dispatches to storage backend)
 builtin_call('CREATE', [var(FileName)], StateIn, StateOut, none) :-
-    set_error(0, StateIn, StateOut),
-    format("  [CREATE ~w]~n", [FileName]).
+    ( get_file_state(FileName, StateIn, FileState)
+    -> get_file_driver(FileName, StateIn, Driver),
+       storage_create(Driver, FileState, NewFileState),
+       set_file_state(FileName, NewFileState, StateIn, State1),
+       set_error(0, State1, StateOut),
+       format("  [CREATE ~w]~n", [FileName])
+    ;  set_error(0, StateIn, StateOut),
+       format("  [CREATE ~w]~n", [FileName])
+    ).
 
-% OPEN(file) - Open a file
+% OPEN(file) - Open a file (dispatches to storage backend)
 builtin_call('OPEN', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, _, _),
-       NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, -1, true),
+    -> get_file_driver(FileName, StateIn, Driver),
+       storage_open(Driver, FileName, FileState, NewFileState),
        set_file_state(FileName, NewFileState, StateIn, State1),
        set_error(0, State1, StateOut),
        format("  [OPEN ~w]~n", [FileName])
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% CLOSE(file) - Close a file
+% CLOSE(file) - Close a file (dispatches to storage backend)
 builtin_call('CLOSE', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, Pos, _),
-       NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, Pos, false),
+    -> get_file_driver(FileName, StateIn, Driver),
+       storage_close(Driver, FileState, NewFileState),
        set_file_state(FileName, NewFileState, StateIn, State1),
        set_error(0, State1, StateOut),
        format("  [CLOSE ~w]~n", [FileName])
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% CLEAR(record) - Clear record buffer to default values
+% CLEAR(record) - Clear record buffer to default values (dispatches to storage backend)
 builtin_call('CLEAR', [var(RecordRef)], StateIn, StateOut, none) :-
     ( parse_prefixed_name(RecordRef, Prefix, 'Record')
     -> find_file_by_prefix(Prefix, StateIn, FileState),
-       FileState = file_state(FileName, Prefix, Keys, Fields, Records, _, Pos, Open),
-       create_empty_buffer(Fields, NewBuffer),
-       NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, NewBuffer, Pos, Open),
+       FileState = file_state(FileName, _, _, _, _, _, _, _),
+       get_file_driver(FileName, StateIn, Driver),
+       storage_clear(Driver, FileState, NewFileState),
        set_file_state(FileName, NewFileState, StateIn, StateOut)
     ;  StateOut = StateIn
     ).
 
-% EMPTY(file) - Delete all records from file
+% EMPTY(file) - Delete all records from file (dispatches to storage backend)
 builtin_call('EMPTY', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, _, Buffer, _, Open),
-       NewFileState = file_state(FileName, Prefix, Keys, Fields, [], Buffer, -1, Open),
+    -> get_file_driver(FileName, StateIn, Driver),
+       storage_empty(Driver, FileState, NewFileState),
        set_file_state(FileName, NewFileState, StateIn, State1),
        set_error(0, State1, StateOut),
        format("  [EMPTY ~w]~n", [FileName])
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% ADD(file) - Add current buffer as new record
+% ADD(file) - Add current buffer as new record (dispatches to storage backend)
 builtin_call('ADD', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, _, Open),
-       append(Records, [Buffer], NewRecords),
-       NewFileState = file_state(FileName, Prefix, Keys, Fields, NewRecords, Buffer, -1, Open),
+    -> get_file_driver(FileName, StateIn, Driver),
+       storage_add(Driver, FileState, NewFileState),
        set_file_state(FileName, NewFileState, StateIn, State1),
        set_error(0, State1, StateOut),
        format("  [ADD to ~w]~n", [FileName])
@@ -309,19 +327,19 @@ builtin_call('GET', [var(FileName), IndexExpr], StateIn, StateOut, none) :-
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% GET(file, key) - Get record by key
+% GET(file, key) - Get record by key (dispatches to storage backend)
 builtin_call('GET', [var(FileName), var(KeyRef)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, _, Open),
+    -> FileState = file_state(FileName, Prefix, Keys, Fields, _Records, Buffer, _, _Open),
        ( parse_prefixed_name(KeyRef, Prefix, KeyName)
        -> true
        ; KeyName = KeyRef
        ),
        ( member(key(KeyName, KeyFields), Keys)
        -> get_key_values(KeyFields, Prefix, Fields, Buffer, SearchValues),
-          ( find_record_by_key(KeyFields, Prefix, Fields, SearchValues, Records, 0, FoundRecord, FoundPos)
-          -> NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, FoundRecord, FoundPos, Open),
-             set_file_state(FileName, NewFileState, StateIn, State1),
+          get_file_driver(FileName, StateIn, Driver),
+          ( storage_get(Driver, key_search(KeyName, KeyFields, SearchValues), FileState, NewFileState)
+          -> set_file_state(FileName, NewFileState, StateIn, State1),
              set_error(0, State1, StateOut)
           ;  set_error(33, StateIn, StateOut)
           )
@@ -330,15 +348,13 @@ builtin_call('GET', [var(FileName), var(KeyRef)], StateIn, StateOut, none) :-
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% PUT(file) - Update current record
+% PUT(file) - Update current record (dispatches to storage backend)
 builtin_call('PUT', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, Pos, Open),
-       length(Records, NumRecords),
-       ( Pos >= 0, Pos < NumRecords
-       -> replace_nth0(Pos, Records, Buffer, NewRecords),
-          NewFileState = file_state(FileName, Prefix, Keys, Fields, NewRecords, Buffer, Pos, Open),
-          set_file_state(FileName, NewFileState, StateIn, State1),
+    -> FileState = file_state(_, _, _, _, _, _, Pos, _),
+       get_file_driver(FileName, StateIn, Driver),
+       ( storage_put(Driver, FileState, NewFileState)
+       -> set_file_state(FileName, NewFileState, StateIn, State1),
           set_error(0, State1, StateOut),
           format("  [PUT to ~w at position ~w]~n", [FileName, Pos])
        ;  set_error(33, StateIn, StateOut)
@@ -346,47 +362,46 @@ builtin_call('PUT', [var(FileName)], StateIn, StateOut, none) :-
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% DELETE(file) - Delete current record
+% DELETE(file) - Delete current record (dispatches to storage backend)
 builtin_call('DELETE', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, Pos, Open),
+    -> FileState = file_state(_, _, _, _, _, _, Pos, _),
+       get_file_driver(FileName, StateIn, Driver),
        ( Pos >= 0
-       -> delete_nth0(Pos, Records, NewRecords),
-          NewFileState = file_state(FileName, Prefix, Keys, Fields, NewRecords, Buffer, -1, Open),
-          set_file_state(FileName, NewFileState, StateIn, State1),
-          set_error(0, State1, StateOut),
-          format("  [DELETE from ~w at position ~w]~n", [FileName, Pos])
+       -> ( storage_delete(Driver, FileState, NewFileState)
+          -> set_file_state(FileName, NewFileState, StateIn, State1),
+             set_error(0, State1, StateOut),
+             format("  [DELETE from ~w at position ~w]~n", [FileName, Pos])
+          ;  set_error(33, StateIn, StateOut)
+          )
        ;  set_error(33, StateIn, StateOut)
        )
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% SET(file) or SET(key) - Set file position to beginning
+% SET(file) or SET(key) - Set file position to beginning (dispatches to storage backend)
 builtin_call('SET', [var(Ref)], StateIn, StateOut, none) :-
     ( get_file_state(Ref, StateIn, FileState)
-    -> FileState = file_state(Ref, Prefix, Keys, Fields, Records, Buffer, _, Open),
-       NewFileState = file_state(Ref, Prefix, Keys, Fields, Records, Buffer, -1, Open),
+    -> get_file_driver(Ref, StateIn, Driver),
+       storage_set(Driver, FileState, NewFileState),
        set_file_state(Ref, NewFileState, StateIn, State1),
        set_error(0, State1, StateOut)
     ; parse_prefixed_name(Ref, Prefix, _KeyName)
     -> find_file_by_prefix(Prefix, StateIn, FileState),
-       FileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, _, Open),
-       NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, Buffer, -1, Open),
+       FileState = file_state(FileName, _, _, _, _, _, _, _),
+       get_file_driver(FileName, StateIn, Driver),
+       storage_set(Driver, FileState, NewFileState),
        set_file_state(FileName, NewFileState, StateIn, State1),
        set_error(0, State1, StateOut)
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% NEXT(file) - Read next record
+% NEXT(file) - Read next record (dispatches to storage backend)
 builtin_call('NEXT', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, _, Pos, Open),
-       NextPos is Pos + 1,
-       length(Records, NumRecords),
-       ( NextPos < NumRecords
-       -> nth0(NextPos, Records, NewBuffer),
-          NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, NewBuffer, NextPos, Open),
-          set_file_state(FileName, NewFileState, StateIn, State1),
+    -> get_file_driver(FileName, StateIn, Driver),
+       ( storage_next(Driver, FileState, NewFileState)
+       -> set_file_state(FileName, NewFileState, StateIn, State1),
           set_error(0, State1, StateOut)
        ;  set_error(33, StateIn, StateOut)
        )
@@ -413,11 +428,11 @@ builtin_call('PREVIOUS', [var(FileName)], StateIn, StateOut, none) :-
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% RECORDS(file) - Get number of records
+% RECORDS(file) - Get number of records (dispatches to storage backend)
 builtin_call('RECORDS', [var(FileName)], StateIn, StateIn, Count) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(_, _, _, _, Records, _, _, _),
-       length(Records, Count)
+    -> get_file_driver(FileName, StateIn, Driver),
+       storage_records(Driver, FileState, Count)
     ;  Count = 0
     ).
 
@@ -430,11 +445,11 @@ builtin_call('ERROR', [], StateIn, StateIn, ErrMsg) :-
     get_error(StateIn, ErrCode),
     error_message(ErrCode, ErrMsg).
 
-% FREE(queue) - Clear all records from a queue
+% FREE(queue) - Clear all records from a queue (dispatches to storage backend)
 builtin_call('FREE', [var(QueueName)], StateIn, StateOut, none) :-
     ( get_file_state(QueueName, StateIn, FileState)
-    -> FileState = file_state(QueueName, Prefix, Keys, Fields, _, Buffer, _, Open),
-       NewFileState = file_state(QueueName, Prefix, Keys, Fields, [], Buffer, -1, Open),
+    -> get_file_driver(QueueName, StateIn, Driver),
+       storage_empty(Driver, FileState, NewFileState),
        set_file_state(QueueName, NewFileState, StateIn, State1),
        set_error(0, State1, StateOut),
        format("  [FREE ~w]~n", [QueueName])

@@ -34,7 +34,7 @@ get_backend(Driver, odbc) :-
     ( DriverStr = "ODBC" ; DriverStr = "ADO" ), !.
 get_backend(Driver, csv) :-
     atom(Driver), atom_string(Driver, DriverStr),
-    ( DriverStr = "ASCII" ; DriverStr = "BASIC" ; DriverStr = "DOS" ), !.
+    ( DriverStr = "ASCII" ; DriverStr = "BASIC" ), !.
 get_backend(_, memory).
 
 % OPEN

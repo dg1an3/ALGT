@@ -1134,12 +1134,12 @@ parameters {
 
 model {
   // Weakly informative priors (Beta(1,1) = Uniform)
-  branch_probs ~ beta(1, 1);
+  branch_probs ~~ beta(1, 1);
 
   // Likelihood of observed paths
   for (obs in 1:N_observations) {
     for (b in 1:N_branches) {
-      observed_paths[obs, b] ~ bernoulli(branch_probs[b]);
+      observed_paths[obs, b] ~~ bernoulli(branch_probs[b]);
     }
   }
 }

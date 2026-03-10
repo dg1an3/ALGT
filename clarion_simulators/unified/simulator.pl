@@ -189,11 +189,13 @@ create_group_value([field(_, Type, Size)|Rest], [Value|Values]) :-
 
 init_file(Name, Attrs, Contents, StateIn, StateOut) :-
     ( member(pre(Prefix), Attrs) -> true ; Prefix = '' ),
+    ( member(driver(Driver), Attrs) -> true ; Driver = memory ),
     extract_keys(Contents, Keys),
     extract_record_fields(Contents, Fields),
     create_empty_buffer(Fields, Buffer),
     FileState = file_state(Name, Prefix, Keys, Fields, [], Buffer, -1, false),
-    set_file_state(Name, FileState, StateIn, StateOut).
+    set_file_state(Name, FileState, StateIn, State1),
+    set_var(file_driver(Name), Driver, State1, StateOut).
 
 extract_keys([], []).
 extract_keys([key(KeyName, KeyFields, _)|Rest], [key(KeyName, KeyFields)|Keys]) :-

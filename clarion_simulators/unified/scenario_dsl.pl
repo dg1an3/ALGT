@@ -24,6 +24,8 @@
 :- use_module(ui_backend).
 :- use_module(simulator).
 :- use_module(clarion).
+:- use_module(clarion_parser).
+:- use_module(ast_bridge).
 
 %------------------------------------------------------------
 % Scenario Structure
@@ -109,12 +111,31 @@ apply_setup([SetupItem|Rest], StateIn, StateOut, Result) :-
     ).
 
 % Setup item handlers
-apply_setup_item(program(Source), StateIn, StateOut, Result) :-
-    ( parse_string(Source, AST)
-    -> init_program(AST, StateIn, StateOut),
-       Result = ok
-    ;  StateOut = StateIn,
+apply_setup_item(program(Source), _StateIn, StateOut, Result) :-
+    ( init_session(Source, StateOut)
+    -> Result = ok
+    ;  empty_state(StateOut),
        Result = error(parse_failed)
+    ).
+
+% Execute a full PROGRAM with events (for GUI testing)
+apply_setup_item(program_with_events(Source, Events), _StateIn, StateOut, Result) :-
+    ( exec_program(Source, Events, ReturnValue)
+    -> empty_state(S0),
+       set_var('__RETURN__', ReturnValue, S0, StateOut),
+       Result = ok
+    ;  empty_state(StateOut),
+       Result = error(exec_failed)
+    ).
+
+% Parse source, init session, call a named procedure
+apply_setup_item(procedure_call(Source, ProcName, Args), _StateIn, StateOut, Result) :-
+    ( init_session(Source, S0),
+      call_procedure(S0, ProcName, Args, ReturnValue, S1)
+    -> set_var('__RETURN__', ReturnValue, S1, StateOut),
+       Result = ok
+    ;  empty_state(StateOut),
+       Result = error(call_failed)
     ).
 
 apply_setup_item(window(WindowDef), StateIn, StateOut, Result) :-
@@ -250,6 +271,15 @@ check_expectation(error(ExpectedCode), State, Result) :-
     ;  Result = failed(error(ExpectedCode), actual(ActualCode))
     ).
 
+check_expectation(return_value(Expected), State, Result) :-
+    ( get_var('__RETURN__', State, Actual)
+    -> ( Actual = Expected
+       -> Result = passed(return_value(Expected))
+       ;  Result = failed(return_value(Expected), actual(Actual))
+       )
+    ;  Result = failed(return_value(Expected), undefined)
+    ).
+
 % Helper to find a message containing a substring
 find_message_containing(Substr, [message(Text)|_]) :-
     atom(Text),
@@ -271,13 +301,14 @@ all_passed([passed(_)|Rest]) :- all_passed(Rest).
 % Utility Predicates
 %------------------------------------------------------------
 
-% Parse Clarion source from a string
-parse_string(Source, AST) :-
-    atom_string(SourceAtom, Source),
-    atom_codes(SourceAtom, Codes),
-    lexer:tokenize(Codes, Tokens),
-    parser:parse_program(Tokens, AST).
+% Parse Clarion source from a string and bridge to modular AST
+parse_string(Source, ModAST) :-
+    parse_clarion(Source, SimpleAST),
+    bridge_ast(SimpleAST, ModAST).
 
-% Initialize program from AST (wrapper for simulator)
+% Initialize program from bridged AST
 init_program(AST, StateIn, StateOut) :-
-    simulator:init_program(AST, StateIn, StateOut).
+    AST = program(map(MapDecls), GlobalDecls, _, Procedures),
+    simulator:init_map_protos(MapDecls, StateIn, State0),
+    simulator:init_procedures(Procedures, State0, State1),
+    simulator:init_globals(GlobalDecls, State1, StateOut).
