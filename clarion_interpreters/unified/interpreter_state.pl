@@ -152,24 +152,55 @@ parse_prefixed_name(Name, Prefix, FieldName) :-
     atom_string(Prefix, PrefixStr),
     atom_string(FieldName, FieldStr).
 
-% Get value of prefixed variable (file field)
+% Get value of prefixed variable (file field or group field)
 get_prefixed_var(Prefix, FieldName, State, Value) :-
-    find_file_by_prefix(Prefix, State, FileState),
-    ( FieldName = 'Record'
-    -> FileState = file_state(_, _, _, _, _, Value, _, _)  % Return whole buffer
-    ;  get_buffer_field(FieldName, FileState, Value)
+    ( find_file_by_prefix(Prefix, State, FileState) ->
+        ( FieldName = 'Record'
+        -> FileState = file_state(_, _, _, _, _, Value, _, _)
+        ;  get_buffer_field(FieldName, FileState, Value)
+        )
+    ; get_group_field(Prefix, FieldName, State, Value)
     ).
 
-% Set value of prefixed variable (file field)
+% Set value of prefixed variable (file field or group field)
 set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut) :-
-    find_file_by_prefix(Prefix, StateIn, FileState),
-    FileState = file_state(FileName, _, _, _, _, _, _, _),
-    ( FieldName = 'Record'
-    -> % Can't directly set whole record this way
-       StateOut = StateIn
-    ;  set_buffer_field(FieldName, Value, FileState, NewFileState),
-       set_file_state(FileName, NewFileState, StateIn, StateOut)
+    ( find_file_by_prefix(Prefix, StateIn, FileState) ->
+        FileState = file_state(FileName, _, _, _, _, _, _, _),
+        ( FieldName = 'Record'
+        -> StateOut = StateIn
+        ;  set_buffer_field(FieldName, Value, FileState, NewFileState),
+           set_file_state(FileName, NewFileState, StateIn, StateOut)
+        )
+    ; set_group_field_by_prefix(Prefix, FieldName, Value, StateIn, StateOut)
     ).
+
+% Group field access by prefix
+get_group_field(Prefix, FieldName, State, Value) :-
+    get_vars(State, Vars),
+    member(var(group_prefix(Prefix), GroupName), Vars),
+    member(var(GroupName, group_val(Prefix, Fields, Values)), Vars),
+    nth1_field_index(FieldName, Fields, Idx),
+    nth1(Idx, Values, Value).
+
+set_group_field_by_prefix(Prefix, FieldName, Value, StateIn, StateOut) :-
+    get_vars(StateIn, Vars),
+    member(var(group_prefix(Prefix), GroupName), Vars),
+    member(var(GroupName, group_val(Prefix, Fields, Values)), Vars),
+    nth1_field_index(FieldName, Fields, Idx),
+    replace_nth1(Idx, Values, Value, NewValues),
+    set_var(GroupName, group_val(Prefix, Fields, NewValues), StateIn, StateOut).
+
+nth1_field_index(FieldName, Fields, Idx) :-
+    nth1_field_index_(FieldName, Fields, 1, Idx).
+nth1_field_index_(FieldName, [field(FieldName, _, _)|_], N, N) :- !.
+nth1_field_index_(FieldName, [_|Rest], N, Idx) :-
+    N1 is N + 1,
+    nth1_field_index_(FieldName, Rest, N1, Idx).
+
+replace_nth1(1, [_|Rest], Value, [Value|Rest]) :- !.
+replace_nth1(N, [H|T], Value, [H|NewT]) :-
+    N > 1, N1 is N - 1,
+    replace_nth1(N1, T, Value, NewT).
 
 %------------------------------------------------------------
 % Procedure Lookup

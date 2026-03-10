@@ -98,6 +98,84 @@ test_parse_controlflow :-
     check('control_flow.clw PROGRAM parse + bridge', N, 4).
 
 %------------------------------------------------------------
+% Parser Structural Tests (ported from prolog-interp)
+%------------------------------------------------------------
+
+test_parse_file_decl :-
+    format("~nParser structural tests:~n"),
+    Src = "  MEMBER()\n\nDiagFile  FILE,DRIVER('DOS'),NAME('Diagnosis.dat'),CREATE,PRE(DX)\nRecord      RECORD\nRecordID      LONG\nPatientID     LONG\nICDCode       CSTRING(12)\n            END\n          END\n\n  MAP\n  END\n",
+    parse_clarion(Src, AST),
+    AST = program(Files, _, _, _, _),
+    ( Files = [file('DiagFile', 'DX', Attrs, Fields)],
+      memberchk(driver('DOS'), Attrs),
+      memberchk(name('Diagnosis.dat'), Attrs),
+      memberchk(create, Attrs),
+      length(Fields, 3)
+    -> check('FILE declaration structure', ok, ok)
+    ;  check('FILE declaration structure', fail, ok)
+    ).
+
+test_parse_group_decl :-
+    Src = "  MEMBER()\n\nDiagBuf   GROUP,PRE(DB)\nRecordID      LONG\nPatientID     LONG\nICDCode       CSTRING(12)\n          END\n\n  MAP\n  END\n",
+    parse_clarion(Src, AST),
+    AST = program(_, Groups, _, _, _),
+    ( Groups = [group('DiagBuf', 'DB', Fields)],
+      length(Fields, 3)
+    -> check('GROUP declaration structure', ok, ok)
+    ;  check('GROUP declaration structure', fail, ok)
+    ).
+
+test_parse_globals :-
+    Src = "  MEMBER()\n\nNextID    LONG(0)\nFilePos   LONG(0)\n\n  MAP\n  END\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, Globals, _, _),
+    ( Globals = [global('NextID', long, 0), global('FilePos', long, 0)]
+    -> check('Global variables parse', ok, ok)
+    ;  check('Global variables parse', fail, ok)
+    ).
+
+test_parse_enhanced_map :-
+    Src = "  MEMBER()\n\n  MAP\n    MODULE('kernel32')\n      MemCopy(LONG dest, LONG src, LONG len),RAW,PASCAL,NAME('RtlMoveMemory')\n    END\n    FindRecord(LONG id),LONG,PRIVATE\n    DSOpenStore(),LONG,C,NAME('DSOpenStore'),EXPORT\n    DSCreateDiagnosis(LONG,*CSTRING,*CSTRING,LONG),LONG,C,NAME('DSCreateDiagnosis'),EXPORT\n  END\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, MapEntries, _),
+    ( MapEntries = [module_entry('kernel32', [_MemCopy]),
+                    _FindRec, _DSOpen, DSCreate],
+      DSCreate = map_entry('DSCreateDiagnosis', CreateParams, long, _),
+      length(CreateParams, 4)
+    -> check('Enhanced MAP (MODULE, PRIVATE, *CSTRING)', ok, ok)
+    ;  check('Enhanced MAP (MODULE, PRIVATE, *CSTRING)', fail, ok)
+    ).
+
+test_parse_local_vars :-
+    Src = "  MEMBER()\n\n  MAP\n    DSListByPatient(LONG,LONG,LONG,LONG),LONG,C,NAME('DSListByPatient'),EXPORT\n  END\n\nDSListByPatient PROCEDURE(LONG patientID, LONG bufPtr, LONG maxCount, LONG outCountPtr)\nCount  LONG(0)\nOffset LONG(0)\n  CODE\n  RETURN(0)\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, _, Procs),
+    ( Procs = [procedure('DSListByPatient', Params, void, Locals, _Body)],
+      length(Params, 4),
+      Locals = [local('Count', long, 0), local('Offset', long, 0)]
+    -> check('Procedure with local variables', ok, ok)
+    ;  check('Procedure with local variables', fail, ok)
+    ).
+
+test_parse_cstring_params :-
+    Src = "  MEMBER()\n\n  MAP\n    DSCreateDiagnosis(LONG,*CSTRING,*CSTRING,LONG),LONG,C,NAME('DSCreateDiagnosis'),EXPORT\n  END\n\nDSCreateDiagnosis PROCEDURE(LONG patientID, *CSTRING icdCode, *CSTRING desc, LONG diagDate)\n  CODE\n  RETURN(0)\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, _, Procs),
+    ( Procs = [procedure('DSCreateDiagnosis', Params, void, [], _)],
+      Params = [param(patientID, long),
+                param(icdCode, ref(cstring)),
+                param(desc, ref(cstring)),
+                param(diagDate, long)]
+    -> check('*CSTRING params', ok, ok)
+    ;  check('*CSTRING params', fail, ok)
+    ).
+
+test_parse_statslib :-
+    read_file_to_string('../../clarion_projects/stats-calc/StatsLib.clw', Src, []),
+    parse_clarion(Src, _AST),
+    check('StatsLib.clw parse', ok, ok).
+
+%------------------------------------------------------------
 % Arithmetic Tests
 %------------------------------------------------------------
 
@@ -150,6 +228,45 @@ test_case :-
     check('CASE x=2', R2, 20),
     exec_procedure(Src, 'TestCase', [3], R3),
     check('CASE ELSE', R3, 99).
+
+%------------------------------------------------------------
+% Additional Control Flow & Expression Tests (ported from prolog-interp)
+%------------------------------------------------------------
+
+test_if_then_dot :-
+    format("~nAdditional control flow tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    TestIf(LONG),LONG\n  END\n\nTestIf PROCEDURE(LONG val)\n  CODE\n  IF val = 1 THEN RETURN(10).\n  RETURN(20)\n",
+    exec_procedure(Src, 'TestIf', [1], R1),
+    check('IF THEN . (true)', R1, 10),
+    exec_procedure(Src, 'TestIf', [0], R2),
+    check('IF THEN . (false)', R2, 20).
+
+test_if_block_no_else :-
+    Src = "  MEMBER()\n  MAP\n    TestIf(LONG),LONG\n  END\n\nTestIf PROCEDURE(LONG val)\n  CODE\n  IF val = 1\n    RETURN(10)\n  END\n  RETURN(20)\n",
+    exec_procedure(Src, 'TestIf', [1], R1),
+    check('IF block no ELSE (true)', R1, 10),
+    exec_procedure(Src, 'TestIf', [0], R2),
+    check('IF block no ELSE (false)', R2, 20).
+
+test_qualified_names :-
+    Src = "  MEMBER()\nDiagFile FILE,DRIVER('DOS'),PRE(DX)\nRecord     RECORD\nRecordID     LONG\n           END\n         END\n  MAP\n    TestQual(),LONG\n  END\n\nTestQual PROCEDURE()\n  CODE\n  DX:RecordID = 100\n  RETURN(DX:RecordID)\n",
+    exec_procedure(Src, 'TestQual', [], R1),
+    check('Qualified names (DX:RecordID)', R1, 100).
+
+test_compound_assign :-
+    Src = "  MEMBER()\n  MAP\n    TestAdd(LONG),LONG\n  END\n\nTestAdd PROCEDURE(LONG val)\ni LONG(10)\n  CODE\n  i += val\n  RETURN(i)\n",
+    exec_procedure(Src, 'TestAdd', [5], R1),
+    check('Compound assignment (i += val)', R1, 15).
+
+test_procedure_call_in_expr :-
+    Src = "  MEMBER()\n  MAP\n    Square(LONG),LONG\n    TestCall(LONG),LONG\n  END\n\nSquare PROCEDURE(LONG n)\n  CODE\n  RETURN(n * n)\n\nTestCall PROCEDURE(LONG n)\n  CODE\n  RETURN(Square(n) + 1)\n",
+    exec_procedure(Src, 'TestCall', [4], R1),
+    check('Procedure call in expression (Square(4)+1)', R1, 17).
+
+test_size_group :-
+    Src = "  MEMBER()\nDiagBuf GROUP,PRE(DB)\nRecordID  LONG\nPatientID LONG\n        END\n  MAP\n    TestSize(),LONG\n  END\n\nTestSize PROCEDURE()\n  CODE\n  RETURN(SIZE(DiagBuf))\n",
+    exec_procedure(Src, 'TestSize', [], R1),
+    check('SIZE(DiagBuf) = 8', R1, 8).
 
 %------------------------------------------------------------
 % File I/O Tests (SensorLib)
@@ -326,6 +443,11 @@ test_statslib :-
     exec_procedure(Src, 'Classify', [150], R3),
     check('Classify(150)=3 (High)', R3, 3).
 
+test_statslib_exec :-
+    read_file_to_string('../../clarion_projects/stats-calc/StatsLib.clw', Src, []),
+    exec_procedure(Src, 'CalculateStats', [3], R1),
+    check('CalculateStats(3)=0', R1, 0).
+
 %------------------------------------------------------------
 % Main
 %------------------------------------------------------------
@@ -338,7 +460,7 @@ run_test(Test) :-
 
 main :-
     format("=== Unified Interpreter Test Suite ===~n"),
-    % Parser tests
+    % Parser tests (bridge)
     run_test(test_parse_simple),
     run_test(test_parse_mathlib),
     run_test(test_parse_sensorlib),
@@ -346,6 +468,14 @@ main :-
     run_test(test_parse_formdemo),
     run_test(test_parse_odbcstore),
     run_test(test_parse_controlflow),
+    % Parser structural tests (ported from prolog-interp)
+    run_test(test_parse_file_decl),
+    run_test(test_parse_group_decl),
+    run_test(test_parse_globals),
+    run_test(test_parse_enhanced_map),
+    run_test(test_parse_local_vars),
+    run_test(test_parse_cstring_params),
+    run_test(test_parse_statslib),
     % Arithmetic
     run_test(test_mathadd),
     % Control flow
@@ -354,6 +484,13 @@ main :-
     run_test(test_loop_break),
     run_test(test_loop_for),
     run_test(test_case),
+    % Additional control flow & expressions (ported from prolog-interp)
+    run_test(test_if_then_dot),
+    run_test(test_if_block_no_else),
+    run_test(test_qualified_names),
+    run_test(test_compound_assign),
+    run_test(test_procedure_call_in_expr),
+    run_test(test_size_group),
     % File I/O
     run_test(test_sensorlib),
     run_test(test_diagstore),
@@ -369,6 +506,7 @@ main :-
     run_test(test_odbcstore),
     % StatsLib
     run_test(test_statslib),
+    run_test(test_statslib_exec),
     % Summary
     test_count(Total),
     pass_count(Pass),

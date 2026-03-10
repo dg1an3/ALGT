@@ -75,6 +75,8 @@ builtin_call('CLOCK', [], StateIn, StateIn, 0).
 builtin_call('SIZE', [var(Name)], StateIn, StateIn, Size) :-
     ( get_file_state(Name, StateIn, file_state(_, _, _, Fields, _, _, _, _))
     -> length(Fields, NFields), Size is NFields * 4
+    ; get_var(Name, StateIn, group_val(_, Fields, _))
+    -> length(Fields, NFields), Size is NFields * 4
     ; get_var(Name, StateIn, group_val(Fields, _))
     -> length(Fields, NFields), Size is NFields * 4
     ; Size = 0

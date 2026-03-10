@@ -74,8 +74,8 @@ bridge_file_attr_list([_|Rest], BRest) :-
 %------------------------------------------------------------
 
 bridge_groups([], []).
-bridge_groups([group(Name, _Prefix, Fields)|Rest],
-              [group(Name, BridgedFields)|RestDecs]) :-
+bridge_groups([group(Name, Prefix, Fields)|Rest],
+              [group(Name, Prefix, BridgedFields)|RestDecs]) :-
     bridge_fields(Fields, BridgedFields),
     bridge_groups(Rest, RestDecs).
 
@@ -166,6 +166,11 @@ bridge_stmts([], []).
 bridge_stmts([S|Ss], [BS|BSs]) :-
     bridge_stmt(S, BS),
     bridge_stmts(Ss, BSs).
+
+% Assignment to array element: assign(array_ref(Name, Idx), Expr) -> array_assign(Name, BIdx, BExpr)
+bridge_stmt(assign(array_ref(Name, Idx), Expr), array_assign(Name, BIdx, BExpr)) :- !,
+    bridge_expr(Idx, BIdx),
+    bridge_expr(Expr, BExpr).
 
 % Assignment
 bridge_stmt(assign(Var, Expr), assign(Var, BExpr)) :- !,

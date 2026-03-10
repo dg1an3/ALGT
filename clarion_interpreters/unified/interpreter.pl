@@ -119,8 +119,11 @@ init_globals([file(Name, Attrs, Contents)|Rest], StateIn, StateOut) :-
 init_globals([class(Name, Parent, Attrs, Members)|Rest], StateIn, StateOut) :-
     init_class(Name, Parent, Attrs, Members, StateIn, State1),
     init_globals(Rest, State1, StateOut).
+init_globals([group(Name, Prefix, Fields)|Rest], StateIn, StateOut) :-
+    init_group(Name, Prefix, Fields, StateIn, State1),
+    init_globals(Rest, State1, StateOut).
 init_globals([group(Name, Fields)|Rest], StateIn, StateOut) :-
-    init_group(Name, Fields, StateIn, State1),
+    init_group(Name, '', Fields, StateIn, State1),
     init_globals(Rest, State1, StateOut).
 init_globals([queue(Name, Fields)|Rest], StateIn, StateOut) :-
     create_empty_buffer(Fields, Buffer),
@@ -152,9 +155,14 @@ control_equate_name(list_ctl(_, equate(Name), _, _), Name).
 control_equate_name(string_ctl(_, _, equate(Name)), Name).
 control_equate_name(prompt(_, _, equate(Name)), Name).
 
-init_group(Name, Fields, StateIn, StateOut) :-
+init_group(Name, Prefix, Fields, StateIn, StateOut) :-
     create_group_value(Fields, GroupValue),
-    set_var(Name, group_val(Fields, GroupValue), StateIn, StateOut).
+    set_var(Name, group_val(Prefix, Fields, GroupValue), StateIn, State1),
+    % Also register prefix -> group name mapping if prefix is non-empty
+    ( Prefix \= '' ->
+        set_var(group_prefix(Prefix), Name, State1, StateOut)
+    ;   StateOut = State1
+    ).
 
 create_group_value([], []).
 create_group_value([field(_, Type, Size)|Rest], [Value|Values]) :-
@@ -240,7 +248,10 @@ exec_statement(member_assign(VarName, FieldName, Expr), StateIn, StateOut, norma
     ;
         eval_full_expr(Expr, StateIn, Value),
         get_var(VarName, StateIn, GroupVal),
-        ( GroupVal = group_val(Fields, Values)
+        ( GroupVal = group_val(Pfx, Fields, Values)
+        -> set_group_field(FieldName, Value, Fields, Values, NewValues),
+           set_var(VarName, group_val(Pfx, Fields, NewValues), StateIn, StateOut)
+        ; GroupVal = group_val(Fields, Values)
         -> set_group_field(FieldName, Value, Fields, Values, NewValues),
            set_var(VarName, group_val(Fields, NewValues), StateIn, StateOut)
         ; GroupVal = instance(_, _)
@@ -416,6 +427,8 @@ eval_full_expr(member_access(ObjName, PropName), State, Value) :- !,
     get_var(ObjName, State, Instance),
     ( Instance = instance(_, _)
     -> get_instance_prop(PropName, Instance, Value)
+    ; Instance = group_val(_, Fields, Values)
+    -> get_group_field(PropName, Fields, Values, Value)
     ; Instance = group_val(Fields, Values)
     -> get_group_field(PropName, Fields, Values, Value)
     ;  format(user_error, "Error: ~w is not an object~n", [ObjName]),
