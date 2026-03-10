@@ -563,6 +563,42 @@ test_queue_sort :-
     check('SORT by Value, first record = 10', R, 10).
 
 %------------------------------------------------------------
+% CLASS Tests
+%------------------------------------------------------------
+
+test_class_parse :-
+    format("~nCLASS support tests:~n"),
+    Src = "  PROGRAM\n  MAP\n    Demo PROCEDURE\n  END\nMyClass CLASS,TYPE\nX LONG\nY LONG\nInit PROCEDURE(LONG pX, LONG pY)\nGetSum PROCEDURE,LONG\n  END\n  CODE\n  Demo()\nDemo PROCEDURE\n  CODE\n  RETURN\nMyClass.Init PROCEDURE(LONG pX, LONG pY)\n  CODE\n  SELF.X = pX\n  SELF.Y = pY\nMyClass.GetSum PROCEDURE\n  CODE\n  RETURN SELF.X + SELF.Y\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, _, _),
+    check('CLASS declaration parses', true, true).
+
+test_class_self_property :-
+    Src = "  MEMBER()\nMyClass CLASS,TYPE\nX LONG\nY LONG\nInit PROCEDURE(LONG pX, LONG pY)\nGetSum PROCEDURE,LONG\n  END\n  MAP\n    TestSelf(),LONG\n  END\nTestSelf PROCEDURE\nobj MyClass\n  CODE\n  obj.Init(10, 20)\n  RETURN(obj.GetSum())\nMyClass.Init PROCEDURE(LONG pX, LONG pY)\n  CODE\n  SELF.X = pX\n  SELF.Y = pY\nMyClass.GetSum PROCEDURE\n  CODE\n  RETURN SELF.X + SELF.Y\n",
+    exec_procedure(Src, 'TestSelf', [], R),
+    check('SELF property access: 10+20=30', R, 30).
+
+test_class_method_call :-
+    Src = "  MEMBER()\nCounter CLASS,TYPE\nValue LONG\nInit PROCEDURE\nIncrement PROCEDURE\nGet PROCEDURE,LONG\n  END\n  MAP\n    TestMethod(),LONG\n  END\nTestMethod PROCEDURE\nc Counter\n  CODE\n  c.Init()\n  c.Increment()\n  c.Increment()\n  c.Increment()\n  RETURN(c.Get())\nCounter.Init PROCEDURE\n  CODE\n  SELF.Value = 0\nCounter.Increment PROCEDURE\n  CODE\n  SELF.Value = SELF.Value + 1\nCounter.Get PROCEDURE\n  CODE\n  RETURN SELF.Value\n",
+    exec_procedure(Src, 'TestMethod', [], R),
+    check('Method calls: 3 increments = 3', R, 3).
+
+test_class_inheritance :-
+    Src = "  MEMBER()\nBase CLASS,TYPE\nX LONG\nSetX PROCEDURE(LONG pX)\nGetX PROCEDURE,LONG\n  END\nChild CLASS(Base),TYPE\nY LONG\nSetY PROCEDURE(LONG pY)\nGetSum PROCEDURE,LONG\n  END\n  MAP\n    TestInherit(),LONG\n  END\nTestInherit PROCEDURE\nobj Child\n  CODE\n  obj.SetX(10)\n  obj.SetY(20)\n  RETURN(obj.GetSum())\nBase.SetX PROCEDURE(LONG pX)\n  CODE\n  SELF.X = pX\nBase.GetX PROCEDURE\n  CODE\n  RETURN SELF.X\nChild.SetY PROCEDURE(LONG pY)\n  CODE\n  SELF.Y = pY\nChild.GetSum PROCEDURE\n  CODE\n  RETURN SELF.X + SELF.Y\n",
+    exec_procedure(Src, 'TestInherit', [], R),
+    check('Inheritance: SetX(10)+SetY(20)=30', R, 30).
+
+test_class_parent_call :-
+    Src = "  MEMBER()\nBase CLASS,TYPE\nX LONG\nInit PROCEDURE(LONG pX)\n  END\nChild CLASS(Base),TYPE\nY LONG\nInit PROCEDURE(LONG pX, LONG pY)\n  END\n  MAP\n    TestParent(),LONG\n  END\nTestParent PROCEDURE\nobj Child\n  CODE\n  obj.Init(10, 20)\n  RETURN(obj.X + obj.Y)\nBase.Init PROCEDURE(LONG pX)\n  CODE\n  SELF.X = pX\nChild.Init PROCEDURE(LONG pX, LONG pY)\n  CODE\n  PARENT.Init(pX)\n  SELF.Y = pY\n",
+    exec_procedure(Src, 'TestParent', [], R),
+    check('PARENT.Init call: 10+20=30', R, 30).
+
+test_class_virtual_method :-
+    Src = "  MEMBER()\nShape CLASS,TYPE\nGetArea PROCEDURE,LONG,VIRTUAL\n  END\nRect CLASS(Shape),TYPE\nW LONG\nH LONG\nInit PROCEDURE(LONG pW, LONG pH)\nGetArea PROCEDURE,LONG,VIRTUAL\n  END\n  MAP\n    TestVirtual(),LONG\n  END\nTestVirtual PROCEDURE\nr Rect\n  CODE\n  r.Init(5, 10)\n  RETURN(r.GetArea())\nShape.GetArea PROCEDURE\n  CODE\n  RETURN 0\nRect.Init PROCEDURE(LONG pW, LONG pH)\n  CODE\n  SELF.W = pW\n  SELF.H = pH\nRect.GetArea PROCEDURE\n  CODE\n  RETURN SELF.W * SELF.H\n",
+    exec_procedure(Src, 'TestVirtual', [], R),
+    check('Virtual method override: 5*10=50', R, 50).
+
+%------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
@@ -641,6 +677,13 @@ main :-
     run_test(test_queue_delete),
     run_test(test_queue_free),
     run_test(test_queue_sort),
+    % CLASS support
+    run_test(test_class_parse),
+    run_test(test_class_self_property),
+    run_test(test_class_method_call),
+    run_test(test_class_inheritance),
+    run_test(test_class_parent_call),
+    run_test(test_class_virtual_method),
     % Summary
     test_count(Total),
     pass_count(Pass),

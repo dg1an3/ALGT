@@ -154,8 +154,8 @@ parse_prefixed_name(Name, Prefix, FieldName) :-
     atom_string(Prefix, PrefixStr),
     atom_string(FieldName, FieldStr).
 
-% Get value of prefixed variable (file field or group field)
-% Tries: file by prefix (colon), then file/queue by name (dot), then group
+% Get value of prefixed variable (file field, group field, or instance property)
+% Tries: file by prefix (colon), then file/queue by name (dot), then instance, then group
 get_prefixed_var(Prefix, FieldName, State, Value) :-
     ( find_file_by_prefix(Prefix, State, FileState) ->
         ( FieldName = 'Record'
@@ -167,11 +167,13 @@ get_prefixed_var(Prefix, FieldName, State, Value) :-
         -> FileState = file_state(_, _, _, _, _, Value, _, _)
         ;  get_buffer_field(FieldName, FileState, Value)
         )
+    ; get_vars(State, Vars), member(var(Prefix, instance(_, Props)), Vars) ->
+        member(prop(FieldName, Value), Props)
     ; get_group_field(Prefix, FieldName, State, Value)
     ).
 
-% Set value of prefixed variable (file field or group field)
-% Tries: file by prefix (colon), then file/queue by name (dot), then group
+% Set value of prefixed variable (file field, group field, or instance property)
+% Tries: file by prefix (colon), then file/queue by name (dot), then instance, then group
 set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut) :-
     ( find_file_by_prefix(Prefix, StateIn, FileState) ->
         FileState = file_state(FileName, _, _, _, _, _, _, _),
@@ -186,6 +188,12 @@ set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut) :-
         ;  set_buffer_field(FieldName, Value, FileState, NewFileState),
            set_file_state(Prefix, NewFileState, StateIn, StateOut)
         )
+    ; get_vars(StateIn, Vars), member(var(Prefix, instance(Class, Props)), Vars) ->
+        ( select(prop(FieldName, _), Props, RestProps)
+        -> NewProps = [prop(FieldName, Value)|RestProps]
+        ;  NewProps = [prop(FieldName, Value)|Props]
+        ),
+        set_var(Prefix, instance(Class, NewProps), StateIn, StateOut)
     ; set_group_field_by_prefix(Prefix, FieldName, Value, StateIn, StateOut)
     ).
 

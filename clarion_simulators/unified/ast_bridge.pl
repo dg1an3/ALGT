@@ -132,6 +132,23 @@ bridge_globals([queue(Name, Fields)|Rest], [queue(Name, BridgedFields)|VRest], W
 bridge_globals([window(Name, Title, Attrs, Controls)|Rest], Vars,
                [window(Name, Title, Attrs, Controls)|WRest], Main) :-
     bridge_globals(Rest, Vars, WRest, Main).
+bridge_globals([class(Name, Parent, _Attrs, Members)|Rest],
+               [class(Name, Parent, [], BridgedMembers)|VRest], Wins, Main) :-
+    bridge_class_members(Members, BridgedMembers),
+    bridge_globals(Rest, VRest, Wins, Main).
+
+%------------------------------------------------------------
+% CLASS member translation
+%------------------------------------------------------------
+
+bridge_class_members([], []).
+bridge_class_members([property(Name, Type, Size)|Rest], [property(Name, TypeAtom, Size)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_class_members(Rest, BRest).
+bridge_class_members([method(Name, Params, _RetType, _Attrs)|Rest],
+                     [method(Name, BParams)|BRest]) :-
+    bridge_params(Params, BParams),
+    bridge_class_members(Rest, BRest).
 
 %------------------------------------------------------------
 % Procedures
@@ -152,7 +169,27 @@ select_main_proc([Proc|Rest], Main, [Proc|Others]) :-
     Proc \= procedure('_main', _, _, _, _),
     select_main_proc(Rest, Main, Others).
 
+% Split 'ClassName.MethodName' atom into two atoms
+split_dotted_name(DottedName, ClassName, MethodName) :-
+    atom(DottedName),
+    atom_string(DottedName, Str),
+    sub_string(Str, Before, 1, After, "."),
+    Before > 0, After > 0,
+    sub_string(Str, 0, Before, _, ClassStr),
+    Pos is Before + 1,
+    sub_string(Str, Pos, After, 0, MethodStr),
+    atom_string(ClassName, ClassStr),
+    atom_string(MethodName, MethodStr).
+
 bridge_proc_list([], []).
+% Method definition: ClassName.MethodName PROCEDURE(...)
+bridge_proc_list([procedure(DottedName, Params, _RetType, Locals, Body)|Rest],
+                 [method_impl(ClassName, MethodName, BParams, BLocals, code(BBody))|BRest]) :-
+    split_dotted_name(DottedName, ClassName, MethodName), !,
+    bridge_params(Params, BParams),
+    bridge_locals(Locals, BLocals),
+    bridge_stmts(Body, BBody),
+    bridge_proc_list(Rest, BRest).
 bridge_proc_list([procedure(Name, Params, _RetType, Locals, Body)|Rest],
                  [procedure(Name, BParams, BLocals, code(BBody))|BRest]) :-
     bridge_params(Params, BParams),
@@ -173,6 +210,9 @@ bridge_params([param(Name, Type)|Rest], [param(TypeAtom, Name)|BRest]) :-
     bridge_params(Rest, BRest).
 
 bridge_locals([], []).
+bridge_locals([instance_var(Name, ClassName)|Rest],
+              [local_var(Name, custom(ClassName), init(none))|BRest]) :-
+    bridge_locals(Rest, BRest).
 bridge_locals([local(Name, Type, Init)|Rest],
               [local_var(Name, TypeAtom, init(Init))|BRest]) :-
     bridge_type_name(Type, TypeAtom),
@@ -207,6 +247,18 @@ bridge_stmt(call(Name, Args), call(Name, BArgs)) :- !,
 bridge_stmt(return(Expr), return(BExpr)) :- !,
     bridge_expr(Expr, BExpr).
 bridge_stmt(return, return) :- !.
+
+% SELF assignment
+bridge_stmt(self_assign(Prop, Expr), self_assign(Prop, BExpr)) :- !,
+    bridge_expr(Expr, BExpr).
+
+% PARENT method call
+bridge_stmt(parent_call(Method, Args), parent_call(Method, BArgs)) :- !,
+    bridge_exprs(Args, BArgs).
+
+% Method call on instance
+bridge_stmt(method_call(Obj, Method, Args), method_call(Obj, Method, BArgs)) :- !,
+    bridge_exprs(Args, BArgs).
 
 % Break, Cycle, Display, Exit
 bridge_stmt(break, break) :- !.
@@ -323,6 +375,15 @@ bridge_expr(or(A, B), binop(or, BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B
 
 % String concatenation
 bridge_expr(concat(A, B), binop('&', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+
+% SELF property access
+bridge_expr(self_access(Prop), self_access(Prop)) :- !.
+
+% PARENT method call in expression
+bridge_expr(parent_call(Method, Args), parent_call(Method, BArgs)) :- !, bridge_exprs(Args, BArgs).
+
+% Method call on instance in expression
+bridge_expr(method_call(Obj, Method, Args), method_call(Obj, Method, BArgs)) :- !, bridge_exprs(Args, BArgs).
 
 % Function calls
 bridge_expr(call(Name, Args), call(Name, BArgs)) :- !, bridge_exprs(Args, BArgs).

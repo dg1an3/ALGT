@@ -75,6 +75,8 @@ get_class_props([property(Name, Type, Size)|Rest], [prop(Name, Default)|Props]) 
     get_class_props(Rest, Props).
 get_class_props([method(_, _, _, _)|Rest], Props) :-
     get_class_props(Rest, Props).
+get_class_props([method(_, _)|Rest], Props) :-
+    get_class_props(Rest, Props).
 
 % Get property value from instance
 get_instance_prop(PropName, instance(_, Props), Value) :-

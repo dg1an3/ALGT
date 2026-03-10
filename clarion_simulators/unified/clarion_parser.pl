@@ -1,7 +1,7 @@
 % clarion_parser.pl — DCG grammar for Clarion syntax → AST
 %
 % Parses Clarion .clw source text into an AST suitable for
-% interpretation by clarion_interpreter.pl.
+% interpretation by clarion_simulator.pl.
 
 :- module(clarion_parser, [
     parse_clarion/2,
@@ -106,6 +106,14 @@ top_decl_item(queue(Name, Fields)) -->
     field_list(Fields), ws,
     kw("END").
 
+% CLASS declaration: Name CLASS[(Parent)][,TYPE]
+top_decl_item(class(Name, Parent, Attrs, Members)) -->
+    word(Name), ws, kw("CLASS"), ws, !,
+    class_parent(Parent), ws,
+    class_attrs(Attrs), ws,
+    class_members(Members), ws,
+    kw("END").
+
 % WINDOW declaration
 top_decl_item(window(Name, Title, Attrs, Controls)) -->
     ident(Name), ws, kw("WINDOW"), ws, !,
@@ -124,6 +132,69 @@ top_decl_item(array(Name, Type, Size)) -->
 top_decl_item(global(Name, Type, Init)) -->
     ident(Name), ws, type(Type), ws,
     ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
+
+%% --- CLASS helpers ---
+
+class_parent(Parent) --> "(", ws, word(Parent), ws, ")".
+class_parent(none) --> [].
+
+class_attrs([type|As]) --> ",", ws, kw("TYPE"), ws, class_attrs(As).
+class_attrs([A|As]) --> ",", ws, class_attr(A), ws, class_attrs(As).
+class_attrs([]) --> [].
+
+class_attr(virtual) --> kw("VIRTUAL").
+
+% CLASS members: properties (fields) and method declarations
+class_members([M|Ms]) --> class_member(M), !, ws, class_members(Ms).
+class_members([]) --> [].
+
+% Method declaration with params and optional return type + VIRTUAL
+class_member(method(Name, Params, RetType, MAttrs)) -->
+    word(Name), ws, kw("PROCEDURE"), ws,
+    class_method_params(Params), ws,
+    class_method_ret_attrs(RetType, MAttrs).
+
+% Property declaration (field)
+class_member(property(Name, Type, Size)) -->
+    word(Name), ws, type(Type0), ws,
+    { ( Type0 = string(S) -> Type = string, Size = size(S)
+      ; Type0 = cstring(S) -> Type = cstring, Size = size(S)
+      ; Type0 = pstring(S) -> Type = pstring, Size = size(S)
+      ; Type0 = decimal(S,P) -> Type = decimal, Size = size(S,P)
+      ; Type0 = decimal(S) -> Type = decimal, Size = size(S)
+      ; bridge_type_name_simple(Type0, Type), Size = none
+      ) }.
+
+bridge_type_name_simple(long, long).
+bridge_type_name_simple(short, short).
+bridge_type_name_simple(byte, byte).
+bridge_type_name_simple(real, real).
+bridge_type_name_simple(sreal, sreal).
+bridge_type_name_simple(date, date).
+bridge_type_name_simple(time, time).
+bridge_type_name_simple(decimal, decimal).
+bridge_type_name_simple(string, string).
+bridge_type_name_simple(cstring, cstring).
+bridge_type_name_simple(pstring, pstring).
+bridge_type_name_simple(T, T).
+
+class_method_params(Params) --> "(", ws, proc_param_list(Params), ws, ")".
+class_method_params([]) --> [].
+
+% Return type and attributes for class method declarations
+class_method_ret_attrs(RetType, Attrs) -->
+    ",", ws, class_method_ret_or_attr(RetType, Attrs).
+class_method_ret_attrs(void, []) --> [].
+
+class_method_ret_or_attr(RetType, Attrs) -->
+    type(RetType), !, ws, class_method_attrs(Attrs).
+class_method_ret_or_attr(void, [Attr|Attrs]) -->
+    class_method_attr(Attr), ws, class_method_attrs(Attrs).
+
+class_method_attrs([A|As]) --> ",", ws, class_method_attr(A), !, ws, class_method_attrs(As).
+class_method_attrs([]) --> [].
+
+class_method_attr(virtual) --> kw("VIRTUAL").
 
 %% --- WINDOW attributes ---
 
@@ -234,6 +305,8 @@ partition_decls([array(N,T,S)|Is], Fs, Gs, [array(N,T,S)|Vs]) :-
 partition_decls([window(N,T,A,C)|Is], Fs, Gs, [window(N,T,A,C)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([queue(N,F)|Is], Fs, Gs, [queue(N,F)|Vs]) :-
+    partition_decls(Is, Fs, Gs, Vs).
+partition_decls([class(N,P,A,M)|Is], Fs, Gs, [class(N,P,A,M)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 
 %% --- FILE attributes ---
@@ -414,6 +487,16 @@ local_var(local(Name, Type, Init)) -->
     word(Name), ws, type(Type), ws,
     ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
 
+% Local instance variable: Name ClassName (where neither is a keyword or built-in type)
+local_var(instance_var(Name, ClassName)) -->
+    word(Name), { \+ is_keyword(Name) }, ws,
+    word(ClassName), { \+ is_keyword(ClassName), \+ is_builtin_type(ClassName) }.
+
+is_builtin_type(Name) :-
+    upcase_atom(Name, U),
+    member(U, ['LONG','SHORT','BYTE','REAL','SREAL','DATE','TIME',
+               'DECIMAL','PDECIMAL','CSTRING','PSTRING','STRING']).
+
 %% --- Procedure parameter list ---
 
 proc_param_list([P|Ps]) --> proc_param(P), ws, proc_param_list_rest(Ps).
@@ -526,6 +609,19 @@ statement(return(Expr)) -->
 statement(return) -->
     kw("RETURN").
 
+% SELF.Prop = Expr (self property assignment)
+statement(self_assign(Prop, Expr)) -->
+    kw("SELF"), ws, ".", ws, word(Prop), ws, "=", ws, expr(Expr).
+
+% PARENT.Method(Args) (parent method call)
+statement(parent_call(Method, Args)) -->
+    kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")".
+
+% Obj.Method(Args) (method call on instance variable)
+statement(method_call(Obj, Method, Args)) -->
+    word(Obj), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")",
+    { \+ is_keyword(Obj) }.
+
 statement(assign(array_ref(Name, Index), Expr)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", ws, "=", ws, expr(Expr).
 
@@ -602,6 +698,20 @@ mul_rest(E, E) --> [].
 primary(lit(N))    --> number(N), !.
 primary(lit(S))    --> "'", qchars(Cs), "'", { atom_codes(S, Cs) }, !.
 primary(equate(Name)) --> "?", word(Name), !.
+
+% SELF.Prop (self property access in expressions)
+primary(self_access(Prop)) -->
+    kw("SELF"), ws, ".", ws, word(Prop), !.
+
+% PARENT.Method(Args) (parent method call in expressions)
+primary(parent_call(Method, Args)) -->
+    kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
+
+% Obj.Method(Args) (method call on instance variable in expressions)
+primary(method_call(Obj, Method, Args)) -->
+    word(Obj), { \+ is_keyword(Obj) },
+    ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
+
 primary(call(Name, Args)) -->
     word(Name), ws, "(", ws, expr_list(Args), ws, ")", !.
 primary(array_ref(Name, Index)) -->
@@ -667,7 +777,8 @@ is_keyword(Name) :-
                'WHILE','UNTIL','ELSIF','CYCLE','DO','ROUTINE','EXIT',
                'SHORT','REAL','SREAL','BYTE','DATE','TIME',
                'DECIMAL','PDECIMAL','PSTRING','MESSAGE',
-               'QUEUE','FREE','SORT','RECORDS','NOT']).
+               'QUEUE','FREE','SORT','RECORDS','NOT',
+               'CLASS','TYPE','VIRTUAL','SELF','PARENT']).
 
 % Integer literal
 number(N) -->
