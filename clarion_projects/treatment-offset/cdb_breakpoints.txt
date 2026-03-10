@@ -1,0 +1,15 @@
+* CDB breakpoint script for OffsetLib.dll tracing
+* Captures function calls with arguments and return values
+* Variable IDs: 1=APValue, 2=APDir, 3=SIValue, 4=SIDir,
+*   5=LRValue, 6=LRDir, 7=Magnitude, 8=Date, 9=Time, 10=Source
+* Negative values on 1/3/5 trigger sign-flip (negate + toggle direction)
+sxe ld:OffsetLib
+g
+.echo *** CDB: OffsetLib.dll loaded, setting breakpoints ***
+bu OffsetLib!OLInit ".echo TRACE_ENTER OLInit; gu; .echo TRACE_EXIT OLInit eax=; r eax; gc"
+bu OffsetLib!OLSetField ".echo TRACE_ENTER OLSetField; .echo   arg1(id)=; dd esp+4 L1; .echo   arg2(val)=; dd esp+8 L1; gu; .echo TRACE_EXIT OLSetField eax=; r eax; gc"
+bu OffsetLib!OLCalcBtn ".echo TRACE_ENTER OLCalcBtn; gu; .echo TRACE_EXIT OLCalcBtn eax=; r eax; gc"
+bu OffsetLib!OLClearBtn ".echo TRACE_ENTER OLClearBtn; gu; .echo TRACE_EXIT OLClearBtn eax=; r eax; gc"
+bu OffsetLib!OLGetVar ".echo TRACE_ENTER OLGetVar; .echo   arg1(id)=; dd esp+4 L1; gu; .echo TRACE_EXIT OLGetVar eax=; r eax; gc"
+.echo *** CDB: Breakpoints set, continuing ***
+g

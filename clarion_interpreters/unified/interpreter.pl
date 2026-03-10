@@ -105,6 +105,10 @@ init_procedures([Proc|Procs], state(Vars, ExistingProcs, Out, Files, Err, Classe
     init_procedures(Procs, state(Vars, [Proc|ExistingProcs], Out, Files, Err, Classes, Self, UI, Cont), FinalState).
 
 init_globals([], State, State).
+init_globals([var(Name, _Type, init(InitVal))|Rest], StateIn, StateOut) :-
+    InitVal \= none, !,
+    set_var(Name, InitVal, StateIn, State1),
+    init_globals(Rest, State1, StateOut).
 init_globals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
     default_value(Type, SizeSpec, DefaultVal),
     set_var(Name, DefaultVal, StateIn, State1),
@@ -123,8 +127,30 @@ init_globals([queue(Name, Fields)|Rest], StateIn, StateOut) :-
     FileState = file_state(Name, '', [], Fields, [], Buffer, -1, true),
     set_file_state(Name, FileState, StateIn, State1),
     init_globals(Rest, State1, StateOut).
+init_globals([window(_Name, _Title, _Attrs, Controls)|Rest], StateIn, StateOut) :-
+    assign_equates(Controls, 1, StateIn, State1),
+    init_globals(Rest, State1, StateOut).
 init_globals([_|Rest], StateIn, StateOut) :-
     init_globals(Rest, StateIn, StateOut).
+
+%------------------------------------------------------------
+% Equate Assignment (WINDOW controls -> equate numbers)
+%------------------------------------------------------------
+
+assign_equates([], _, State, State).
+assign_equates([Control|Cs], N, StateIn, StateOut) :-
+    ( control_equate_name(Control, EqName) ->
+        set_var(equate(EqName), N, StateIn, State1),
+        N1 is N + 1,
+        assign_equates(Cs, N1, State1, StateOut)
+    ;   assign_equates(Cs, N, StateIn, StateOut)
+    ).
+
+control_equate_name(button(_, _, equate(Name)), Name).
+control_equate_name(entry(_, _, equate(Name)), Name).
+control_equate_name(list_ctl(_, equate(Name), _, _), Name).
+control_equate_name(string_ctl(_, _, equate(Name)), Name).
+control_equate_name(prompt(_, _, equate(Name)), Name).
 
 init_group(Name, Fields, StateIn, StateOut) :-
     create_group_value(Fields, GroupValue),
@@ -481,6 +507,18 @@ exec_case_traced(_, [], ElseStmts, StateIn, StateOut, Control, Index) :-
     ;  true
     ),
     exec_statements(ElseStmts, StateIn, StateOut, Control).
+exec_case_traced(Value, [case_of(range(StartExpr, EndExpr), Stmts)|Rest], ElseStmts, StateIn, StateOut, Control, Index) :- !,
+    eval_full_expr(StartExpr, StateIn, StartVal),
+    eval_full_expr(EndExpr, StateIn, EndVal),
+    ( number(Value), Value >= StartVal, Value =< EndVal
+    -> ( is_tracing
+       -> trace_case_match(Value, range(StartVal, EndVal), Index)
+       ;  true
+       ),
+       exec_statements(Stmts, StateIn, StateOut, Control)
+    ;  NextIndex is Index + 1,
+       exec_case_traced(Value, Rest, ElseStmts, StateIn, StateOut, Control, NextIndex)
+    ).
 exec_case_traced(Value, [case_of(CaseVal, Stmts)|Rest], ElseStmts, StateIn, StateOut, Control, Index) :-
     eval_full_expr(CaseVal, StateIn, MatchVal),
     ( Value = MatchVal
@@ -503,25 +541,41 @@ exec_routine(Name, StateIn, StateOut, Control) :-
     ( RoutineControl = exit -> Control = normal ; Control = RoutineControl ).
 
 %------------------------------------------------------------
-% ACCEPT Loop Execution
+% ACCEPT Loop Execution (event-driven)
 %------------------------------------------------------------
+% Consumes events from the UI state's event queue:
+%   Integer       — button press (equate number), sets ACCEPTED(), runs body
+%   set(Var, Val) — field entry, updates variable, does NOT run body
+%   choice(Name, Index) — list selection, updates list choice
+% BREAK inside the body ends the accept loop.
+% When the event queue is empty, the loop exits.
 
-exec_accept_loop(Body, StateIn, StateOut, Control, Phase) :-
-    set_event_phase(Phase, StateIn, State1),
-    exec_statements(Body, State1, State2, BodyControl),
-    ( BodyControl = break
-    -> StateOut = State2, Control = normal
-    ; BodyControl = cycle
-    -> next_phase(Phase, NextPhase),
-       ( NextPhase = done
-       -> StateOut = State2, Control = normal
-       ; exec_accept_loop(Body, State2, StateOut, Control, NextPhase)
-       )
-    ; next_phase(Phase, NextPhase),
-      ( NextPhase = done
-      -> StateOut = State2, Control = normal
-      ; exec_accept_loop(Body, State2, StateOut, Control, NextPhase)
-      )
+exec_accept_loop(Body, StateIn, StateOut, Control, _Phase) :-
+    get_ui_state(StateIn, UIState),
+    ( is_dict(UIState), get_dict(event_queue, UIState, [Event|RestEvents]) ->
+        put_dict(event_queue, UIState, RestEvents, NewUI),
+        set_ui_state(NewUI, StateIn, State1),
+        ( Event = set(VarName, Value) ->
+            % Field entry event — update variable, don't run body
+            set_var(VarName, Value, State1, State2),
+            exec_accept_loop(Body, State2, StateOut, Control, accepted)
+        ; Event = choice(EqName, Index) ->
+            % List selection event — store as __CHOICE__EqName
+            atom_concat('__CHOICE__', EqName, ChoiceKey),
+            set_var(ChoiceKey, Index, State1, State2),
+            exec_accept_loop(Body, State2, StateOut, Control, accepted)
+        ;   % Button press event — set __ACCEPTED__ and run body
+            set_var('__ACCEPTED__', Event, State1, State2),
+            exec_statements(Body, State2, State3, BodyControl),
+            ( BodyControl = break
+            -> StateOut = State3, Control = normal
+            ; BodyControl = return(V)
+            -> StateOut = State3, Control = return(V)
+            ; exec_accept_loop(Body, State3, StateOut, Control, accepted)
+            )
+        )
+    ;   % No more events — exit accept loop
+        StateOut = StateIn, Control = normal
     ).
 
 %------------------------------------------------------------
@@ -552,10 +606,33 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
          add_graph_node(return, return{name: Name, value: Result}, _RetNodeId)
       ;  true
       ),
+      % Merge globals back: keep callee's values for vars that existed in caller,
+      % discard local-only vars (params and locals)
       StateIn = state(OuterVars, Procs, _, _, _, _, _, UI, Cont),
-      State3 = state(_, _, NewOut, NewFiles, NewErr, NewClasses, _, _, _),
-      StateOut = state(OuterVars, Procs, NewOut, NewFiles, NewErr, NewClasses, none, UI, Cont)
+      State3 = state(InnerVars, _, NewOut, NewFiles, NewErr, NewClasses, _, _, _),
+      param_names(Params, ParamNames),
+      local_names(LocalVars, LocalNames),
+      merge_globals(OuterVars, InnerVars, ParamNames, LocalNames, MergedVars),
+      StateOut = state(MergedVars, Procs, NewOut, NewFiles, NewErr, NewClasses, none, UI, Cont)
     ).
+
+%% merge_globals(+OuterVars, +InnerVars, +ParamNames, +LocalNames, -MergedVars)
+% For each outer var, pick its value from inner vars (if updated), otherwise keep outer value.
+merge_globals([], _, _, _, []).
+merge_globals([var(Name, _OldVal)|Rest], InnerVars, ParamNames, LocalNames, [var(Name, NewVal)|MergedRest]) :-
+    member(var(Name, NewVal), InnerVars), !,
+    merge_globals(Rest, InnerVars, ParamNames, LocalNames, MergedRest).
+merge_globals([Var|Rest], InnerVars, ParamNames, LocalNames, [Var|MergedRest]) :-
+    merge_globals(Rest, InnerVars, ParamNames, LocalNames, MergedRest).
+
+param_names([], []).
+param_names([param(_, Name)|Rest], [Name|Names]) :- param_names(Rest, Names).
+param_names([param(_, Name, _, _)|Rest], [Name|Names]) :- param_names(Rest, Names).
+
+local_names([], []).
+local_names([local_var(Name, _, _)|Rest], [Name|Names]) :- local_names(Rest, Names).
+local_names([var(Name, _, _)|Rest], [Name|Names]) :- local_names(Rest, Names).
+local_names([_|Rest], Names) :- local_names(Rest, Names).
 
 eval_args([], _, []).
 eval_args([Arg|Args], State, [Val|Vals]) :-
@@ -595,6 +672,10 @@ init_locals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
 init_locals([local_var(Name, custom(ClassName), _)|Rest], StateIn, StateOut) :-
     create_instance(ClassName, StateIn, Instance),
     set_var(Name, Instance, StateIn, State1),
+    init_locals(Rest, State1, StateOut).
+init_locals([local_var(Name, Type, init(InitVal))|Rest], StateIn, StateOut) :-
+    Type \= custom(_), InitVal \= none, !,
+    set_var(Name, InitVal, StateIn, State1),
     init_locals(Rest, State1, StateOut).
 init_locals([local_var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
     Type \= custom(_),

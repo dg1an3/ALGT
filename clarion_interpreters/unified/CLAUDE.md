@@ -79,6 +79,27 @@ The AST bridge produces `binop(and, ...)` and `binop(or, ...)` with lowercase at
 ### 4. Undefined procedure error handling (interpreter.pl)
 Changed from `format(error) + fail` to `throw(error(undefined_procedure(Name), ...))` so errors propagate properly through catch/throw rather than causing silent backtracking loops.
 
+### 5. Global variable persistence across procedure calls (interpreter.pl)
+`exec_call` was restoring `OuterVars` after procedure return, discarding global variable changes made inside procedures (e.g., `NextID += 1`). Fixed with `merge_globals` that preserves callee's values for vars that existed in the caller.
+
+### 6. Variable initializers (interpreter.pl)
+`init_globals` and `init_locals` ignored `init(Value)` terms from the bridge, always using type defaults. Fixed to use the init value when present (e.g., `X LONG(50)` now initializes to 50, not 0).
+
+### 7. ACCEPT loop event queue (interpreter.pl)
+Replaced the simple phase-based ACCEPT loop with an event-driven model matching prolog-interp: consumes events from the UI state's event queue, handles `set(Var, Val)` for field entry, `choice(Name, Index)` for list selections, and integer events for button presses. Sets `__ACCEPTED__` variable for `ACCEPTED()` builtin.
+
+### 8. Equate assignment from WINDOW controls (interpreter.pl)
+Added `assign_equates` in `init_globals` for `window(...)` declarations. Assigns sequential equate numbers to controls with `USE(?Name)` attributes, stored as `equate(Name)` variables in state. `control_ref(Name)` evaluates to the equate number.
+
+### 9. CASE range matching (interpreter.pl)
+Added `exec_case_traced` clause for `case_of(range(Start, End), Stmts)` that evaluates range bounds and checks `Value >= Start, Value =< End`. Required for StatsLib's `OF 0 TO 10` syntax.
+
+### 10. Array globals (ast_bridge.pl)
+Bridge now translates `array(Name, Type, Size)` globals to `var(Name, TypeAtom, init(array(Zeros)))`, creating a properly wrapped array value for the interpreter's array access/assignment operations.
+
+### 11. SELECT with index (interpreter_builtins.pl)
+Added 2-argument `SELECT(control, index)` builtin that stores list choice state for `CHOICE()` retrieval.
+
 ## Key Fixes Applied to Parser
 
 ### 1. PROGRAM form extended
@@ -123,7 +144,7 @@ call_procedure(Session, ProcName, Args, Result, Session2).
 exec_program(Source, Events, Result).
 ```
 
-## Test Coverage (40 tests)
+## Test Coverage (55 tests)
 
 - **Parser + Bridge** (11): MEMBER parse, MathLib, SensorLib, DiagnosisStore, FormDemo, OdbcStore, control_flow.clw PROGRAM
 - **Arithmetic** (4): MathAdd, Multiply with various inputs
@@ -131,6 +152,9 @@ exec_program(Source, Events, Result).
 - **File I/O - SensorLib** (8): Open, Add records, weighted average, cleanup, close
 - **File I/O - DiagnosisStore** (3): Open, create diagnosis, close
 - **Builtins** (5): SIZE, LOOP WHILE, LOOP UNTIL, modulo, string concat with LEN
+- **GUI Form Simulation** (5): ACCEPT/CASE ACCEPTED(), equate mapping, event queue, FormDemo.clw end-to-end
+- **ODBC Store** (7): Open, add readings, count, delete all, close (in-memory simulation)
+- **StatsLib** (3): CASE with range matching (OF 0 TO 10), Classify function
 
 ## Running Tests
 

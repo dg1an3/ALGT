@@ -1,0 +1,7 @@
+NAME FormLib
+EXPORTS
+  FLInit
+  FLSetField
+  FLCalcBtn
+  FLClearBtn
+  FLGetVar

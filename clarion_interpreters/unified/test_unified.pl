@@ -223,6 +223,110 @@ test_builtins :-
     check('LEN(Hello & World)', RL, 11).
 
 %------------------------------------------------------------
+% GUI Form Simulation Tests
+%------------------------------------------------------------
+
+form_source("
+  PROGRAM
+  MAP
+  END
+
+X LONG(50)
+Y LONG(30)
+Result LONG(0)
+
+MainWindow WINDOW('Test'),AT(,,200,100),CENTER
+             BUTTON('Calc'),AT(10,10,80,14),USE(?CalcBtn)
+             BUTTON('Close'),AT(100,10,80,14),USE(?CloseBtn)
+           END
+
+  CODE
+  OPEN(MainWindow)
+  ACCEPT
+    CASE ACCEPTED()
+    OF ?CalcBtn
+      Result = X * Y
+      DISPLAY
+    OF ?CloseBtn
+      BREAK
+    END
+  END
+  CLOSE(MainWindow)
+  RETURN(Result)
+").
+
+test_form_calc :-
+    format("~nGUI form simulation tests:~n"),
+    form_source(Src),
+    % CalcBtn=1, CloseBtn=2; simulate: press Calc then Close
+    exec_program(Src, [1, 2], R1),
+    check('Form calc: 50*30=1500', R1, 1500).
+
+test_form_close_only :-
+    form_source(Src),
+    % Only press Close -- Result stays 0
+    exec_program(Src, [2], R1),
+    check('Form close only: Result=0', R1, 0).
+
+test_form_multi_calc :-
+    form_source(Src),
+    % Press Calc twice then Close
+    exec_program(Src, [1, 1, 2], R1),
+    check('Form multi calc: Result=1500', R1, 1500).
+
+test_form_no_events :-
+    form_source(Src),
+    % No events -- accept loop exits immediately
+    exec_program(Src, [], R1),
+    check('Form no events: Result=0', R1, 0).
+
+test_formdemo_exec :-
+    read_file_to_string('../../clarion_projects/form-demo/FormDemo.clw', Src, []),
+    % TypeList=1, CalcBtn=2, ClearBtn=3, CloseBtn=4 (based on control order in WINDOW)
+    % Simulate: set values, press Calc, then Close
+    Events = [set('SensorID', 42), set('Reading', 500), set('Weight', 20), 2, 4],
+    exec_program(Src, Events, R),
+    % Default SensorType=1 (CHOICE defaults to 1), so: ((500*20)/100)*1 = 100
+    check('FormDemo.clw calc: ((500*20)/100)*1=100', R, 100).
+
+%------------------------------------------------------------
+% ODBC Store Tests (in-memory)
+%------------------------------------------------------------
+
+test_odbcstore :-
+    format("~nODBC store tests (in-memory):~n"),
+    read_file_to_string('../../clarion_projects/odbc-store/OdbcStore.clw', Src, []),
+    init_session(Src, S0),
+    call_procedure(S0, 'ODBCOpen', [], R0, S1),
+    check('ODBCOpen()', R0, 0),
+    call_procedure(S1, 'ODBCAddReading', [1, 100, 10], R1, S2),
+    check('ODBCAddReading(1,100,10)', R1, 1),
+    call_procedure(S2, 'ODBCAddReading', [2, 200, 20], R2, S3),
+    check('ODBCAddReading(2,200,20)', R2, 2),
+    call_procedure(S3, 'ODBCCountReadings', [], Count, S4),
+    check('ODBCCountReadings()', Count, 2),
+    call_procedure(S4, 'ODBCDeleteAll', [], R3, S5),
+    check('ODBCDeleteAll()', R3, 0),
+    call_procedure(S5, 'ODBCCountReadings', [], Count2, S6),
+    check('ODBCCountReadings() after delete', Count2, 0),
+    call_procedure(S6, 'ODBCClose', [], R4, _),
+    check('ODBCClose()', R4, 0).
+
+%------------------------------------------------------------
+% StatsLib Tests
+%------------------------------------------------------------
+
+test_statslib :-
+    format("~nStatsLib tests:~n"),
+    read_file_to_string('../../clarion_projects/stats-calc/StatsLib.clw', Src, []),
+    exec_procedure(Src, 'Classify', [5], R1),
+    check('Classify(5)=1 (Low)', R1, 1),
+    exec_procedure(Src, 'Classify', [50], R2),
+    check('Classify(50)=2 (Medium)', R2, 2),
+    exec_procedure(Src, 'Classify', [150], R3),
+    check('Classify(150)=3 (High)', R3, 3).
+
+%------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
@@ -255,6 +359,16 @@ main :-
     run_test(test_diagstore),
     % Builtins
     run_test(test_builtins),
+    % GUI form simulation
+    run_test(test_form_calc),
+    run_test(test_form_close_only),
+    run_test(test_form_multi_calc),
+    run_test(test_form_no_events),
+    run_test(test_formdemo_exec),
+    % ODBC store
+    run_test(test_odbcstore),
+    % StatsLib
+    run_test(test_statslib),
     % Summary
     test_count(Total),
     pass_count(Pass),

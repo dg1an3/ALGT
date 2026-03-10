@@ -27,9 +27,10 @@ Combined repository: formal algorithm verification (ALGT) + Clarion language sem
 - `odbc-store/` — ODBC DLL with SQL Server LocalDB
 - `clarion_examples/` — Reference .clw files (syntax documentation)
 
-### Clarion GUI Projects (top-level)
-- `form-demo/` — GUI form with WINDOW/ACCEPT event loop
+### Clarion GUI Projects — `clarion_projects/`
+- `form-demo/` — GUI form with WINDOW/ACCEPT event loop + FormLib DLL for CDB tracing
 - `form-cli/` — CLI form with EventReader, .evt file format
+- `treatment-offset/` — Treatment offset entry with direction dropdowns, sign-flip, ISqrt magnitude
 
 ### Clarion Interpreters (Prolog) — `clarion_interpreters/`
 - `prolog-interp/` — Original interpreter (2,764 lines, 8 files, simple)
@@ -43,7 +44,10 @@ Combined repository: formal algorithm verification (ALGT) + Clarion language sem
   - `treatment_image_domain_model/` — Treatment image domain
   - `appointment_domain_model/` — Appointment domain
 - `model_checker/` — Concurrent operation verification
-- `mcp_server/` — MCP server implementations (Prolog, Erlang, Elixir)
+- `mcp_servers/` — MCP server implementations
+  - `prolog/` — Prolog MCP server
+  - `erlang/` — Erlang MCP server
+  - `elixir/` — Elixir MCP server
 
 ### Supporting
 - `docs/` — Documentation
@@ -121,6 +125,18 @@ bu SensorLib!NewProc ".echo TRACE_ENTER NewProc; .echo   arg1(name)=; dd esp+4 L
 ```
 For each `LONG` argument, read from `esp+4`, `esp+8`, `esp+c`, etc. (4 bytes per arg in C calling convention).
 
+### Level 1c: CDB variable-level comparison (implemented)
+
+Uses headless DLLs (FormLib, OffsetLib) that expose get/set operations on internal variables as named exports. CDB traces each function call with arguments and return values, then compares against a standalone Prolog trace that implements the same logic.
+
+**Pattern**: Extract form logic into a DLL with exports like `Init`, `SetField(id, val)`, `CalcBtn`, `GetVar(id)`. CDB breaks on each export, reads args from the stack, captures return from `eax`.
+
+**Key projects**:
+- `clarion_projects/form-demo/` — FormLib with 5 variables (SensorID, Reading, Weight, Result, SensorType)
+- `clarion_projects/treatment-offset/` — OffsetLib with 10 variables including direction sign-flip and ISqrt magnitude
+
+**GUI-in-DLL pattern** (`OffsetForm.clw`): The WINDOW/ACCEPT loop runs inside a DLL procedure. Exported button handlers (OFDoCalc, OFDoClear) are called from the ACCEPT loop, so CDB traces each button click live during GUI interaction.
+
 ### Level 2: Statement-level traces (Prolog interpreter only)
 
 The Prolog interpreter traces every statement: `assign`, `call`, `if` (with condition value and branch taken), `loop` enter/exit, `break`, and `return`. Enabled via `set_trace(on)`.
@@ -164,15 +180,28 @@ Clarion DLL with DOS flat-file sensor readings, weighted average calculations, a
 
 **Key files:** `SensorLib.clw`, `test_sensorlib.py`, `trace_sensorlib.py`, `compare_cdb_prolog.py`, `cdb_breakpoints.txt`, `cdb_trace_target.py`
 
-### form-demo/ (top-level)
+### form-demo/ (`clarion_projects/`)
 Clarion EXE with a GUI form for sensor data entry. WINDOW/ACCEPT event loop.
+Also includes FormLib DLL for CDB variable-level tracing (Level 1c).
 
 **Key files:** `FormDemo.clw`, `FormDemo.cwproj`, `test_formdemo_gui.py`, `compare_traces.py`
+**FormLib files:** `FormLib.clw`, `FormLib.cwproj`, `cdb_breakpoints.txt`, `cdb_trace_target.py`, `compare_cdb_prolog.py`, `trace_formlib.pl`
 
-### form-cli/ (top-level)
+### form-cli/ (`clarion_projects/`)
 CLI version of FormDemo using EventReader.clw and .evt event files.
 
 **Key files:** `FormDemo_CLI.clw`, `EventReader.clw`, `FormDemo_CLI.cwproj`, `gui-to-cli.md`
+
+### treatment-offset/ (`clarion_projects/`)
+Treatment offset entry form with anterior/superior/lateral patient shifts, direction dropdowns with sign-flip normalization, and ISqrt magnitude calculation.
+
+**Key files:**
+- `TreatmentOffset.clw` — GUI PROGRAM with WINDOW/ACCEPT, direction dropdowns, sign-flip
+- `OffsetLib.clw` — Headless DLL for CDB tracing (OLInit, OLSetField, OLCalcBtn, OLClearBtn, OLGetVar)
+- `OffsetForm.clw` — GUI form hosted in DLL with exported button handlers (OFRunForm, OFDoCalc, OFDoClear, OFGetVar)
+- `trace_offsetlib.pl` — Prolog trace with sign-flip and ISqrt
+- `compare_cdb_prolog.py` — Automated CDB vs Prolog comparison
+- `run_form_dll.py` — Launch GUI form from DLL (standalone or under CDB)
 
 ### odbc-store/ (`clarion_projects/`)
 Clarion DLL with ODBC-based sensor reading storage using SQL Server.
@@ -203,8 +232,8 @@ Modular interpreter: lexer, parser, interpreter core, builtins, state management
 ### Model Checker (`model_checker/`)
 Verifies interleaved concurrent operations to identify race conditions.
 
-### MCP Servers (`mcp_server/`, `mcp_server_erlang/`, `mcp_server_elixir/`)
-Model Context Protocol server implementations for Claude Code integration.
+### MCP Servers (`mcp_servers/`)
+Model Context Protocol server implementations for Claude Code integration (Prolog, Erlang, Elixir).
 
 ## Clarion DLL Conventions
 

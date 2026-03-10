@@ -1,9 +1,0 @@
-set Reading 1000
-set Weight 50
-accepted CalcBtn
-accepted ClearBtn
-set Reading 200
-set Weight 25
-set SensorType 3
-accepted CalcBtn
-accepted CloseBtn

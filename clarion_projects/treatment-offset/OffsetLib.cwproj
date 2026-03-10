@@ -1,13 +1,13 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF0123456789}</ProjectGuid>
+    <ProjectGuid>{B2C3D4E5-F6A7-8901-CDEF-234567890ABC}</ProjectGuid>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">Win32</Platform>
-    <OutputType>WinExe</OutputType>
-    <RootNamespace>FormDemo</RootNamespace>
-    <AssemblyName>FormDemo_CLI</AssemblyName>
-    <OutputName>FormDemo_CLI</OutputName>
-    <Model>Exe</Model>
+    <OutputType>Library</OutputType>
+    <RootNamespace>OffsetLib</RootNamespace>
+    <AssemblyName>OffsetLib</AssemblyName>
+    <OutputName>OffsetLib</OutputName>
+    <Model>Dll</Model>
     <RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
     <stack_size>16384</stack_size>
     <CopyCore>True</CopyCore>
@@ -29,10 +29,10 @@
     <OutputPath>bin\</OutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="FormDemo_CLI.clw" />
+    <Compile Include="OffsetLib.clw" />
   </ItemGroup>
   <ItemGroup>
-    <Library Include="C:\Clarion11.1\lib\ClaASC.lib" />
+    <ExpFile Include="OffsetLib.exp" />
   </ItemGroup>
   <Import Project="C:\Clarion11.1\bin\SoftVelocity.Build.Clarion.targets" />
 </Project>

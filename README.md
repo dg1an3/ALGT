@@ -68,11 +68,12 @@ swipl -s model_checker/model_checker.pl
 │   ├── stats-calc/                # Statistical calculations DLL
 │   ├── odbc-store/                # ODBC DLL with SQL Server LocalDB
 │   └── clarion_examples/          # Reference .clw files
+│   ├── form-demo/                 # GUI form + FormLib DLL for CDB tracing
+│   ├── form-cli/                  # CLI form with EventReader, .evt format
+│   └── treatment-offset/          # Treatment offset entry with sign-flip
 ├── clarion_interpreters/          # Prolog interpreters for Clarion
 │   ├── prolog-interp/             # Original interpreter (2,764 lines, 8 files)
 │   └── clarion_interpreter/       # ALGT interpreter (7,629 lines, 18 files)
-├── form-demo/                     # GUI form with WINDOW/ACCEPT event loop
-├── form-cli/                      # CLI form with EventReader, .evt format
 ├── algt_tests/                    # Algorithm verification test suite
 │   ├── ALGT_BEAM_VOLUME.pl        # Beam volume generation tests
 │   ├── ALGT_MESH_GEN.pl           # Mesh generation tests
@@ -83,9 +84,10 @@ swipl -s model_checker/model_checker.pl
 │   ├── treatment_image_domain_model/
 │   └── appointment_domain_model/
 ├── model_checker/                 # Concurrent operation verification
-├── mcp_server/                    # MCP server (Prolog)
-├── mcp_server_erlang/             # MCP server (Erlang)
-├── mcp_server_elixir/             # MCP server (Elixir)
+├── mcp_servers/                   # MCP server implementations
+│   ├── prolog/                    # MCP server (Prolog)
+│   ├── erlang/                    # MCP server (Erlang)
+│   └── elixir/                    # MCP server (Elixir)
 └── docs/
 ```
 

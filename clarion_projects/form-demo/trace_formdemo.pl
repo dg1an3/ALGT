@@ -5,8 +5,8 @@
 %   cd form-demo
 %   swipl -g "main,halt" -t "halt(1)" trace_formdemo.pl
 
-:- use_module('../prolog-interp/clarion_parser').
-:- use_module('../prolog-interp/clarion_interpreter').
+:- use_module('../../clarion_interpreters/prolog-interp/clarion_parser').
+:- use_module('../../clarion_interpreters/prolog-interp/clarion_interpreter').
 :- set_prolog_flag(double_quotes, codes).
 
 main :-

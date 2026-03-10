@@ -1,0 +1,13 @@
+* CDB breakpoint script for FormLib.dll tracing
+* Captures function calls with arguments and return values
+* Variable IDs: 1=SensorID, 2=Reading, 3=Weight, 4=Result, 5=SensorType
+sxe ld:FormLib
+g
+.echo *** CDB: FormLib.dll loaded, setting breakpoints ***
+bu FormLib!FLInit ".echo TRACE_ENTER FLInit; gu; .echo TRACE_EXIT FLInit eax=; r eax; gc"
+bu FormLib!FLSetField ".echo TRACE_ENTER FLSetField; .echo   arg1(id)=; dd esp+4 L1; .echo   arg2(val)=; dd esp+8 L1; gu; .echo TRACE_EXIT FLSetField eax=; r eax; gc"
+bu FormLib!FLCalcBtn ".echo TRACE_ENTER FLCalcBtn; gu; .echo TRACE_EXIT FLCalcBtn eax=; r eax; gc"
+bu FormLib!FLClearBtn ".echo TRACE_ENTER FLClearBtn; gu; .echo TRACE_EXIT FLClearBtn eax=; r eax; gc"
+bu FormLib!FLGetVar ".echo TRACE_ENTER FLGetVar; .echo   arg1(id)=; dd esp+4 L1; gu; .echo TRACE_EXIT FLGetVar eax=; r eax; gc"
+.echo *** CDB: Breakpoints set, continuing ***
+g

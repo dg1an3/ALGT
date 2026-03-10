@@ -1,12 +1,12 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <ProjectGuid>{F1E2D3C4-B5A6-7890-CDEF-012345678905}</ProjectGuid>
+    <ProjectGuid>{C3D4E5F6-A7B8-9012-DEFA-345678901BCD}</ProjectGuid>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">Win32</Platform>
-    <OutputType>WinExe</OutputType>
-    <RootNamespace>FormDemo</RootNamespace>
-    <AssemblyName>FormDemo</AssemblyName>
-    <OutputName>FormDemo</OutputName>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TreatmentOffset</RootNamespace>
+    <AssemblyName>TreatmentOffset</AssemblyName>
+    <OutputName>TreatmentOffset</OutputName>
     <Model>Exe</Model>
     <RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
     <stack_size>16384</stack_size>
@@ -29,7 +29,7 @@
     <OutputPath>bin\</OutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="FormDemo.clw" />
+    <Compile Include="TreatmentOffset.clw" />
   </ItemGroup>
   <Import Project="C:\Clarion11.1\bin\SoftVelocity.Build.Clarion.targets" />
 </Project>
