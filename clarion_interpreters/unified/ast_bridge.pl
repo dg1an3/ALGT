@@ -92,8 +92,22 @@ bridge_fields([field(Name, Type, Size)|Rest], [field(Name, TypeAtom, size(Size))
     bridge_fields(Rest, BRest).
 
 bridge_type_name(long, 'LONG').
+bridge_type_name(short, 'SHORT').
+bridge_type_name(byte, 'BYTE').
+bridge_type_name(real, 'REAL').
+bridge_type_name(sreal, 'SREAL').
+bridge_type_name(date, 'DATE').
+bridge_type_name(time, 'TIME').
+bridge_type_name(decimal, 'DECIMAL').
+bridge_type_name(decimal(_), 'DECIMAL').
+bridge_type_name(decimal(_, _), 'DECIMAL').
+bridge_type_name(pdecimal, 'PDECIMAL').
+bridge_type_name(pdecimal(_), 'PDECIMAL').
+bridge_type_name(pdecimal(_, _), 'PDECIMAL').
 bridge_type_name(cstring, 'CSTRING').
 bridge_type_name(cstring(N), 'CSTRING') :- number(N).
+bridge_type_name(pstring, 'PSTRING').
+bridge_type_name(pstring(N), 'PSTRING') :- number(N).
 bridge_type_name(string, 'STRING').
 bridge_type_name(string(N), 'STRING') :- number(N).
 bridge_type_name(ref(T), TypeAtom) :- bridge_type_name(T, TypeAtom).
@@ -148,6 +162,9 @@ bridge_proc_list([routine(Name, Body)|Rest],
     bridge_proc_list(Rest, BRest).
 
 bridge_params([], []).
+bridge_params([param(Name, Type, optional)|Rest], [param(TypeAtom, Name, optional, none)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_params(Rest, BRest).
 bridge_params([param(Name, Type)|Rest], [param(TypeAtom, Name)|BRest]) :-
     bridge_type_name(Type, TypeAtom),
     bridge_params(Rest, BRest).

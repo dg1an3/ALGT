@@ -363,6 +363,8 @@ map_param_list([]) --> [].
 map_param_list_rest([P|Ps]) --> ",", ws, map_param(P), ws, map_param_list_rest(Ps).
 map_param_list_rest([]) --> [].
 
+map_param(param(Name, ref(Type), optional)) --> "<", ws, "*", ws, type(Type), ws, opt_ident(Name), ws, ">".
+map_param(param(Name, Type, optional)) --> "<", ws, type(Type), ws, opt_ident(Name), ws, ">".
 map_param(param(Name, ref(Type))) --> "*", ws, type(Type), ws, opt_ident(Name).
 map_param(param(Name, Type)) --> type(Type), ws, opt_ident(Name).
 
@@ -412,6 +414,8 @@ proc_param_list([]) --> [].
 proc_param_list_rest([P|Ps]) --> ",", ws, proc_param(P), ws, proc_param_list_rest(Ps).
 proc_param_list_rest([]) --> [].
 
+proc_param(param(Name, ref(Type), optional)) --> "<", ws, "*", ws, type(Type), ws, ident(Name), ws, ">".
+proc_param(param(Name, Type, optional)) --> "<", ws, type(Type), ws, ident(Name), ws, ">".
 proc_param(param(Name, ref(Type))) --> "*", ws, type(Type), ws, ident(Name).
 proc_param(param(Name, Type)) --> type(Type), ws, ident(Name).
 
@@ -419,9 +423,21 @@ proc_param(param(Name, Type)) --> type(Type), ws, ident(Name).
 
 type(long) --> kw("LONG").
 type(short) --> kw("SHORT").
+type(byte) --> kw("BYTE").
 type(real) --> kw("REAL").
+type(sreal) --> kw("SREAL").
+type(date) --> kw("DATE").
+type(time) --> kw("TIME").
+type(decimal(Size, Prec)) --> kw("DECIMAL"), ws, "(", ws, number(Size), ws, ",", ws, number(Prec), ws, ")".
+type(decimal(Size)) --> kw("DECIMAL"), ws, "(", ws, number(Size), ws, ")".
+type(decimal) --> kw("DECIMAL").
+type(pdecimal(Size, Prec)) --> kw("PDECIMAL"), ws, "(", ws, number(Size), ws, ",", ws, number(Prec), ws, ")".
+type(pdecimal(Size)) --> kw("PDECIMAL"), ws, "(", ws, number(Size), ws, ")".
+type(pdecimal) --> kw("PDECIMAL").
 type(cstring(Size)) --> kw("CSTRING"), ws, "(", ws, number(Size), ws, ")".
 type(cstring) --> kw("CSTRING").
+type(pstring(Size)) --> kw("PSTRING"), ws, "(", ws, number(Size), ws, ")".
+type(pstring) --> kw("PSTRING").
 type(string(Size)) --> kw("STRING"), ws, "(", ws, number(Size), ws, ")".
 type(string) --> kw("STRING").
 
@@ -640,7 +656,8 @@ is_keyword(Name) :-
                'PROMPT','ENTRY','BUTTON','STRING','LIST','AT','USE',
                'CENTER','DROP','FROM','CHOICE','SELECT',
                'WHILE','UNTIL','ELSIF','CYCLE','DO','ROUTINE','EXIT',
-               'SHORT','REAL','MESSAGE']).
+               'SHORT','REAL','SREAL','BYTE','DATE','TIME',
+               'DECIMAL','PDECIMAL','PSTRING','MESSAGE']).
 
 % Integer literal
 number(N) -->

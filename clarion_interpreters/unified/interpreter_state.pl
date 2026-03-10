@@ -294,6 +294,7 @@ default_value('LONG', _, 0).
 default_value('SHORT', _, 0).
 default_value('BYTE', _, 0).
 default_value('DECIMAL', _, 0).
+default_value('PDECIMAL', _, 0).
 default_value('REAL', _, 0.0).
 default_value('SREAL', _, 0.0).
 default_value('DATE', _, 0).

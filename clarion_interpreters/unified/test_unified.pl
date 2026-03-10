@@ -449,6 +449,77 @@ test_statslib_exec :-
     check('CalculateStats(3)=0', R1, 0).
 
 %------------------------------------------------------------
+% New Type Support Tests
+%------------------------------------------------------------
+
+test_byte_type :-
+    format("~nNew type support tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    TestByte(),LONG\n  END\n\nTestByte PROCEDURE()\nB BYTE(255)\n  CODE\n  RETURN(B)\n",
+    exec_procedure(Src, 'TestByte', [], R1),
+    check('BYTE var init 255', R1, 255).
+
+test_date_time_types :-
+    Src = "  MEMBER()\n  MAP\n    TestDate(),LONG\n  END\n\nTestDate PROCEDURE()\nD DATE\nT TIME\n  CODE\n  D = 45000\n  T = 36000\n  RETURN(D + T)\n",
+    exec_procedure(Src, 'TestDate', [], R1),
+    check('DATE + TIME arithmetic', R1, 81000).
+
+test_decimal_type :-
+    Src = "  MEMBER()\n  MAP\n    TestDec(),LONG\n  END\n\nTestDec PROCEDURE()\nD DECIMAL(10,2)\n  CODE\n  D = 42\n  RETURN(D)\n",
+    exec_procedure(Src, 'TestDec', [], R1),
+    check('DECIMAL(10,2) var', R1, 42).
+
+test_pdecimal_type :-
+    Src = "  MEMBER()\n  MAP\n    TestPDec(),LONG\n  END\n\nTestPDec PROCEDURE()\nP PDECIMAL(8,2)\n  CODE\n  P = 99\n  RETURN(P)\n",
+    exec_procedure(Src, 'TestPDec', [], R1),
+    check('PDECIMAL(8,2) var', R1, 99).
+
+test_sreal_type :-
+    Src = "  MEMBER()\n  MAP\n    TestSReal(),LONG\n  END\n\nTestSReal PROCEDURE()\nS SREAL\n  CODE\n  S = 7\n  RETURN(S)\n",
+    exec_procedure(Src, 'TestSReal', [], R1),
+    check('SREAL var', R1, 7).
+
+test_pstring_type :-
+    Src = "  MEMBER()\n  MAP\n    TestPStr(),LONG\n  END\n\nTestPStr PROCEDURE()\nS PSTRING(20)\n  CODE\n  S = 'Hello'\n  RETURN(LEN(S))\n",
+    exec_procedure(Src, 'TestPStr', [], R1),
+    check('PSTRING(20) LEN', R1, 5).
+
+%------------------------------------------------------------
+% Optional Parameter Tests
+%------------------------------------------------------------
+
+test_optional_params_parse :-
+    format("~nOptional parameter tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    TestOpt(LONG, <LONG>),LONG\n  END\n\nTestOpt PROCEDURE(LONG x, <LONG y>)\n  CODE\n  RETURN(x + y)\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, MapEntries, Procs),
+    % Check MAP has optional param
+    MapEntries = [map_entry('TestOpt', MapParams, long, _)],
+    length(MapParams, 2),
+    MapParams = [param(anonymous, long), param(anonymous, long, optional)],
+    % Check procedure def has optional param
+    Procs = [procedure('TestOpt', ProcParams, void, [], _)],
+    ProcParams = [param(x, long), param(y, long, optional)],
+    check('Optional param parse (MAP + proc)', ok, ok).
+
+test_optional_params_with_value :-
+    Src = "  MEMBER()\n  MAP\n    TestOpt(LONG, <LONG>),LONG\n  END\n\nTestOpt PROCEDURE(LONG x, <LONG y>)\n  CODE\n  RETURN(x + y)\n",
+    exec_procedure(Src, 'TestOpt', [10, 20], R1),
+    check('Optional param provided: 10+20', R1, 30).
+
+test_optional_params_default :-
+    Src = "  MEMBER()\n  MAP\n    TestOpt(LONG, <LONG>),LONG\n  END\n\nTestOpt PROCEDURE(LONG x, <LONG y>)\n  CODE\n  RETURN(x + y)\n",
+    exec_procedure(Src, 'TestOpt', [10], R1),
+    check('Optional param default: 10+0', R1, 10).
+
+test_optional_ref_param :-
+    Src = "  MEMBER()\n  MAP\n    TestOpt(LONG, <*CSTRING>),LONG\n  END\n\nTestOpt PROCEDURE(LONG x, <*CSTRING label>)\n  CODE\n  RETURN(x)\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, _, Procs),
+    Procs = [procedure('TestOpt', ProcParams, void, [], _)],
+    ProcParams = [param(x, long), param(label, ref(cstring), optional)],
+    check('Optional *CSTRING ref param parse', ok, ok).
+
+%------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
@@ -507,6 +578,18 @@ main :-
     % StatsLib
     run_test(test_statslib),
     run_test(test_statslib_exec),
+    % New type support
+    run_test(test_byte_type),
+    run_test(test_date_time_types),
+    run_test(test_decimal_type),
+    run_test(test_pdecimal_type),
+    run_test(test_sreal_type),
+    run_test(test_pstring_type),
+    % Optional parameters
+    run_test(test_optional_params_parse),
+    run_test(test_optional_params_with_value),
+    run_test(test_optional_params_default),
+    run_test(test_optional_ref_param),
     % Summary
     test_count(Total),
     pass_count(Pass),
