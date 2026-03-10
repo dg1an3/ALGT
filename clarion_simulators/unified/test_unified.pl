@@ -1,5 +1,5 @@
 %============================================================
-% test_unified.pl - Tests for the Unified Clarion Interpreter
+% test_unified.pl - Tests for the Unified Clarion Simulator
 %
 % Validates that the unified system (simple parser + AST bridge
 % + modular execution engine) produces correct results.
@@ -10,7 +10,7 @@
 :- use_module(clarion).
 :- use_module(clarion_parser).
 :- use_module(ast_bridge).
-:- use_module(interpreter_state).
+:- use_module(simulator_state).
 
 :- dynamic test_count/1, pass_count/1, fail_count/1.
 test_count(0). pass_count(0). fail_count(0).
@@ -573,7 +573,7 @@ run_test(Test) :-
     ).
 
 main :-
-    format("=== Unified Interpreter Test Suite ===~n"),
+    format("=== Unified Simulator Test Suite ===~n"),
     % Parser tests (bridge)
     run_test(test_parse_simple),
     run_test(test_parse_mathlib),

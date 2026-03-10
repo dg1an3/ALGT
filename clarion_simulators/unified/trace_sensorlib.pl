@@ -1,4 +1,4 @@
-% trace_sensorlib.pl — Run SensorLib through the unified interpreter
+% trace_sensorlib.pl — Run SensorLib through the unified simulator
 % with procedure-level trace output compatible with CDB comparison.
 %
 % Usage: swipl -g "main,halt" -t "halt(1)" trace_sensorlib.pl

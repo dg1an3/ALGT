@@ -1,10 +1,10 @@
 %============================================================
-% interpreter_state.pl - State Management for Clarion Interpreter
+% simulator_state.pl - State Management for Clarion Simulator
 %
-% Handles interpreter state, variable access, and file state.
+% Handles simulator state, variable access, and file state.
 %============================================================
 
-:- module(interpreter_state, [
+:- module(simulator_state, [
     % State creation
     empty_state/1,
     empty_ui_state/1,

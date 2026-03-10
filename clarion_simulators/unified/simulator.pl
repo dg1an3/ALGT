@@ -1,18 +1,18 @@
 %============================================================
-% interpreter.pl - Clarion AST Execution Engine
+% simulator.pl - Clarion AST Execution Engine
 %
 % Main entry points, initialization, statement execution,
 % procedure calls, and control flow execution.
 %
 % Supporting modules:
-%   interpreter_state.pl    - State management, variables
-%   interpreter_eval.pl     - Expression evaluation
-%   interpreter_builtins.pl - Built-in functions, file I/O
-%   interpreter_classes.pl  - Class/instance management
-%   interpreter_control.pl  - Control flow helpers
+%   simulator_state.pl    - State management, variables
+%   simulator_eval.pl     - Expression evaluation
+%   simulator_builtins.pl - Built-in functions, file I/O
+%   simulator_classes.pl  - Class/instance management
+%   simulator_control.pl  - Control flow helpers
 %============================================================
 
-:- module(interpreter, [
+:- module(simulator, [
     run_file/1,
     run_file_traced/2,      % run_file_traced(+FileName, -Trace)
     run_ast/1,
@@ -24,11 +24,11 @@
 
 % Note: parser is NOT imported here — the unified system uses
 % clarion_parser.pl via ast_bridge.pl instead of the modular parser.
-:- use_module(interpreter_state).
-:- use_module(interpreter_eval).
-:- use_module(interpreter_builtins).
-:- use_module(interpreter_classes).
-:- use_module(interpreter_control).
+:- use_module(simulator_state).
+:- use_module(simulator_eval).
+:- use_module(simulator_builtins).
+:- use_module(simulator_classes).
+:- use_module(simulator_control).
 :- use_module(execution_tracer).
 
 :- discontiguous exec_statement/4.
@@ -841,11 +841,11 @@ trace_condition_vars(Cond, NodeId) :-
 
 :- use_module(library(plunit)).
 
-:- begin_tests(interpreter).
+:- begin_tests(simulator).
 
 test(run_example_files) :-
-    interpreter_test_files(Files),
+    simulator_test_files(Files),
     forall(member(File, Files),
            assertion(run_file(File))).
 
-:- end_tests(interpreter).
+:- end_tests(simulator).

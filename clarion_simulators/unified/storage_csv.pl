@@ -11,7 +11,7 @@
 
 :- use_module(library(csv)).
 :- use_module(storage_memory).
-:- use_module(interpreter_classes, [default_value/3]).
+:- use_module(simulator_classes, [default_value/3]).
 
 % CSV state tracked via assertz/retract
 :- dynamic csv_state/2.  % csv_state(FilePath, dirty)

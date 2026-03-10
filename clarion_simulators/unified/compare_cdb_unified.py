@@ -1,9 +1,9 @@
-"""compare_cdb_unified.py — Compare CDB debugger trace with unified Prolog interpreter.
+"""compare_cdb_unified.py — Compare CDB debugger trace with unified Prolog simulator.
 
 Runs three traces and compares them:
 1. CDB attached to Python loading SensorLib.dll (compiled Clarion, ground truth)
-2. Unified Prolog interpreter (simple parser + AST bridge + modular engine)
-3. Original Prolog interpreter (prolog-interp/, for reference)
+2. Unified Prolog simulator (simple parser + AST bridge + modular engine)
+3. Original Prolog simulator (prolog-interp/, for reference)
 
 Usage: python compare_cdb_unified.py
 """
@@ -72,7 +72,7 @@ def run_cdb_trace():
 
 
 def run_prolog_trace(label, cwd):
-    """Run a Prolog interpreter trace and extract CALL lines."""
+    """Run a Prolog simulator trace and extract CALL lines."""
     clean_sensors_dat()
     result = subprocess.run(
         ["swipl", "-g", "main,halt", "-t", "halt(1)", "trace_sensorlib.pl"],
@@ -113,7 +113,7 @@ def compare(name_a, trace_a, name_b, trace_b):
 
 def main():
     print("=" * 70)
-    print("CDB vs Unified Interpreter vs Original Interpreter — Trace Comparison")
+    print("CDB vs Unified simulator vs Original simulator — Trace Comparison")
     print("=" * 70)
 
     print("\n[1/3] Running CDB trace (compiled SensorLib.dll) ...")
@@ -121,34 +121,34 @@ def main():
     for line in cdb_trace:
         print(f"  {line}")
 
-    print(f"\n[2/3] Running unified interpreter trace ...")
+    print(f"\n[2/3] Running unified simulator trace ...")
     unified_trace = run_prolog_trace("unified", SCRIPT_DIR)
     for line in unified_trace:
         print(f"  {line}")
 
-    print(f"\n[3/3] Running original interpreter trace ...")
+    print(f"\n[3/3] Running original simulator trace ...")
     original_trace = run_prolog_trace("original", ORIGINAL_DIR)
     for line in original_trace:
         print(f"  {line}")
 
     # Compare CDB vs unified
-    print(f"\n--- CDB vs Unified Interpreter ---")
+    print(f"\n--- CDB vs Unified simulator ---")
     m1, mm1 = compare("CDB", cdb_trace, "Unified", unified_trace)
 
     # Compare CDB vs original
-    print(f"\n--- CDB vs Original Interpreter ---")
+    print(f"\n--- CDB vs Original simulator ---")
     m2, mm2 = compare("CDB", cdb_trace, "Original", original_trace)
 
     # Compare unified vs original
-    print(f"\n--- Unified vs Original Interpreter ---")
+    print(f"\n--- Unified vs Original simulator ---")
     m3, mm3 = compare("Unified", unified_trace, "Original", original_trace)
 
     # Summary
     print(f"\n{'=' * 70}")
     print(f"SUMMARY")
     print(f"  CDB (compiled):           {len(cdb_trace)} calls traced")
-    print(f"  Unified interpreter:      {len(unified_trace)} calls traced")
-    print(f"  Original interpreter:     {len(original_trace)} calls traced")
+    print(f"  Unified simulator:      {len(unified_trace)} calls traced")
+    print(f"  Original simulator:     {len(original_trace)} calls traced")
     print(f"  CDB vs Unified:           {m1} match, {mm1} mismatch")
     print(f"  CDB vs Original:          {m2} match, {mm2} mismatch")
     print(f"  Unified vs Original:      {m3} match, {mm3} mismatch")

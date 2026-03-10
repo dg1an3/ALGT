@@ -1,5 +1,5 @@
 %============================================================
-% execution_tracer.pl - Execution Trace Capture for Clarion Interpreter
+% execution_tracer.pl - Execution Trace Capture for Clarion Simulator
 %
 % Captures detailed execution traces including:
 %   - Statement executions
@@ -1118,7 +1118,7 @@ generate_stan_model(BranchVars, NumBranches, StanCode) :-
     atomics_to_string(BranchNames, BranchNamesStr),
     format(string(StanCode),
 '// Execution Path Model
-// Generated from Clarion interpreter trace
+// Generated from Clarion simulator trace
 // Branch variables: ~w
 
 data {
@@ -1187,7 +1187,7 @@ generate_analysis_script(Script) :-
     Script = '#!/usr/bin/env python3
 """
 Execution Path Analysis Script
-Generated from Clarion interpreter trace
+Generated from Clarion simulator trace
 
 This script demonstrates how to:
 1. Load the execution graph

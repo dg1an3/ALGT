@@ -27,7 +27,7 @@
     sim_display/3
 ]).
 
-:- use_module(interpreter_state).
+:- use_module(simulator_state).
 
 %------------------------------------------------------------
 % Window State Structure

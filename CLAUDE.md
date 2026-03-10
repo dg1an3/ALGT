@@ -11,7 +11,7 @@ Combined repository: formal algorithm verification (ALGT) + Clarion language sem
 ## Technology Stack
 
 - **Clarion 11.1**: 4GL language, compiles to 32-bit Windows DLLs/EXEs
-- **SWI Prolog**: Two Clarion interpreters (clarion_interpreters/prolog-interp/ and clarion_interpreters/clarion_interpreter/)
+- **SWI Prolog**: Two Clarion interpreters (clarion_simulators/prolog-interp/ and clarion_simulators/clarion_interpreter/)
 - **Logtalk**: Object-oriented Prolog extension (ALGT domain models)
 - **Python 3.11 (32-bit)**: ctypes interop with Clarion DLLs
 - **MSBuild**: Clarion project builds (.cwproj)
@@ -32,7 +32,7 @@ Combined repository: formal algorithm verification (ALGT) + Clarion language sem
 - `form-cli/` — CLI form with EventReader, .evt file format
 - `treatment-offset/` — Treatment offset entry with direction dropdowns, sign-flip, ISqrt magnitude
 
-### Clarion Interpreters (Prolog) — `clarion_interpreters/`
+### Clarion Interpreters (Prolog) — `clarion_simulators/`
 - `prolog-interp/` — Original interpreter (2,764 lines, 8 files, simple)
 - `clarion_interpreter/` — ALGT interpreter (7,629 lines, 18 files, modular)
 
@@ -61,7 +61,7 @@ Strategy for verifying the Prolog interpreter produces the same behavior as comp
 
 Both sides emit `CALL ProcName(args) -> result` lines and are compared with `diff`.
 
-**Prolog side** (`clarion_interpreters/prolog-interp/trace_sensorlib.pl`):
+**Prolog side** (`clarion_simulators/prolog-interp/trace_sensorlib.pl`):
 - `set_trace(on)` enables the trace infrastructure in `clarion.pl`
 - `exec_procedure` emits `proc_enter`/`proc_exit` entries via `assert`
 - `print_trace` formats the log; grep `^CALL.*->` for procedure-level lines
@@ -73,7 +73,7 @@ Both sides emit `CALL ProcName(args) -> result` lines and are compared with `dif
 **Comparison**:
 ```bash
 diff <(cd clarion_projects/sensor-data && python trace_sensorlib.py | grep "^CALL") \
-     <(cd clarion_interpreters/prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
+     <(cd clarion_simulators/prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
 ```
 
 ### Level 1b: CDB debugger traces (implemented)
@@ -208,14 +208,14 @@ Clarion DLL with ODBC-based sensor reading storage using SQL Server.
 
 **Key files:** `OdbcStore.clw`, `setup_db.py`, `test_odbcstore.py`
 
-### prolog-interp/ (`clarion_interpreters/`)
+### prolog-interp/ (`clarion_simulators/`)
 Original SWI-Prolog interpreter for Clarion source code.
 
 **Key files:** `clarion_parser.pl`, `clarion_interpreter.pl`, `clarion.pl`, test suites
 
 **Run tests:**
 ```bash
-cd clarion_interpreters/prolog-interp
+cd clarion_simulators/prolog-interp
 swipl -g "main,halt" -t "halt(1)" test_parser.pl
 swipl -g "main,halt" -t "halt(1)" test_interpreter.pl
 ```
@@ -226,7 +226,7 @@ swipl -g "main,halt" -t "halt(1)" test_interpreter.pl
 Formal verification of geometric algorithms for medical imaging:
 - Beam Volume, Mesh Generation, Isodensity, Structure Projection, Margins, SSD
 
-### Clarion Interpreter (`clarion_interpreters/clarion_interpreter/`)
+### Clarion Interpreter (`clarion_simulators/clarion_interpreter/`)
 Modular interpreter: lexer, parser, interpreter core, builtins, state management, control flow, expression evaluation, class support, execution tracer, UI backend, scenario DSL.
 
 ### Model Checker (`model_checker/`)

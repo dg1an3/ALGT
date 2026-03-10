@@ -20,9 +20,9 @@
     click_button/4          % (ControlId, StateIn, StateOut, Result)
 ]).
 
-:- use_module(interpreter_state).
+:- use_module(simulator_state).
 :- use_module(ui_backend).
-:- use_module(interpreter).
+:- use_module(simulator).
 :- use_module(clarion).
 
 %------------------------------------------------------------
@@ -278,6 +278,6 @@ parse_string(Source, AST) :-
     lexer:tokenize(Codes, Tokens),
     parser:parse_program(Tokens, AST).
 
-% Initialize program from AST (wrapper for interpreter)
+% Initialize program from AST (wrapper for simulator)
 init_program(AST, StateIn, StateOut) :-
-    interpreter:init_program(AST, StateIn, StateOut).
+    simulator:init_program(AST, StateIn, StateOut).

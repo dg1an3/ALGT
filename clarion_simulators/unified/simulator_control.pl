@@ -1,12 +1,12 @@
 %============================================================
-% interpreter_control.pl - Control Flow Helpers
+% simulator_control.pl - Control Flow Helpers
 %
 % Provides helper predicates for control flow constructs.
-% Actual loop execution is in interpreter_core since it needs
+% Actual loop execution is in simulator_core since it needs
 % exec_statements.
 %============================================================
 
-:- module(interpreter_control, [
+:- module(simulator_control, [
     % Routine lookup
     get_routine/3,
 
@@ -17,7 +17,7 @@
     next_phase/2
 ]).
 
-:- use_module(interpreter_state).
+:- use_module(simulator_state).
 
 %------------------------------------------------------------
 % Routine Lookup

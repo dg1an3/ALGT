@@ -2,12 +2,12 @@
 % ast_bridge.pl - AST Translation Layer
 %
 % Translates ASTs from the simple parser (clarion_parser.pl)
-% into the modular interpreter's format (interpreter.pl).
+% into the modular simulator's format (simulator.pl).
 %
 % Simple parser AST:
 %   program(Files, Groups, Globals, MapEntries, Procedures)
 %
-% Modular interpreter AST:
+% Modular simulator AST:
 %   program(map(MapDecls), GlobalDecls, code(MainBody), Procedures)
 %============================================================
 
@@ -197,7 +197,7 @@ bridge_stmt(assign(Var, Expr), assign(Var, BExpr)) :- !,
     bridge_expr(Expr, BExpr).
 
 % Compound assignment (Var += Expr) - simple parser stores as assign(Var, add(var(Var), Expr))
-% The modular interpreter has assign_add but we can keep it as assign with binop
+% The modular simulator has assign_add but we can keep it as assign with binop
 
 % Procedure call
 bridge_stmt(call(Name, Args), call(Name, BArgs)) :- !,

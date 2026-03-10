@@ -1,11 +1,11 @@
 %============================================================
-% interpreter_classes.pl - Class and Instance Management
+% simulator_classes.pl - Class and Instance Management
 %
 % Handles class definitions, instance creation, and property access.
-% Method execution is handled in interpreter_core.
+% Method execution is handled in simulator_core.
 %============================================================
 
-:- module(interpreter_classes, [
+:- module(simulator_classes, [
     % Class definitions
     init_class/6,
     get_class_def/3,
@@ -23,7 +23,7 @@
     default_value/3
 ]).
 
-:- use_module(interpreter_state).
+:- use_module(simulator_state).
 
 %------------------------------------------------------------
 % Class Definition Management

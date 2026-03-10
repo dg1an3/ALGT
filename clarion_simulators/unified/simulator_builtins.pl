@@ -1,19 +1,19 @@
 %============================================================
-% interpreter_builtins.pl - Built-in Functions
+% simulator_builtins.pl - Built-in Functions
 %
 % Implements Clarion built-in functions: string functions,
 % file I/O operations, and window event functions.
 %============================================================
 
-:- module(interpreter_builtins, [
+:- module(simulator_builtins, [
     builtin_call/5,
     error_message/2,
     get_event_phase/2,
     set_event_phase/3
 ]).
 
-:- use_module(interpreter_state).
-:- use_module(interpreter_eval).
+:- use_module(simulator_state).
+:- use_module(simulator_eval).
 
 :- discontiguous builtin_call/5.
 

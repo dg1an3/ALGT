@@ -1,5 +1,5 @@
 %============================================================
-% clarion.pl - Unified Clarion Interpreter
+% clarion.pl - Unified Clarion Simulator
 %
 % Combines the simple parser (proven, handles MEMBER/PROGRAM)
 % with the modular execution engine (pluggable storage, OOP,
@@ -30,10 +30,10 @@
 
 :- use_module(clarion_parser, [parse_clarion/2]).
 :- use_module(ast_bridge, [bridge_ast/2]).
-:- use_module(interpreter, [run_ast/1, run_ast/2, exec_statements/4, exec_call/5]).
-:- use_module(interpreter_state).
-:- use_module(interpreter_eval).
-:- use_module(interpreter_builtins).
+:- use_module(simulator, [run_ast/1, run_ast/2, exec_statements/4, exec_call/5]).
+:- use_module(simulator_state).
+:- use_module(simulator_eval).
+:- use_module(simulator_builtins).
 
 %------------------------------------------------------------
 % Parse + Bridge
@@ -78,8 +78,8 @@ init_session(Source, Session) :-
     bridge_ast(SimpleAST, ModAST), !,
     ModAST = program(_, GlobalDecls, _, Procedures),
     empty_state(InitState),
-    interpreter:init_procedures(Procedures, InitState, State1),
-    interpreter:init_globals(GlobalDecls, State1, State2),
+    simulator:init_procedures(Procedures, InitState, State1),
+    simulator:init_globals(GlobalDecls, State1, State2),
     Session = State2.
 
 call_procedure(StateIn, ProcName, Args, Result, StateOut) :-
@@ -99,8 +99,8 @@ exec_program(Source, Events, Result) :-
     bridge_ast(SimpleAST, ModAST),
     ModAST = program(_, GlobalDecls, code(MainBody), Procedures),
     empty_state(InitState),
-    interpreter:init_procedures(Procedures, InitState, State1),
-    interpreter:init_globals(GlobalDecls, State1, State2),
+    simulator:init_procedures(Procedures, InitState, State1),
+    simulator:init_globals(GlobalDecls, State1, State2),
     % Store events for the accept loop to consume
     set_event_queue(Events, State2, State3),
     exec_statements(MainBody, State3, FinalState, _Control),

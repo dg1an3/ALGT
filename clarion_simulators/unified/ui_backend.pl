@@ -37,7 +37,7 @@
     ui_get_backend/2        % (State, Backend)
 ]).
 
-:- use_module(interpreter_state).
+:- use_module(simulator_state).
 :- use_module(ui_simulation).
 
 %------------------------------------------------------------

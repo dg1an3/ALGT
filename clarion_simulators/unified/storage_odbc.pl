@@ -12,7 +12,7 @@
 
 :- use_module(library(odbc)).
 :- use_module(storage_memory).
-:- use_module(interpreter_classes, [default_value/3]).
+:- use_module(simulator_classes, [default_value/3]).
 
 % ODBC state tracked via assertz/retract
 :- dynamic odbc_conn/3.  % odbc_conn(TableName, Connection, dirty)

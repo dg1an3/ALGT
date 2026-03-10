@@ -1,4 +1,4 @@
-# Unified Clarion Interpreter
+# Unified Clarion Simulator
 
 ## Architecture Decision: Hybrid Approach
 
@@ -15,12 +15,12 @@ Two interpreters existed with complementary strengths:
 clarion_parser.pl     ← From prolog-interp (extended: ELSIF, LOOP WHILE/UNTIL, ROUTINE, modulo, string concat, line continuation)
 ast_bridge.pl         ← NEW: Translates simple AST → modular AST (~300 lines)
 clarion.pl            ← NEW: Unified API (parse_clarion, exec_procedure, init_session, etc.)
-interpreter.pl        ← From modular (extended: eval_full_expr for binop, PROGRAM support)
-interpreter_state.pl  ← From modular (unchanged)
-interpreter_eval.pl   ← From modular (extended: integer division, lowercase and/or)
-interpreter_builtins.pl ← From modular (unchanged)
-interpreter_classes.pl  ← From modular (unchanged)
-interpreter_control.pl  ← From modular (unchanged)
+simulator.pl        ← From modular (extended: eval_full_expr for binop, PROGRAM support)
+simulator_state.pl  ← From modular (unchanged)
+simulator_eval.pl   ← From modular (extended: integer division, lowercase and/or)
+simulator_builtins.pl ← From modular (unchanged)
+simulator_classes.pl  ← From modular (unchanged)
+simulator_control.pl  ← From modular (unchanged)
 execution_tracer.pl   ← From modular (unchanged)
 storage_*.pl          ← From modular (unchanged)
 ui_*.pl               ← From modular (unchanged)
@@ -35,7 +35,7 @@ The simple parser produces:
 program(Files, Groups, Globals, MapEntries, Procedures)
 ```
 
-The modular interpreter expects:
+The modular simulator expects:
 ```prolog
 program(map(MapDecls), GlobalDecls, code(MainBody), Procedures)
 ```
@@ -65,39 +65,39 @@ program(map(MapDecls), GlobalDecls, code(MainBody), Procedures)
 
 The simple parser creates a `_main` procedure from PROGRAM's CODE section. The bridge extracts `_main`'s body as the program's `MainBody` and puts remaining procedures in the procedure list. The PROGRAM grammar was extended to also parse procedures after the CODE section.
 
-## Key Fixes Applied to Modular Interpreter
+## Key Fixes Applied to Modular Simulator
 
-### 1. Integer division (interpreter_eval.pl)
+### 1. Integer division (simulator_eval.pl)
 Clarion LONG / LONG must produce integer results. Changed `eval_binop('/', L, R, Result)` to use `//` for integer operands.
 
-### 2. eval_full_expr for binop (interpreter.pl)
-Added `eval_full_expr(binop(Op, Left, Right), ...)` that recursively uses `eval_full_expr` for sub-expressions. This is needed because `eval_expr` (in interpreter_eval.pl) cannot handle `call(...)` expressions inside binop operands (e.g., `ERRORCODE() = 0`).
+### 2. eval_full_expr for binop (simulator.pl)
+Added `eval_full_expr(binop(Op, Left, Right), ...)` that recursively uses `eval_full_expr` for sub-expressions. This is needed because `eval_expr` (in simulator_eval.pl) cannot handle `call(...)` expressions inside binop operands (e.g., `ERRORCODE() = 0`).
 
-### 3. Lowercase AND/OR operators (interpreter_eval.pl)
+### 3. Lowercase AND/OR operators (simulator_eval.pl)
 The AST bridge produces `binop(and, ...)` and `binop(or, ...)` with lowercase atoms. Added matching clauses alongside the existing uppercase `'AND'`/`'OR'` handlers.
 
-### 4. Undefined procedure error handling (interpreter.pl)
+### 4. Undefined procedure error handling (simulator.pl)
 Changed from `format(error) + fail` to `throw(error(undefined_procedure(Name), ...))` so errors propagate properly through catch/throw rather than causing silent backtracking loops.
 
-### 5. Global variable persistence across procedure calls (interpreter.pl)
+### 5. Global variable persistence across procedure calls (simulator.pl)
 `exec_call` was restoring `OuterVars` after procedure return, discarding global variable changes made inside procedures (e.g., `NextID += 1`). Fixed with `merge_globals` that preserves callee's values for vars that existed in the caller.
 
-### 6. Variable initializers (interpreter.pl)
+### 6. Variable initializers (simulator.pl)
 `init_globals` and `init_locals` ignored `init(Value)` terms from the bridge, always using type defaults. Fixed to use the init value when present (e.g., `X LONG(50)` now initializes to 50, not 0).
 
-### 7. ACCEPT loop event queue (interpreter.pl)
+### 7. ACCEPT loop event queue (simulator.pl)
 Replaced the simple phase-based ACCEPT loop with an event-driven model matching prolog-interp: consumes events from the UI state's event queue, handles `set(Var, Val)` for field entry, `choice(Name, Index)` for list selections, and integer events for button presses. Sets `__ACCEPTED__` variable for `ACCEPTED()` builtin.
 
-### 8. Equate assignment from WINDOW controls (interpreter.pl)
+### 8. Equate assignment from WINDOW controls (simulator.pl)
 Added `assign_equates` in `init_globals` for `window(...)` declarations. Assigns sequential equate numbers to controls with `USE(?Name)` attributes, stored as `equate(Name)` variables in state. `control_ref(Name)` evaluates to the equate number.
 
-### 9. CASE range matching (interpreter.pl)
+### 9. CASE range matching (simulator.pl)
 Added `exec_case_traced` clause for `case_of(range(Start, End), Stmts)` that evaluates range bounds and checks `Value >= Start, Value =< End`. Required for StatsLib's `OF 0 TO 10` syntax.
 
 ### 10. Array globals (ast_bridge.pl)
-Bridge now translates `array(Name, Type, Size)` globals to `var(Name, TypeAtom, init(array(Zeros)))`, creating a properly wrapped array value for the interpreter's array access/assignment operations.
+Bridge now translates `array(Name, Type, Size)` globals to `var(Name, TypeAtom, init(array(Zeros)))`, creating a properly wrapped array value for the simulator's array access/assignment operations.
 
-### 11. SELECT with index (interpreter_builtins.pl)
+### 11. SELECT with index (simulator_builtins.pl)
 Added 2-argument `SELECT(control, index)` builtin that stores list choice state for `CHOICE()` retrieval.
 
 ## Key Fixes Applied to Parser

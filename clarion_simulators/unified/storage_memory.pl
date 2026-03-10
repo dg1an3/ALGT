@@ -10,7 +10,7 @@
     replace_nth0/4, delete_nth0/3, create_default_buffer/2
 ]).
 
-:- use_module(interpreter_classes, [default_value/3]).
+:- use_module(simulator_classes, [default_value/3]).
 
 mem_open(file_state(N,Pre,K,F,R,B,_,_), file_state(N,Pre,K,F,R,B,-1,true)).
 mem_close(file_state(N,Pre,K,F,R,B,P,_), file_state(N,Pre,K,F,R,B,P,false)).

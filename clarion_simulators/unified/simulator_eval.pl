@@ -1,12 +1,12 @@
 %============================================================
-% interpreter_eval.pl - Expression Evaluation
+% simulator_eval.pl - Expression Evaluation
 %
 % Handles evaluation of Clarion expressions and binary operators.
-% Note: Function calls and method calls are handled in interpreter_core
+% Note: Function calls and method calls are handled in simulator_core
 % to avoid circular dependencies.
 %============================================================
 
-:- module(interpreter_eval, [
+:- module(simulator_eval, [
     eval_expr/3,
     eval_binop/4,
     is_truthy/1,
@@ -14,7 +14,7 @@
     is_clarion_constant/1
 ]).
 
-:- use_module(interpreter_state).
+:- use_module(simulator_state).
 
 :- discontiguous eval_expr/3.
 
@@ -149,5 +149,5 @@ get_array_element(_, [], 0).  % Out of bounds returns 0
 
 %------------------------------------------------------------
 % Note: call, method_call, member_access, self_access expressions
-% are handled by eval_full_expr in interpreter_core.pl
+% are handled by eval_full_expr in simulator_core.pl
 %------------------------------------------------------------

@@ -3,7 +3,7 @@
 %
 % Generates AutoHotkey scripts from scenario DSL definitions.
 % This enables running the same test scenarios against real
-% Clarion applications to verify interpreter equivalence.
+% Clarion applications to verify simulator equivalence.
 %
 % Features:
 %   - Control identification via USE names or coordinates
@@ -460,10 +460,10 @@ action_to_ahk(screenshot, _, "CaptureWindow()\n").
 action_to_ahk(screenshot(Filename), _, Line) :-
     format(atom(Line), 'CaptureWindow("~w")~n', [Filename]).
 
-% Actions that don't translate to AHK (interpreter-specific)
-action_to_ahk(event(_), _, "; (event injection - interpreter only)\n").
-action_to_ahk(step, _, "; (step - interpreter only)\n").
-action_to_ahk(run_to_completion, _, "; (run_to_completion - interpreter only)\n").
+% Actions that don't translate to AHK (simulator-specific)
+action_to_ahk(event(_), _, "; (event injection - simulator only)\n").
+action_to_ahk(step, _, "; (step - simulator only)\n").
+action_to_ahk(run_to_completion, _, "; (run_to_completion - simulator only)\n").
 
 %------------------------------------------------------------
 % Expectation Generation
@@ -495,9 +495,9 @@ expectation_to_ahk(TestName, control_value(ControlId, Expected), Options, Line) 
            [TestName, ControlId, AhkId, Expected]).
 
 % Expectations that don't translate directly to AHK
-expectation_to_ahk(_, var(_, _), _, "; (var assertion - interpreter only)\n").
-expectation_to_ahk(_, no_error, _, "; (no_error - interpreter only)\n").
-expectation_to_ahk(_, error(_), _, "; (error code - interpreter only)\n").
+expectation_to_ahk(_, var(_, _), _, "; (var assertion - simulator only)\n").
+expectation_to_ahk(_, no_error, _, "; (no_error - simulator only)\n").
+expectation_to_ahk(_, error(_), _, "; (error code - simulator only)\n").
 
 %------------------------------------------------------------
 % Footer Generation
