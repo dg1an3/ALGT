@@ -65,11 +65,112 @@ builtin_call('VAL', [Expr], StateIn, StateIn, Code) :-
     eval_expr(Expr, StateIn, Char),
     ( atom(Char) -> atom_codes(Char, [Code|_]) ; string_codes(Char, [Code|_]) ).
 
+% UPPER(string) - convert to uppercase
+builtin_call('UPPER', [Expr], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Str),
+    ( atom(Str) -> atom_string(Str, S) ; S = Str ),
+    upcase_atom(S, Result).
+
+% LOWER(string) - convert to lowercase
+builtin_call('LOWER', [Expr], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Str),
+    ( atom(Str) -> atom_string(Str, S) ; S = Str ),
+    downcase_atom(S, Result).
+
+% TRIM(string) - remove trailing spaces (same as CLIP in Clarion)
+builtin_call('TRIM', [Expr], StateIn, StateIn, Result) :-
+    builtin_call('CLIP', [Expr], StateIn, StateIn, Result).
+
+% LEFT(string) - left-justify (remove leading spaces)
+builtin_call('LEFT', [Expr], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Str),
+    ( atom(Str) -> atom_string(Str, S) ; S = Str ),
+    string_codes(S, Codes),
+    drop_spaces(Codes, Trimmed),
+    string_codes(Result, Trimmed).
+
+% RIGHT(string) - right-justify (remove trailing spaces)
+builtin_call('RIGHT', [Expr], StateIn, StateIn, Result) :-
+    builtin_call('CLIP', [Expr], StateIn, StateIn, Result).
+
+% INSTRING(needle, haystack [, start]) - find substring, return position (1-based) or 0
+builtin_call('INSTRING', Args, StateIn, StateIn, Result) :-
+    ( Args = [NeedleExpr, HaystackExpr]
+    -> eval_expr(NeedleExpr, StateIn, Needle),
+       eval_expr(HaystackExpr, StateIn, Haystack),
+       Start = 1
+    ; Args = [NeedleExpr, HaystackExpr, StartExpr]
+    -> eval_expr(NeedleExpr, StateIn, Needle),
+       eval_expr(HaystackExpr, StateIn, Haystack),
+       eval_expr(StartExpr, StateIn, Start)
+    ),
+    to_string(Needle, NS),
+    to_string(Haystack, HS),
+    Offset is Start - 1,
+    ( Offset >= 0, string_length(HS, HLen), Offset < HLen,
+      sub_string(HS, Offset, _, 0, SubHS),
+      sub_string(SubHS, Pos, _, _, NS)
+    -> Result is Pos + Start
+    ;  Result = 0
+    ).
+
+% SUB(string, position, length) - extract substring (1-based position)
+builtin_call('SUB', [StrExpr, PosExpr, LenExpr], StateIn, StateIn, Result) :-
+    eval_expr(StrExpr, StateIn, Str),
+    eval_expr(PosExpr, StateIn, Pos),
+    eval_expr(LenExpr, StateIn, Len),
+    to_string(Str, S),
+    string_length(S, SLen),
+    Start is Pos - 1,
+    ( Start >= 0, Start < SLen
+    -> ActualLen is min(Len, SLen - Start),
+       sub_string(S, Start, ActualLen, _, Result)
+    ;  Result = ""
+    ).
+
 % TODAY() - current date (mock Clarion date value)
 builtin_call('TODAY', [], StateIn, StateIn, 80000).
 
 % CLOCK() - current time (returns 0 for now)
 builtin_call('CLOCK', [], StateIn, StateIn, 0).
+
+% ABS(number) - absolute value
+builtin_call('ABS', [Expr], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Val),
+    Result is abs(Val).
+
+% INT(number) - truncate to integer
+builtin_call('INT', [Expr], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Val),
+    Result is truncate(Val).
+
+% ROUND(number, decimals) - round to N decimal places
+builtin_call('ROUND', [Expr, DecExpr], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Val),
+    eval_expr(DecExpr, StateIn, Dec),
+    Factor is 10 ** Dec,
+    Result is round(Val * Factor) / Factor.
+
+% ROUND(number) - round to nearest integer
+builtin_call('ROUND', [Expr], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Val),
+    Result is round(Val).
+
+% SQRT(number) - square root
+builtin_call('SQRT', [Expr], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Val),
+    ( Val >= 0
+    -> FResult is sqrt(Val),
+       IResult is truncate(FResult),
+       ( FResult =:= IResult -> Result = IResult ; Result = FResult )
+    ;  Result = 0
+    ).
+
+% POWER(base, exponent) - exponentiation (Clarion doesn't have POWER but useful)
+builtin_call('POWER', [BaseExpr, ExpExpr], StateIn, StateIn, Result) :-
+    eval_expr(BaseExpr, StateIn, Base),
+    eval_expr(ExpExpr, StateIn, Exp),
+    Result is Base ** Exp.
 
 % SIZE(var) - returns byte size of a GROUP or FILE record
 builtin_call('SIZE', [var(Name)], StateIn, StateIn, Size) :-
@@ -285,6 +386,26 @@ builtin_call('NEXT', [var(FileName)], StateIn, StateOut, none) :-
        ( NextPos < NumRecords
        -> nth0(NextPos, Records, NewBuffer),
           NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, NewBuffer, NextPos, Open),
+          set_file_state(FileName, NewFileState, StateIn, State1),
+          set_error(0, State1, StateOut)
+       ;  set_error(33, StateIn, StateOut)
+       )
+    ;  set_error(2, StateIn, StateOut)
+    ).
+
+% PREVIOUS(file) - Read previous record
+builtin_call('PREVIOUS', [var(FileName)], StateIn, StateOut, none) :-
+    ( get_file_state(FileName, StateIn, FileState)
+    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, _, Pos, Open),
+       ( Pos < 0
+       -> % If position is -1 (after SET), start from last record
+          length(Records, NumRecords),
+          PrevPos is NumRecords - 1
+       ;  PrevPos is Pos - 1
+       ),
+       ( PrevPos >= 0
+       -> nth0(PrevPos, Records, NewBuffer),
+          NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, NewBuffer, PrevPos, Open),
           set_file_state(FileName, NewFileState, StateIn, State1),
           set_error(0, State1, StateOut)
        ;  set_error(33, StateIn, StateOut)

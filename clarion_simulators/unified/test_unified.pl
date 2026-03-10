@@ -661,6 +661,93 @@ test_map_proto_arity :-
     check('MAP proto arity: 0, 1, 3 params', ok, ok).
 
 %------------------------------------------------------------
+% String Builtin Tests
+%------------------------------------------------------------
+
+test_upper :-
+    format("~nString builtin tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    TestUpper(),LONG\n  END\nTestUpper PROCEDURE()\nS CSTRING(20)\n  CODE\n  S = UPPER('hello world')\n  RETURN(LEN(S))\n",
+    exec_procedure(Src, 'TestUpper', [], R),
+    check('UPPER(hello world) length', R, 11).
+
+test_upper_value :-
+    Src = "  MEMBER()\n  MAP\n    TestUV(),LONG\n  END\nTestUV PROCEDURE()\nS CSTRING(20)\nR LONG(0)\n  CODE\n  S = UPPER('abc')\n  IF S = 'ABC' THEN R = 1.\n  RETURN(R)\n",
+    exec_procedure(Src, 'TestUV', [], R),
+    check('UPPER(abc) = ABC', R, 1).
+
+test_lower :-
+    Src = "  MEMBER()\n  MAP\n    TestLower(),LONG\n  END\nTestLower PROCEDURE()\nS CSTRING(20)\nR LONG(0)\n  CODE\n  S = LOWER('HELLO')\n  IF S = 'hello' THEN R = 1.\n  RETURN(R)\n",
+    exec_procedure(Src, 'TestLower', [], R),
+    check('LOWER(HELLO) = hello', R, 1).
+
+test_instring :-
+    Src = "  MEMBER()\n  MAP\n    TestIn(),LONG\n  END\nTestIn PROCEDURE()\n  CODE\n  RETURN(INSTRING('world', 'hello world'))\n",
+    exec_procedure(Src, 'TestIn', [], R),
+    check('INSTRING(world, hello world) = 7', R, 7).
+
+test_instring_notfound :-
+    Src = "  MEMBER()\n  MAP\n    TestIn(),LONG\n  END\nTestIn PROCEDURE()\n  CODE\n  RETURN(INSTRING('xyz', 'hello'))\n",
+    exec_procedure(Src, 'TestIn', [], R),
+    check('INSTRING(xyz, hello) = 0', R, 0).
+
+test_instring_start :-
+    Src = "  MEMBER()\n  MAP\n    TestIn(),LONG\n  END\nTestIn PROCEDURE()\n  CODE\n  RETURN(INSTRING('l', 'hello world', 5))\n",
+    exec_procedure(Src, 'TestIn', [], R),
+    check('INSTRING(l, hello world, 5) = 10', R, 10).
+
+test_sub :-
+    Src = "  MEMBER()\n  MAP\n    TestSub(),LONG\n  END\nTestSub PROCEDURE()\nS CSTRING(20)\n  CODE\n  S = SUB('Hello World', 7, 5)\n  RETURN(LEN(S))\n",
+    exec_procedure(Src, 'TestSub', [], R),
+    check('SUB(Hello World, 7, 5) len=5', R, 5).
+
+test_left :-
+    Src = "  MEMBER()\n  MAP\n    TestLeft(),LONG\n  END\nTestLeft PROCEDURE()\nS CSTRING(20)\n  CODE\n  S = LEFT('  hello')\n  RETURN(LEN(S))\n",
+    exec_procedure(Src, 'TestLeft', [], R),
+    check('LEFT(  hello) len=5', R, 5).
+
+%------------------------------------------------------------
+% Math Builtin Tests
+%------------------------------------------------------------
+
+test_abs :-
+    format("~nMath builtin tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    TestAbs(LONG),LONG\n  END\nTestAbs PROCEDURE(LONG x)\n  CODE\n  RETURN(ABS(x))\n",
+    exec_procedure(Src, 'TestAbs', [-42], R1),
+    check('ABS(-42) = 42', R1, 42),
+    exec_procedure(Src, 'TestAbs', [10], R2),
+    check('ABS(10) = 10', R2, 10).
+
+test_int :-
+    Src = "  MEMBER()\n  MAP\n    TestInt(),LONG\n  END\nTestInt PROCEDURE()\n  CODE\n  RETURN(INT(7))\n",
+    exec_procedure(Src, 'TestInt', [], R),
+    check('INT(7) = 7', R, 7).
+
+test_sqrt :-
+    Src = "  MEMBER()\n  MAP\n    TestSqrt(),LONG\n  END\nTestSqrt PROCEDURE()\nV LONG(0)\n  CODE\n  V = SQRT(144)\n  RETURN(V)\n",
+    exec_procedure(Src, 'TestSqrt', [], R),
+    check('SQRT(144) assigned to LONG = 12', R, 12).
+
+test_round :-
+    Src = "  MEMBER()\n  MAP\n    TestRound(),LONG\n  END\nTestRound PROCEDURE()\n  CODE\n  RETURN(ROUND(7))\n",
+    exec_procedure(Src, 'TestRound', [], R),
+    check('ROUND(7) = 7', R, 7).
+
+%------------------------------------------------------------
+% PREVIOUS File I/O Tests
+%------------------------------------------------------------
+
+test_previous :-
+    format("~nPREVIOUS tests:~n"),
+    Src = "  MEMBER()\nSensors FILE,DRIVER('DOS'),PRE(SN)\nRecord   RECORD\nID         LONG\nValue      LONG\n         END\n       END\n  MAP\n    TestPrev(),LONG\n  END\nTestPrev PROCEDURE()\n  CODE\n  CREATE(Sensors)\n  OPEN(Sensors)\n  SN:ID = 1\n  SN:Value = 100\n  ADD(Sensors)\n  SN:ID = 2\n  SN:Value = 200\n  ADD(Sensors)\n  SN:ID = 3\n  SN:Value = 300\n  ADD(Sensors)\n  SET(Sensors)\n  NEXT(Sensors)\n  NEXT(Sensors)\n  NEXT(Sensors)\n  PREVIOUS(Sensors)\n  RETURN(SN:Value)\n",
+    exec_procedure(Src, 'TestPrev', [], R),
+    check('PREVIOUS after 3 NEXTs = record 2 (200)', R, 200).
+
+test_previous_at_start :-
+    Src = "  MEMBER()\nSensors FILE,DRIVER('DOS'),PRE(SN)\nRecord   RECORD\nID         LONG\nValue      LONG\n         END\n       END\n  MAP\n    TestPrevStart(),LONG\n  END\nTestPrevStart PROCEDURE()\n  CODE\n  CREATE(Sensors)\n  OPEN(Sensors)\n  SN:ID = 1\n  SN:Value = 100\n  ADD(Sensors)\n  SET(Sensors)\n  NEXT(Sensors)\n  PREVIOUS(Sensors)\n  RETURN(ERRORCODE())\n",
+    exec_procedure(Src, 'TestPrevStart', [], R),
+    check('PREVIOUS at start = error 33', R, 33).
+
+%------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
@@ -753,6 +840,23 @@ main :-
     run_test(test_map_external_stub),
     run_test(test_map_external_void_stub),
     run_test(test_map_proto_arity),
+    % String builtins
+    run_test(test_upper),
+    run_test(test_upper_value),
+    run_test(test_lower),
+    run_test(test_instring),
+    run_test(test_instring_notfound),
+    run_test(test_instring_start),
+    run_test(test_sub),
+    run_test(test_left),
+    % Math builtins
+    run_test(test_abs),
+    run_test(test_int),
+    run_test(test_sqrt),
+    run_test(test_round),
+    % PREVIOUS
+    run_test(test_previous),
+    run_test(test_previous_at_start),
     % Summary
     test_count(Total),
     pass_count(Pass),
