@@ -599,6 +599,68 @@ test_class_virtual_method :-
     check('Virtual method override: 5*10=50', R, 50).
 
 %------------------------------------------------------------
+% MAP prototype tests
+%------------------------------------------------------------
+
+test_map_proto_preserved :-
+    Src = "  MEMBER()\n  MAP\n    MathAdd(LONG a, LONG b),LONG,C,NAME('MathAdd'),EXPORT\n  END\nMathAdd PROCEDURE(LONG a, LONG b)\n  CODE\n  RETURN(a + b)\n",
+    parse_clarion(Src, SimpleAST),
+    bridge_ast(SimpleAST, program(map(MapDecls), _, _, _)),
+    % Verify MAP proto has params, return type, and attrs
+    member(map_proto('MathAdd', Params, 'LONG', Attrs), MapDecls),
+    length(Params, 2),
+    member(c, Attrs),
+    member(export, Attrs),
+    member(name('MathAdd'), Attrs),
+    check('MAP proto preserved (params+rettype+attrs)', ok, ok).
+
+test_map_module_external :-
+    Src = "  MEMBER()\n  MAP\n    MODULE('kernel32')\n      MemCopy(LONG dest, LONG src, LONG len),RAW,PASCAL,NAME('RtlMoveMemory')\n    END\n    FindRecord(LONG id),LONG,PRIVATE\n  END\nFindRecord PROCEDURE(LONG id)\n  CODE\n  RETURN(0)\n",
+    parse_clarion(Src, SimpleAST),
+    bridge_ast(SimpleAST, program(map(MapDecls), _, _, _)),
+    % MemCopy should be external_proc with module 'kernel32'
+    member(external_proc('MemCopy', 'kernel32', _, _, ExtAttrs), MapDecls),
+    member(name('RtlMoveMemory'), ExtAttrs),
+    member(raw, ExtAttrs),
+    member(pascal, ExtAttrs),
+    % FindRecord should be a regular map_proto
+    member(map_proto('FindRecord', _, 'LONG', LocalAttrs), MapDecls),
+    member(private, LocalAttrs),
+    check('MODULE external_proc + local map_proto', ok, ok).
+
+test_map_name_alias_call :-
+    % A procedure with NAME('AliasName') in MAP should be callable by either name
+    Src = "  MEMBER()\n  MAP\n    MyAdd(LONG a, LONG b),LONG,C,NAME('AddTwo')\n  END\nMyAdd PROCEDURE(LONG a, LONG b)\n  CODE\n  RETURN(a + b)\n",
+    % Call by Clarion name
+    exec_procedure(Src, 'MyAdd', [3, 4], R1),
+    check('Call by Clarion name MyAdd(3,4)=7', R1, 7),
+    % Call by NAME alias
+    exec_procedure(Src, 'AddTwo', [10, 20], R2),
+    check('Call by NAME alias AddTwo(10,20)=30', R2, 30).
+
+test_map_external_stub :-
+    % Calling an external MODULE procedure should return a stub value (0 for LONG)
+    Src = "  MEMBER()\n  MAP\n    MODULE('mylib')\n      ExtFunc(LONG x),LONG,C,NAME('ExtFunc')\n    END\n    TestStub(),LONG\n  END\nTestStub PROCEDURE()\nR LONG(0)\n  CODE\n  R = ExtFunc(42)\n  RETURN(R)\n",
+    exec_procedure(Src, 'TestStub', [], R),
+    check('External stub returns 0 for LONG', R, 0).
+
+test_map_external_void_stub :-
+    % Calling an external void procedure should not error
+    Src = "  MEMBER()\n  MAP\n    MODULE('kernel32')\n      DoNothing(LONG x),RAW,PASCAL,NAME('DoNothing')\n    END\n    TestVoid(),LONG\n  END\nTestVoid PROCEDURE()\n  CODE\n  DoNothing(1)\n  RETURN(99)\n",
+    exec_procedure(Src, 'TestVoid', [], R),
+    check('External void stub continues execution', R, 99).
+
+test_map_proto_arity :-
+    % Verify MAP proto stores correct param count
+    Src = "  MEMBER()\n  MAP\n    Proc1(),LONG\n    Proc2(LONG a),LONG\n    Proc3(LONG a, LONG b, LONG c),LONG\n  END\nProc1 PROCEDURE()\n  CODE\n  RETURN(1)\nProc2 PROCEDURE(LONG a)\n  CODE\n  RETURN(a)\nProc3 PROCEDURE(LONG a, LONG b, LONG c)\n  CODE\n  RETURN(a + b + c)\n",
+    parse_clarion(Src, SimpleAST),
+    bridge_ast(SimpleAST, program(map(MapDecls), _, _, _)),
+    member(map_proto('Proc1', P1, _, _), MapDecls), length(P1, 0),
+    member(map_proto('Proc2', P2, _, _), MapDecls), length(P2, 1),
+    member(map_proto('Proc3', P3, _, _), MapDecls), length(P3, 3),
+    check('MAP proto arity: 0, 1, 3 params', ok, ok).
+
+%------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
@@ -684,6 +746,13 @@ main :-
     run_test(test_class_inheritance),
     run_test(test_class_parent_call),
     run_test(test_class_virtual_method),
+    % MAP prototype support
+    run_test(test_map_proto_preserved),
+    run_test(test_map_module_external),
+    run_test(test_map_name_alias_call),
+    run_test(test_map_external_stub),
+    run_test(test_map_external_void_stub),
+    run_test(test_map_proto_arity),
     % Summary
     test_count(Total),
     pass_count(Pass),

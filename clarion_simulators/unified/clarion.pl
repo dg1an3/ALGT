@@ -76,9 +76,10 @@ exec_procedure(Source, ProcName, Args, Result) :-
 init_session(Source, Session) :-
     parse_clarion(Source, SimpleAST), !,
     bridge_ast(SimpleAST, ModAST), !,
-    ModAST = program(_, GlobalDecls, _, Procedures),
+    ModAST = program(map(MapDecls), GlobalDecls, _, Procedures),
     empty_state(InitState),
-    simulator:init_procedures(Procedures, InitState, State1),
+    simulator:init_map_protos(MapDecls, InitState, State0),
+    simulator:init_procedures(Procedures, State0, State1),
     simulator:init_globals(GlobalDecls, State1, State2),
     Session = State2.
 
@@ -97,9 +98,10 @@ wrap_arg(X, X).  % already an expression
 exec_program(Source, Events, Result) :-
     parse_clarion(Source, SimpleAST),
     bridge_ast(SimpleAST, ModAST),
-    ModAST = program(_, GlobalDecls, code(MainBody), Procedures),
+    ModAST = program(map(MapDecls), GlobalDecls, code(MainBody), Procedures),
     empty_state(InitState),
-    simulator:init_procedures(Procedures, InitState, State1),
+    simulator:init_map_protos(MapDecls, InitState, State0),
+    simulator:init_procedures(Procedures, State0, State1),
     simulator:init_globals(GlobalDecls, State1, State2),
     % Store events for the accept loop to consume
     set_event_queue(Events, State2, State3),

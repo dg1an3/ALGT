@@ -33,12 +33,52 @@ bridge_ast(program(Files, Groups, Globals, MapEntries, Procedures),
 %------------------------------------------------------------
 
 bridge_map_entries([], []).
-bridge_map_entries([map_entry(Name, _, _, _)|Rest], [proc_decl(Name, procedure)|Decls]) :-
+bridge_map_entries([map_entry(Name, Params, RetType, Attrs)|Rest],
+                   [map_proto(Name, BParams, RetTypeAtom, BAttrs)|Decls]) :-
+    bridge_map_params(Params, BParams),
+    bridge_return_type(RetType, RetTypeAtom),
+    bridge_map_attrs(Attrs, BAttrs),
     bridge_map_entries(Rest, Decls).
-bridge_map_entries([module_entry(_, Entries)|Rest], Decls) :-
-    bridge_map_entries(Entries, ModDecls),
+bridge_map_entries([module_entry(ModName, Entries)|Rest], Decls) :-
+    bridge_module_entries(ModName, Entries, ModDecls),
     bridge_map_entries(Rest, RestDecls),
     append(ModDecls, RestDecls, Decls).
+
+% MODULE entries become external_proc declarations
+bridge_module_entries(_, [], []).
+bridge_module_entries(ModName, [map_entry(Name, Params, RetType, Attrs)|Rest],
+                      [external_proc(Name, ModName, BParams, RetTypeAtom, BAttrs)|Decls]) :-
+    bridge_map_params(Params, BParams),
+    bridge_return_type(RetType, RetTypeAtom),
+    bridge_map_attrs(Attrs, BAttrs),
+    bridge_module_entries(ModName, Rest, Decls).
+bridge_module_entries(ModName, [_|Rest], Decls) :-
+    bridge_module_entries(ModName, Rest, Decls).
+
+% MAP parameter bridging (preserves type info for arity checking)
+bridge_map_params([], []).
+bridge_map_params([param(Name, Type)|Rest], [map_param(TypeAtom, Name)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_map_params(Rest, BRest).
+bridge_map_params([param(Name, Type, optional)|Rest],
+                  [map_param(TypeAtom, Name, optional)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_map_params(Rest, BRest).
+
+% Return type bridging
+bridge_return_type(void, void).
+bridge_return_type(Type, TypeAtom) :- bridge_type_name(Type, TypeAtom).
+
+% MAP attribute bridging (preserves NAME alias, EXPORT, C, etc.)
+bridge_map_attrs([], []).
+bridge_map_attrs([name(N)|Rest], [name(N)|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([export|Rest], [export|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([c|Rest], [c|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([pascal|Rest], [pascal|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([private|Rest], [private|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([raw|Rest], [raw|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([virtual|Rest], [virtual|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([_|Rest], BRest) :- bridge_map_attrs(Rest, BRest).
 
 %------------------------------------------------------------
 % FILE declarations

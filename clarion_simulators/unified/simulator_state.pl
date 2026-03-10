@@ -32,6 +32,12 @@
     % Procedure lookup
     get_proc/3,
 
+    % MAP prototype operations
+    get_map_protos/2,
+    get_map_proto/3,
+    is_external_proc/2,
+    resolve_name_alias/3,
+
     % Output
     add_output/3,
     get_output_list/2,
@@ -231,11 +237,57 @@ replace_nth1(N, [H|T], Value, [H|NewT]) :-
 
 get_proc(Name, State, Proc) :-
     get_procs(State, Procs),
-    member(Proc, Procs),
-    Proc = procedure(Name, _, _, _), !.
+    ( member(Proc, Procs), Proc = procedure(Name, _, _, _), !
+    ; % Try NAME alias: look up the alias in MAP protos, find the Clarion name
+      resolve_name_alias(Name, State, ClarionName),
+      member(Proc, Procs), Proc = procedure(ClarionName, _, _, _), !
+    ).
 get_proc(Name, _, _) :-
     format(user_error, "Error: Undefined procedure '~w'~n", [Name]),
     fail.
+
+%------------------------------------------------------------
+% MAP Prototype Operations
+%------------------------------------------------------------
+
+% Get all MAP prototypes from state
+get_map_protos(State, Protos) :-
+    get_vars(State, Vars),
+    ( member(var('__MAP_PROTOS__', Protos), Vars) -> true ; Protos = [] ).
+
+% Get MAP prototype by name (tries direct name, then NAME alias)
+get_map_proto(Name, State, Proto) :-
+    get_map_protos(State, Protos),
+    ( member(Proto, Protos),
+      ( Proto = map_proto(Name, _, _, _)
+      ; Proto = external_proc(Name, _, _, _, _)
+      ), !
+    ; % Try finding by NAME alias
+      member(Proto, Protos),
+      ( Proto = map_proto(_, _, _, Attrs)
+      ; Proto = external_proc(_, _, _, _, Attrs)
+      ),
+      member(name(Name), Attrs), !
+    ).
+
+% Check if a procedure name refers to an external (MODULE) procedure
+is_external_proc(Name, State) :-
+    get_map_protos(State, Protos),
+    ( member(external_proc(Name, _, _, _, _), Protos), !
+    ; % Check by NAME alias
+      member(external_proc(_, _, _, _, Attrs), Protos),
+      member(name(Name), Attrs), !
+    ).
+
+% Resolve a NAME alias to the Clarion procedure name
+% E.g., NAME('RtlMoveMemory') on MemCopy -> resolves 'RtlMoveMemory' to 'MemCopy'
+resolve_name_alias(AliasName, State, ClarionName) :-
+    get_map_protos(State, Protos),
+    member(Proto, Protos),
+    ( Proto = map_proto(ClarionName, _, _, Attrs)
+    ; Proto = external_proc(ClarionName, _, _, _, Attrs)
+    ),
+    member(name(AliasName), Attrs), !.
 
 %------------------------------------------------------------
 % Output Management

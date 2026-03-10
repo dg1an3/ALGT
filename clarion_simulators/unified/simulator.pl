@@ -19,7 +19,10 @@
     run_ast/2,
     run_ast_traced/2,       % run_ast_traced(+AST, -Trace)
     exec_statements/4,
-    exec_call/5
+    exec_call/5,
+    init_map_protos/3,      % init_map_protos(+MapDecls, +StateIn, -StateOut)
+    init_procedures/3,      % init_procedures(+Procs, +StateIn, -StateOut)
+    init_globals/3           % init_globals(+GlobalDecls, +StateIn, -StateOut)
 ]).
 
 % Note: parser is NOT imported here — the unified system uses
@@ -65,6 +68,14 @@ run_file_traced(FileName, Trace) :-
 run_ast(AST) :-
     run_ast(AST, _FinalState).
 
+run_ast(program(map(MapDecls), GlobalDecls, code(Statements), Procedures), FinalState) :-
+    empty_state(InitState),
+    init_map_protos(MapDecls, InitState, State0),
+    init_procedures(Procedures, State0, State1),
+    init_globals(GlobalDecls, State1, State2),
+    exec_statements(Statements, State2, FinalState, _Control).
+
+% Legacy form without map
 run_ast(program(_, GlobalDecls, code(Statements), Procedures), FinalState) :-
     empty_state(InitState),
     init_procedures(Procedures, InitState, State1),
@@ -99,6 +110,13 @@ run_ast_traced(AST, Trace) :-
 %------------------------------------------------------------
 % Initialization
 %------------------------------------------------------------
+
+%------------------------------------------------------------
+% MAP Prototype Initialization
+%------------------------------------------------------------
+
+init_map_protos(MapDecls, StateIn, StateOut) :-
+    set_var('__MAP_PROTOS__', MapDecls, StateIn, StateOut).
 
 init_procedures([], State, State).
 init_procedures([Proc|Procs], state(Vars, ExistingProcs, Out, Files, Err, Classes, Self, UI, Cont), FinalState) :-
@@ -598,7 +616,10 @@ exec_accept_loop(Body, StateIn, StateOut, Control, _Phase) :-
 exec_call(Name, Args, StateIn, StateOut, Result) :-
     ( builtin_call(Name, Args, StateIn, StateOut, Result)
     -> true
-    ; ( get_proc(Name, StateIn, procedure(Name, Params, LocalVars, code(Body)))
+    ; is_external_proc(Name, StateIn)
+    -> % External MODULE procedure — execute as stub
+       exec_external_stub(Name, Args, StateIn, StateOut, Result)
+    ; ( get_proc(Name, StateIn, procedure(_, Params, LocalVars, code(Body)))
       -> true
       ; throw(error(undefined_procedure(Name), context(exec_call/5, 'Undefined procedure')))
       ),
@@ -628,6 +649,44 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
       merge_globals(OuterVars, InnerVars, ParamNames, LocalNames, MergedVars),
       StateOut = state(MergedVars, Procs, NewOut, NewFiles, NewErr, NewClasses, none, UI, Cont)
     ).
+
+%------------------------------------------------------------
+% External Procedure Stubs (MODULE declarations)
+%------------------------------------------------------------
+
+%% exec_external_stub(+Name, +Args, +StateIn, -StateOut, -Result)
+%
+% External MODULE procedures are not implemented in the simulator.
+% Returns a default value based on the MAP return type and logs the call.
+
+exec_external_stub(Name, Args, StateIn, StateOut, Result) :-
+    eval_args(Args, StateIn, ArgVals),
+    % Look up the MAP prototype for return type info
+    ( get_map_proto(Name, StateIn, Proto)
+    -> ( Proto = external_proc(_, ModName, _, RetType, _)
+       -> true
+       ; Proto = map_proto(_, _, RetType, _), ModName = local
+       )
+    ;  RetType = void, ModName = unknown
+    ),
+    % Default return value based on return type
+    ( RetType = void -> Result = none
+    ; member(RetType, ['LONG', 'SHORT', 'BYTE', 'DECIMAL', 'PDECIMAL', 'DATE', 'TIME'])
+      -> Result = 0
+    ; member(RetType, ['REAL', 'SREAL']) -> Result = 0.0
+    ; member(RetType, ['STRING', 'CSTRING', 'PSTRING']) -> Result = ""
+    ; Result = 0
+    ),
+    % Trace if enabled
+    ( is_tracing
+    -> trace_proc_enter(Name, ArgVals),
+       add_graph_node(call, call{type: external, name: Name, module: ModName, args: ArgVals}, _),
+       trace_proc_exit(Name, Result),
+       add_graph_node(return, return{type: external, name: Name, value: Result}, _)
+    ;  true
+    ),
+    format("  [EXTERNAL ~w:~w(~w) -> ~w]~n", [ModName, Name, ArgVals, Result]),
+    StateOut = StateIn.
 
 %% merge_globals(+OuterVars, +InnerVars, +ParamNames, +LocalNames, -MergedVars)
 % For each outer var, pick its value from inner vars (if updated), otherwise keep outer value.
