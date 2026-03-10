@@ -520,6 +520,49 @@ test_optional_ref_param :-
     check('Optional *CSTRING ref param parse', ok, ok).
 
 %------------------------------------------------------------
+% QUEUE Operation Tests
+%------------------------------------------------------------
+
+test_queue_parse :-
+    format("~nQUEUE tests:~n"),
+    Src = "  MEMBER()\nMyQ QUEUE\nName STRING(20)\nAge LONG\n  END\n  MAP\n    TestQ(),LONG\n  END\nTestQ PROCEDURE()\n  CODE\n  RETURN(0)\n",
+    parse_clarion(Src, SimpleAST),
+    bridge_ast(SimpleAST, ModAST),
+    ModAST = program(_, GlobalDecls, _, _),
+    ( member(queue('MyQ', _), GlobalDecls) -> QOk = ok ; QOk = fail ),
+    check('QUEUE declaration parsed and bridged', QOk, ok).
+
+test_queue_add_records :-
+    Src = "  MEMBER()\nMyQ QUEUE\nName STRING(20)\nValue LONG\n  END\n  MAP\n    TestAdd(),LONG\n  END\nTestAdd PROCEDURE()\n  CODE\n  MyQ.Name = 'Alice'\n  MyQ.Value = 10\n  ADD(MyQ)\n  MyQ.Name = 'Bob'\n  MyQ.Value = 20\n  ADD(MyQ)\n  RETURN(RECORDS(MyQ))\n",
+    exec_procedure(Src, 'TestAdd', [], R),
+    check('QUEUE ADD + RECORDS = 2', R, 2).
+
+test_queue_get_by_index :-
+    Src = "  MEMBER()\nMyQ QUEUE\nName STRING(20)\nValue LONG\n  END\n  MAP\n    TestGet(),LONG\n  END\nTestGet PROCEDURE()\n  CODE\n  MyQ.Name = 'Alice'\n  MyQ.Value = 10\n  ADD(MyQ)\n  MyQ.Name = 'Bob'\n  MyQ.Value = 20\n  ADD(MyQ)\n  GET(MyQ, 2)\n  RETURN(MyQ.Value)\n",
+    exec_procedure(Src, 'TestGet', [], R),
+    check('GET(Queue, 2) returns 2nd record value', R, 20).
+
+test_queue_put_update :-
+    Src = "  MEMBER()\nMyQ QUEUE\nName STRING(20)\nValue LONG\n  END\n  MAP\n    TestPut(),LONG\n  END\nTestPut PROCEDURE()\n  CODE\n  MyQ.Name = 'Alice'\n  MyQ.Value = 10\n  ADD(MyQ)\n  GET(MyQ, 1)\n  MyQ.Value = 99\n  PUT(MyQ)\n  GET(MyQ, 1)\n  RETURN(MyQ.Value)\n",
+    exec_procedure(Src, 'TestPut', [], R),
+    check('PUT updates record in queue', R, 99).
+
+test_queue_delete :-
+    Src = "  MEMBER()\nMyQ QUEUE\nName STRING(20)\nValue LONG\n  END\n  MAP\n    TestDel(),LONG\n  END\nTestDel PROCEDURE()\n  CODE\n  MyQ.Name = 'Alice'\n  MyQ.Value = 10\n  ADD(MyQ)\n  MyQ.Name = 'Bob'\n  MyQ.Value = 20\n  ADD(MyQ)\n  GET(MyQ, 1)\n  DELETE(MyQ)\n  RETURN(RECORDS(MyQ))\n",
+    exec_procedure(Src, 'TestDel', [], R),
+    check('DELETE removes record, RECORDS = 1', R, 1).
+
+test_queue_free :-
+    Src = "  MEMBER()\nMyQ QUEUE\nName STRING(20)\nValue LONG\n  END\n  MAP\n    TestFree(),LONG\n  END\nTestFree PROCEDURE()\n  CODE\n  MyQ.Name = 'A'\n  MyQ.Value = 1\n  ADD(MyQ)\n  MyQ.Name = 'B'\n  MyQ.Value = 2\n  ADD(MyQ)\n  FREE(MyQ)\n  RETURN(RECORDS(MyQ))\n",
+    exec_procedure(Src, 'TestFree', [], R),
+    check('FREE clears all records', R, 0).
+
+test_queue_sort :-
+    Src = "  MEMBER()\nMyQ QUEUE\nName STRING(20)\nValue LONG\n  END\n  MAP\n    TestSort(),LONG\n  END\nTestSort PROCEDURE()\n  CODE\n  MyQ.Name = 'Charlie'\n  MyQ.Value = 30\n  ADD(MyQ)\n  MyQ.Name = 'Alice'\n  MyQ.Value = 10\n  ADD(MyQ)\n  MyQ.Name = 'Bob'\n  MyQ.Value = 20\n  ADD(MyQ)\n  SORT(MyQ, MyQ.Value)\n  GET(MyQ, 1)\n  RETURN(MyQ.Value)\n",
+    exec_procedure(Src, 'TestSort', [], R),
+    check('SORT by Value, first record = 10', R, 10).
+
+%------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
@@ -590,6 +633,14 @@ main :-
     run_test(test_optional_params_with_value),
     run_test(test_optional_params_default),
     run_test(test_optional_ref_param),
+    % QUEUE operations
+    run_test(test_queue_parse),
+    run_test(test_queue_add_records),
+    run_test(test_queue_get_by_index),
+    run_test(test_queue_put_update),
+    run_test(test_queue_delete),
+    run_test(test_queue_free),
+    run_test(test_queue_sort),
     % Summary
     test_count(Total),
     pass_count(Pass),

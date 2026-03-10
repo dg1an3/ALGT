@@ -126,6 +126,9 @@ bridge_globals([array(Name, Type, Size)|Rest], [var(Name, TypeAtom, init(array(Z
     length(Zeros, Size),
     maplist(=(0), Zeros),
     bridge_globals(Rest, VRest, Wins, Main).
+bridge_globals([queue(Name, Fields)|Rest], [queue(Name, BridgedFields)|VRest], Wins, Main) :-
+    bridge_fields(Fields, BridgedFields),
+    bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([window(Name, Title, Attrs, Controls)|Rest], Vars,
                [window(Name, Title, Attrs, Controls)|WRest], Main) :-
     bridge_globals(Rest, Vars, WRest, Main).

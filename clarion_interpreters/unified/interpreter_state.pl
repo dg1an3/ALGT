@@ -140,21 +140,29 @@ set_var(Name, Value, StateIn, StateOut) :-
        StateOut = state(NewVars, Procs, Out, Files, Err, Classes, Self, UI, Cont)
     ).
 
-% Parse a prefixed name like 'Cust:CustomerID' into prefix and field
+% Parse a prefixed name like 'Cust:CustomerID' or 'Queue.Field' into prefix and field
 parse_prefixed_name(Name, Prefix, FieldName) :-
     atom(Name),
     atom_string(Name, NameStr),
-    sub_string(NameStr, Before, 1, After, ":"),
-    Before > 0, After > 0,
+    ( sub_string(NameStr, Before, 1, After, ":")
+    ; sub_string(NameStr, Before, 1, After, ".")
+    ),
+    Before > 0, After > 0, !,
     sub_string(NameStr, 0, Before, _, PrefixStr),
-    ColonPos is Before + 1,
-    sub_string(NameStr, ColonPos, After, 0, FieldStr),
+    SepPos is Before + 1,
+    sub_string(NameStr, SepPos, After, 0, FieldStr),
     atom_string(Prefix, PrefixStr),
     atom_string(FieldName, FieldStr).
 
 % Get value of prefixed variable (file field or group field)
+% Tries: file by prefix (colon), then file/queue by name (dot), then group
 get_prefixed_var(Prefix, FieldName, State, Value) :-
     ( find_file_by_prefix(Prefix, State, FileState) ->
+        ( FieldName = 'Record'
+        -> FileState = file_state(_, _, _, _, _, Value, _, _)
+        ;  get_buffer_field(FieldName, FileState, Value)
+        )
+    ; get_file_state(Prefix, State, FileState) ->
         ( FieldName = 'Record'
         -> FileState = file_state(_, _, _, _, _, Value, _, _)
         ;  get_buffer_field(FieldName, FileState, Value)
@@ -163,6 +171,7 @@ get_prefixed_var(Prefix, FieldName, State, Value) :-
     ).
 
 % Set value of prefixed variable (file field or group field)
+% Tries: file by prefix (colon), then file/queue by name (dot), then group
 set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut) :-
     ( find_file_by_prefix(Prefix, StateIn, FileState) ->
         FileState = file_state(FileName, _, _, _, _, _, _, _),
@@ -170,6 +179,12 @@ set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut) :-
         -> StateOut = StateIn
         ;  set_buffer_field(FieldName, Value, FileState, NewFileState),
            set_file_state(FileName, NewFileState, StateIn, StateOut)
+        )
+    ; get_file_state(Prefix, StateIn, FileState) ->
+        ( FieldName = 'Record'
+        -> StateOut = StateIn
+        ;  set_buffer_field(FieldName, Value, FileState, NewFileState),
+           set_file_state(Prefix, NewFileState, StateIn, StateOut)
         )
     ; set_group_field_by_prefix(Prefix, FieldName, Value, StateIn, StateOut)
     ).

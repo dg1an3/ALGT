@@ -189,6 +189,25 @@ builtin_call('ADD', [var(FileName)], StateIn, StateOut, none) :-
     ;  set_error(2, StateIn, StateOut)
     ).
 
+% GET(file/queue, index) - Get record by 1-based position
+builtin_call('GET', [var(FileName), IndexExpr], StateIn, StateOut, none) :-
+    IndexExpr \= var(_),
+    eval_expr(IndexExpr, StateIn, Index),
+    integer(Index),
+    ( get_file_state(FileName, StateIn, FileState)
+    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, _, _, Open),
+       Pos is Index - 1,  % Convert 1-based to 0-based
+       length(Records, NumRecords),
+       ( Pos >= 0, Pos < NumRecords
+       -> nth0(Pos, Records, NewBuffer),
+          NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, NewBuffer, Pos, Open),
+          set_file_state(FileName, NewFileState, StateIn, State1),
+          set_error(0, State1, StateOut)
+       ;  set_error(33, StateIn, StateOut)
+       )
+    ;  set_error(2, StateIn, StateOut)
+    ).
+
 % GET(file, key) - Get record by key
 builtin_call('GET', [var(FileName), var(KeyRef)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
@@ -301,13 +320,37 @@ builtin_call('FREE', [var(QueueName)], StateIn, StateOut, none) :-
     ;  set_error(2, StateIn, StateOut)
     ).
 
-% SORT(queue, key) - Sort a queue (stubbed)
-builtin_call('SORT', [var(QueueName), _SortKey], StateIn, StateOut, none) :-
-    ( get_file_state(QueueName, StateIn, _FileState)
-    -> format("  [SORT ~w - NOT IMPLEMENTED]~n", [QueueName]),
-       set_error(0, StateIn, StateOut)
+% SORT(queue, field) - Sort a queue by field
+builtin_call('SORT', [var(QueueName), SortKey], StateIn, StateOut, none) :-
+    ( get_file_state(QueueName, StateIn, FileState)
+    -> FileState = file_state(QueueName, Prefix, Keys, Fields, Records, Buffer, Pos, Open),
+       % Extract field name from sort key (e.g., var('MyQueue.Age') -> 'Age')
+       ( SortKey = var(QualifiedName) ->
+           ( parse_prefixed_name(QualifiedName, _, SortFieldName) -> true
+           ; SortFieldName = QualifiedName
+           )
+       ; SortFieldName = SortKey
+       ),
+       % Find field index
+       ( nth0(FieldIdx, Fields, field(SortFieldName, _, _)) ->
+           sort_records_by_field(FieldIdx, Records, SortedRecords),
+           NewFileState = file_state(QueueName, Prefix, Keys, Fields, SortedRecords, Buffer, Pos, Open),
+           set_file_state(QueueName, NewFileState, StateIn, State1),
+           set_error(0, State1, StateOut),
+           format("  [SORT ~w by ~w]~n", [QueueName, SortFieldName])
+       ;  format("  [SORT ~w - field ~w not found]~n", [QueueName, SortFieldName]),
+          set_error(0, StateIn, StateOut)
+       )
     ;  set_error(2, StateIn, StateOut)
     ).
+
+sort_records_by_field(FieldIdx, Records, Sorted) :-
+    map_list_to_pairs(nth0_key(FieldIdx), Records, Pairs),
+    msort(Pairs, SortedPairs),
+    pairs_values(SortedPairs, Sorted).
+
+nth0_key(Idx, Record, Key) :-
+    nth0(Idx, Record, Key).
 
 %------------------------------------------------------------
 % Window Event Functions

@@ -100,6 +100,12 @@ top_decl_item(group(Name, Prefix, Fields)) -->
     field_list(Fields), ws,
     kw("END").
 
+% QUEUE declaration
+top_decl_item(queue(Name, Fields)) -->
+    ident(Name), ws, kw("QUEUE"), ws, !,
+    field_list(Fields), ws,
+    kw("END").
+
 % WINDOW declaration
 top_decl_item(window(Name, Title, Attrs, Controls)) -->
     ident(Name), ws, kw("WINDOW"), ws, !,
@@ -226,6 +232,8 @@ partition_decls([global(N,T,I)|Is], Fs, Gs, [global(N,T,I)|Vs]) :-
 partition_decls([array(N,T,S)|Is], Fs, Gs, [array(N,T,S)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([window(N,T,A,C)|Is], Fs, Gs, [window(N,T,A,C)|Vs]) :-
+    partition_decls(Is, Fs, Gs, Vs).
+partition_decls([queue(N,F)|Is], Fs, Gs, [queue(N,F)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 
 %% --- FILE attributes ---
@@ -628,6 +636,7 @@ word(Name) -->
 ident(Name) -->
     word(Part1),
     ( ":", word(Part2) -> { atomic_list_concat([Part1, ':', Part2], Name) }
+    ; ".", word(Part2) -> { atomic_list_concat([Part1, '.', Part2], Name) }
     ; { Name = Part1 }
     ),
     { \+ is_keyword(Name) }.
@@ -657,7 +666,8 @@ is_keyword(Name) :-
                'CENTER','DROP','FROM','CHOICE','SELECT',
                'WHILE','UNTIL','ELSIF','CYCLE','DO','ROUTINE','EXIT',
                'SHORT','REAL','SREAL','BYTE','DATE','TIME',
-               'DECIMAL','PDECIMAL','PSTRING','MESSAGE']).
+               'DECIMAL','PDECIMAL','PSTRING','MESSAGE',
+               'QUEUE','FREE','SORT','RECORDS','NOT']).
 
 % Integer literal
 number(N) -->
