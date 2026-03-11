@@ -1,8 +1,8 @@
-# ALGT - Algorithm Logic Verification Tool & Clarion Interpreter
+# ALGT - Algorithm Logic Verification Tool & Clarion Simulator
 
 A Prolog-based platform combining:
 - **ALGT**: Formal verification of imaging algorithms for medical radiation treatment planning
-- **Clarion Interpreter**: Parser and interpreter for the Clarion 4GL language
+- **Clarion Simulator**: Unified DCG parser and execution engine for the Clarion 4GL language
 
 ## Overview
 
@@ -10,13 +10,20 @@ This repository provides formal verification and analysis capabilities using SWI
 
 - **Geometric Algorithm Verification**: Formal verification of beam volumes, mesh generation, isodensity calculations
 - **Model Checking**: Verification of concurrent operations with interleaving analysis
-- **Clarion Language Support**: Parse, analyze, and execute Clarion programs
+- **Clarion Language Support**: Parse, analyze, and execute Clarion programs via a unified simulator
+- **Execution Trace Comparison**: Verify Prolog interpreter matches compiled Clarion DLL behavior (procedure-level, CDB debugger, variable-level)
 - **Scenario-Based Testing**: DSL for UI testing with AutoHotkey script generation
 
 ## Requirements
 
 - [SWI Prolog](https://www.swi-prolog.org/) (version 8.0+ recommended)
 - [Logtalk](https://logtalk.org/) (for ALGT object-oriented components)
+
+### Optional (for Clarion DLL trace comparison)
+
+- [Clarion 11.1](https://www.softvelocity.com/) (compiles to 32-bit Windows DLLs/EXEs)
+- Python 3.11 (32-bit) for ctypes interop with Clarion DLLs
+- CDB (x86) from Windows SDK Debugging Tools
 
 ### Installation
 
@@ -34,11 +41,18 @@ cd ALGT
 
 ## Quick Start
 
-### Clarion Interpreter
-```prolog
+### Clarion Simulator
+```bash
+cd clarion_simulators/unified
 swipl
-?- use_module(clarion_interpreters/clarion_interpreter/clarion).
-?- run_file('clarion_projects/clarion_examples/hello_world.clw').
+?- use_module(clarion).
+?- init_session(Source, Session), call_procedure(Session, 'MyProc', Result).
+```
+
+### Run Simulator Tests
+```bash
+cd clarion_simulators/unified
+swipl -g "main,halt" -t "halt(1)" test_unified.pl
 ```
 
 ### ALGT Verification Tests
@@ -52,11 +66,6 @@ swipl -s model_checker/model_checker.pl
 ?- valid(sequence([capture_image -> img1, update_contour -> img1])).
 ```
 
-### Running Tests
-```prolog
-?- run_tests.
-```
-
 ## Project Structure
 
 ```
@@ -67,13 +76,32 @@ swipl -s model_checker/model_checker.pl
 │   ├── sensor-data/               # Sensor readings DLL, trace comparison
 │   ├── stats-calc/                # Statistical calculations DLL
 │   ├── odbc-store/                # ODBC DLL with SQL Server LocalDB
-│   └── clarion_examples/          # Reference .clw files
+│   ├── clarion_examples/          # Reference .clw files
 │   ├── form-demo/                 # GUI form + FormLib DLL for CDB tracing
 │   ├── form-cli/                  # CLI form with EventReader, .evt format
 │   └── treatment-offset/          # Treatment offset entry with sign-flip
-├── clarion_interpreters/          # Prolog interpreters for Clarion
-│   ├── prolog-interp/             # Original interpreter (2,764 lines, 8 files)
-│   └── clarion_interpreter/       # ALGT interpreter (7,629 lines, 18 files)
+├── clarion_simulators/            # Prolog Clarion simulator
+│   └── unified/                   # DCG parser + execution engine (104 tests)
+│       ├── clarion.pl             # Public API
+│       ├── clarion_parser.pl      # DCG parser
+│       ├── ast_bridge.pl          # AST transformation
+│       ├── simulator.pl           # Core execution engine
+│       ├── simulator_builtins.pl  # Built-in functions
+│       ├── simulator_eval.pl      # Expression evaluation
+│       ├── simulator_control.pl   # Control flow
+│       ├── simulator_state.pl     # State management
+│       ├── simulator_classes.pl   # Class support
+│       ├── execution_tracer.pl    # ML exports (PGM, PyMC, Stan, GNN-VAE)
+│       ├── scenario_dsl.pl        # Scenario DSL
+│       ├── scenario_ahk.pl        # AutoHotkey generation
+│       ├── storage_backend.pl     # Pluggable storage dispatch
+│       ├── storage_memory.pl      # In-memory storage
+│       ├── storage_csv.pl         # CSV file storage
+│       ├── storage_odbc.pl        # ODBC storage
+│       ├── ui_backend.pl          # UI backend abstraction
+│       ├── ui_simulation.pl       # UI simulation
+│       ├── web_server.pl          # Web server interface
+│       └── test_unified.pl        # Test suite
 ├── algt_tests/                    # Algorithm verification test suite
 │   ├── ALGT_BEAM_VOLUME.pl        # Beam volume generation tests
 │   ├── ALGT_MESH_GEN.pl           # Mesh generation tests
@@ -100,18 +128,28 @@ Test cases that formally verify geometric algorithms critical to medical imaging
 - **ALGT_ISODENSITY**: Dose distribution calculations
 - **ALGT_STRUCT_PROJ**: Geometric structure projections
 
-### Clarion Interpreters
-Two Prolog interpreters for the Clarion language, under `clarion_interpreters/`:
+### Unified Clarion Simulator (`clarion_simulators/unified/`)
+A single modular simulator (21 Prolog files, 104 tests) that combines:
 
-**prolog-interp/** — Original interpreter (2,764 lines, 8 files, simple)
-- Single-file architecture with parser, interpreter, and tracing
+- **DCG Parser** — Parses Clarion `.clw` source into AST
+- **Execution Engine** — Executes Clarion programs from AST with:
+  - Variables, expressions, control flow (`IF/ELSIF/ELSE`, `LOOP`, `CASE`, `BREAK`, `CYCLE`)
+  - Procedures with parameters, routines (`DO`/`ROUTINE`)
+  - File I/O with pluggable storage backends (memory, CSV, ODBC)
+  - Class support
+  - UI simulation with pluggable backends
+  - Built-in functions: `MESSAGE`, `CLIP`, `LEN`, `CHR`, `VAL`, `TODAY`, `CLOCK`
+- **Execution Tracer** — ML model exports (PGM, PyMC, Stan, GNN-VAE)
+- **Scenario DSL** — UI testing with AutoHotkey script generation
 
-**clarion_interpreter/** — ALGT interpreter (7,629 lines, 18 files, modular)
-- Full interpreter supporting variables, expressions, control flow
-- Procedures, routines, classes
-- File I/O operations (in-memory simulation)
-- UI simulation with pluggable backends
-- Scenario-based testing with AHK generation
+### Execution Trace Comparison
+Three levels of trace comparison verify the Prolog simulator matches compiled Clarion DLLs:
+- **Level 1**: Procedure-level traces (`CALL ProcName(args) -> result`)
+- **Level 1b**: CDB debugger traces (hardware breakpoints on DLL exports)
+- **Level 1c**: CDB variable-level comparison (headless DLLs with get/set exports)
+- **Level 2**: Statement-level traces (Prolog interpreter only)
+
+See [CLAUDE.md](CLAUDE.md) for detailed trace comparison documentation.
 
 ### Model Checker
 Formal verification of concurrent operations:

@@ -31,10 +31,10 @@ Clarion uses a structured syntax with:
 
 ### Prolog Analysis Approach
 
-The analyzer represents Clarion code as Prolog facts and rules:
-- Source code is parsed into an AST represented as Prolog terms
-- Analysis queries are written as Prolog predicates
-- Results can be queried interactively
+The unified simulator represents Clarion code as Prolog facts and rules:
+- Source code is parsed via DCG into an AST represented as Prolog terms
+- An execution engine interprets the AST with pluggable storage and UI backends
+- Execution traces can be compared against compiled Clarion DLL behavior
 
 ## Repository Structure
 
@@ -46,13 +46,32 @@ The analyzer represents Clarion code as Prolog facts and rules:
 │   ├── sensor-data/               # Sensor readings DLL, trace comparison
 │   ├── stats-calc/                # Statistical calculations DLL
 │   ├── odbc-store/                # ODBC DLL with SQL Server LocalDB
-│   └── clarion_examples/          # Reference .clw files
+│   ├── clarion_examples/          # Reference .clw files
 │   ├── form-demo/                 # GUI form + FormLib DLL for CDB tracing
 │   ├── form-cli/                  # CLI form with EventReader, .evt format
 │   └── treatment-offset/          # Treatment offset entry with sign-flip
-├── clarion_interpreters/          # Prolog interpreters for Clarion
-│   ├── prolog-interp/             # Original interpreter (2,764 lines, 8 files)
-│   └── clarion_interpreter/       # ALGT interpreter (7,629 lines, 18 files)
+├── clarion_simulators/            # Prolog Clarion simulator
+│   └── unified/                   # DCG parser + execution engine (104 tests)
+│       ├── clarion.pl             # Public API
+│       ├── clarion_parser.pl      # DCG parser
+│       ├── ast_bridge.pl          # AST transformation
+│       ├── simulator.pl           # Core execution engine
+│       ├── simulator_builtins.pl  # Built-in functions
+│       ├── simulator_eval.pl      # Expression evaluation
+│       ├── simulator_control.pl   # Control flow
+│       ├── simulator_state.pl     # State management
+│       ├── simulator_classes.pl   # Class support
+│       ├── execution_tracer.pl    # ML exports (PGM, PyMC, Stan, GNN-VAE)
+│       ├── scenario_dsl.pl        # Scenario DSL
+│       ├── scenario_ahk.pl        # AutoHotkey generation
+│       ├── storage_backend.pl     # Pluggable storage dispatch
+│       ├── storage_memory.pl      # In-memory storage
+│       ├── storage_csv.pl         # CSV file storage
+│       ├── storage_odbc.pl        # ODBC storage
+│       ├── ui_backend.pl          # UI backend abstraction
+│       ├── ui_simulation.pl       # UI simulation
+│       ├── web_server.pl          # Web server interface
+│       └── test_unified.pl        # Test suite
 ├── algt_tests/                    # Algorithm verification test suite
 ├── domain_models/                 # Logtalk domain models & workflows
 │   ├── imaging_services/          # Image import manager, contracts
@@ -69,21 +88,17 @@ The analyzer represents Clarion code as Prolog facts and rules:
 
 ## Architecture
 
-The project has two Clarion interpreters under `clarion_interpreters/`:
+### Unified Clarion Simulator (`clarion_simulators/unified/`)
 
-### Original Interpreter (`clarion_interpreters/prolog-interp/`)
-Single-file architecture with parser, interpreter, and tracing (2,764 lines, 8 files).
+A single modular simulator (21 Prolog files, 104 tests) that combines parsing and execution:
 
-### Modular Interpreter (`clarion_interpreters/clarion_interpreter/`)
-Full modular interpreter (7,629 lines, 18 files):
+#### Parser (`clarion_parser.pl`)
+Parses Clarion source files into an AST using DCG (Definite Clause Grammars).
 
-#### Lexer (`lexer.pl`)
-Tokenizes Clarion source files into a token stream.
+#### AST Bridge (`ast_bridge.pl`)
+Transforms parsed structures into a normalized AST for the execution engine.
 
-#### Parser (`parser.pl`)
-Parses tokens into an AST using DCG (Definite Clause Grammars).
-
-#### Interpreter (`interpreter.pl`)
+#### Execution Engine (`simulator.pl` + modules)
 Executes Clarion programs from their AST representation.
 
 **Supported features:**
@@ -92,27 +107,34 @@ Executes Clarion programs from their AST representation.
 - Control flow: `IF/ELSIF/ELSE`, `LOOP` (infinite, TO, WHILE, UNTIL), `CASE/OF`, `BREAK`, `CYCLE`
 - Procedures with parameters and local variables
 - Routines (`DO`/`ROUTINE` with `EXIT`)
-- File I/O operations (in-memory simulation):
-  - `CREATE`, `OPEN`, `CLOSE`, `CLEAR`, `EMPTY`
-  - `ADD`, `GET`, `PUT`, `DELETE`, `NEXT`, `SET`
-  - `RECORDS`, `ERRORCODE`, `ERROR`
+- Class support
+- File I/O with pluggable storage backends:
+  - In-memory (`storage_memory.pl`)
+  - CSV files (`storage_csv.pl`)
+  - ODBC/SQL (`storage_odbc.pl`)
 - Built-in functions: `MESSAGE`, `CLIP`, `LEN`, `CHR`, `VAL`, `TODAY`, `CLOCK`
 - UI simulation with pluggable backends
 - Scenario-based testing with AutoHotkey generation
+- Execution tracer with ML model exports (PGM, PyMC, Stan, GNN-VAE)
 
 ## Running Programs
 
-```prolog
-?- use_module(clarion_interpreters/clarion_interpreter/clarion).
+```bash
+cd clarion_simulators/unified
+swipl
+?- use_module(clarion).
+?- init_session(Source, Session), call_procedure(Session, 'MyProc', Result).
+```
 
-% Parse and display AST
-?- analyze_file('clarion_projects/clarion_examples/hello_world.clw').
+## Running Tests
 
-% Execute a program
-?- run_file('clarion_projects/clarion_examples/hello_world.clw').
+```bash
+# Unified simulator tests (104 tests)
+cd clarion_simulators/unified
+swipl -g "main,halt" -t "halt(1)" test_unified.pl
 
-% Parse to AST for inspection
-?- parse_file('clarion_projects/clarion_examples/file_io.clw', AST).
+# ALGT verification tests
+swipl -s algt_tests/ALGT_BEAM_VOLUME.pl
 ```
 
 ## Development Guidelines
@@ -129,18 +151,6 @@ Executes Clarion programs from their AST representation.
 - `.inc` - Clarion include files
 - `.lgt` - Logtalk source files
 
-## Running Tests
-
-```bash
-# Prolog interpreter tests
-cd clarion_interpreters/prolog-interp
-swipl -g "main,halt" -t "halt(1)" test_parser.pl
-swipl -g "main,halt" -t "halt(1)" test_interpreter.pl
-
-# ALGT verification tests
-swipl -s algt_tests/ALGT_BEAM_VOLUME.pl
-```
-
 ## Common Tasks
 
 ### Adding a new analysis rule
@@ -151,6 +161,7 @@ swipl -s algt_tests/ALGT_BEAM_VOLUME.pl
 
 ### Parsing new Clarion constructs
 
-1. Extend the DCG grammar in the parser module
-2. Add corresponding AST term definitions
-3. Update analysis rules to handle new constructs
+1. Extend the DCG grammar in `clarion_parser.pl`
+2. Add AST bridge transformations in `ast_bridge.pl`
+3. Add execution support in the appropriate simulator module
+4. Add tests in `test_unified.pl`

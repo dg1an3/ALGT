@@ -33,7 +33,7 @@ Combined repository: formal algorithm verification (ALGT) + Clarion language sem
 - `treatment-offset/` — Treatment offset entry with direction dropdowns, sign-flip, ISqrt magnitude
 
 ### Clarion Simulator (Prolog) — `clarion_simulators/`
-- `unified/` — Unified simulator combining DCG parser + modular execution engine (130 tests, storage dispatch, scenario DSL, execution tracer with ML exports)
+- `unified/` — Unified simulator combining DCG parser + modular execution engine (104 tests, storage dispatch, scenario DSL, execution tracer with ML exports)
 
 ### ALGT Verification & Domain Models
 - `algt_tests/` — Formal verification of geometric algorithms (beam volume, mesh, margins)
@@ -209,7 +209,7 @@ Clarion DLL with ODBC-based sensor reading storage using SQL Server.
 ### unified/ (`clarion_simulators/`)
 Unified SWI-Prolog Clarion simulator. DCG parser + AST bridge + modular execution engine with pluggable storage backends, scenario DSL, and execution tracer with ML exports (PGM, PyMC, Stan, GNN-VAE).
 
-**Key files:** `clarion.pl` (API), `clarion_parser.pl`, `ast_bridge.pl`, `simulator.pl`, `simulator_builtins.pl`, `test_unified.pl`
+**Key files:** `clarion.pl` (API), `clarion_parser.pl`, `ast_bridge.pl`, `simulator.pl`, `simulator_builtins.pl`, `simulator_eval.pl`, `simulator_control.pl`, `simulator_state.pl`, `simulator_classes.pl`, `execution_tracer.pl`, `scenario_dsl.pl`, `scenario_ahk.pl`, `storage_backend.pl`, `storage_memory.pl`, `storage_csv.pl`, `storage_odbc.pl`, `ui_backend.pl`, `ui_simulation.pl`, `web_server.pl`, `test_unified.pl`
 
 **Run tests:**
 ```bash
