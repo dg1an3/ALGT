@@ -62,8 +62,8 @@ ICDCode       CSTRING(12)
       memberchk(name('Diagnosis.dat'), Attrs),
       memberchk(create, Attrs),
       length(Fields, 3),
-      Fields = [field('RecordID', long), field('PatientID', long),
-                field('ICDCode', cstring(12))]
+      Fields = [field('RecordID', long, []), field('PatientID', long, []),
+                field('ICDCode', cstring(12), [])]
     -> format(" [PASS]~n")
     ;  format(" [FAIL]~n"),
        ( var(Files) -> format("    (parse failed)~n")
@@ -89,8 +89,8 @@ ICDCode       CSTRING(12)
     format("  GROUP declaration"),
     ( Groups = [group('DiagBuf', 'DB', Fields)],
       length(Fields, 3),
-      Fields = [field('RecordID', long), field('PatientID', long),
-                field('ICDCode', cstring(12))]
+      Fields = [field('RecordID', long, []), field('PatientID', long, []),
+                field('ICDCode', cstring(12), [])]
     -> format(" [PASS]~n")
     ;  format(" [FAIL]~n")
     ).
@@ -108,7 +108,7 @@ FilePos   LONG(0)
     parse_clarion(Src, AST),
     AST = program(_, _, Globals, _, _),
     format("  Global variables"),
-    ( Globals = [global('NextID', long, 0), global('FilePos', long, 0)]
+    ( Globals = [global('NextID', long, 0, []), global('FilePos', long, 0, [])]
     -> format(" [PASS]~n")
     ;  format(" [FAIL]~n")
     ).
@@ -167,7 +167,7 @@ Offset LONG(0)
     format("  Procedure with local variables"),
     ( Procs = [procedure('DSListByPatient', Params, void, Locals, _Body)],
       length(Params, 4),
-      Locals = [local('Count', long, 0), local('Offset', long, 0)]
+      Locals = [local('Count', long, 0, []), local('Offset', long, 0, [])]
     -> format(" [PASS]~n")
     ;  format(" [FAIL]~n"),
        format("    got procs: ~w~n", [Procs])
@@ -263,6 +263,231 @@ FilePos   LONG(0)
     ;  format(" [FAIL]~n")
     ).
 
+%% ==========================================================================
+%% New tests — items 1-4
+%% ==========================================================================
+
+%% Item 1: Line continuation '|'
+
+test_line_continuation :-
+    Src = "
+  MEMBER()
+  MAP
+    MyProc(LONG a,  |
+           LONG b),LONG,C,EXPORT
+  END
+",
+    format("  Line continuation '|' in MAP entry"),
+    ( parse_clarion(Src, AST),
+      AST = program(_, _, _, [map_entry('MyProc', Params, long, _)], _),
+      length(Params, 2)
+    -> format(" [PASS]~n")
+    ;  format(" [FAIL]~n")
+    ).
+
+%% Item 2: MEMBER('filename')
+
+test_member_with_filename :-
+    Src = "
+  MEMBER('RTC.clw')
+  MAP
+  END
+",
+    format("  MEMBER('filename') form"),
+    ( parse_clarion(Src, program([], [], [], [], []))
+    -> format(" [PASS]~n")
+    ;  format(" [FAIL]~n")
+    ).
+
+%% Item 3: Expanded type system
+
+test_new_types :-
+    % Note: 'Today'/'NowTime' conflict with TODAY/TIME keywords — use non-keyword names
+    Src = "
+  MEMBER()
+
+QAMode          SHORT
+CapGeo          SHORT(0)
+Counter         BYTE
+BigNum          ULONG
+Ratio           REAL
+TxDate          DATE
+TxTime          TIME
+Label           STRING(40)
+Amount          PDECIMAL(9,2)
+FieldName       LIKE(FLD:Field_Name)
+
+  MAP
+  END
+",
+    format("  Expanded types (SHORT,BYTE,ULONG,REAL,DATE,TIME,STRING,PDECIMAL,LIKE)"),
+    ( parse_clarion(Src, AST),
+      AST = program([], [], Globals, [], []),
+      length(Globals, 10),
+      memberchk(global('QAMode',    short,         0, []), Globals),
+      memberchk(global('CapGeo',    short,         0, []), Globals),
+      memberchk(global('Counter',   byte,          0, []), Globals),
+      memberchk(global('BigNum',    ulong,         0, []), Globals),
+      memberchk(global('Ratio',     real,          0, []), Globals),
+      memberchk(global('TxDate',    date,          0, []), Globals),
+      memberchk(global('TxTime',    time,          0, []), Globals),
+      memberchk(global('Label',     string(40),    0, []), Globals),
+      memberchk(global('Amount',    pdecimal(9,2), 0, []), Globals),
+      memberchk(global('FieldName', like('FLD:Field_Name'), 0, []), Globals)
+    -> format(" [PASS]~n")
+    ;  format(" [FAIL]~n")
+    ).
+
+%% Item 4: Variable attributes
+
+test_var_attrs :-
+    Src = "
+  MEMBER()
+
+GlobalRequest    LONG(0),THREAD,EXTERNAL,DLL(dll_mode)
+GlobalResponse   LONG(0),THREAD,EXTERNAL,DLL(dll_mode)
+StaticCount      LONG(0),STATIC
+OrigLabel        STRING(20),OVER(ActualLabel)
+ActualLabel      STRING(20)
+
+  MAP
+  END
+",
+    format("  Variable attributes (THREAD,EXTERNAL,DLL,STATIC,OVER)"),
+    ( parse_clarion(Src, AST),
+      AST = program([], [], Globals, [], []),
+      memberchk(global('GlobalRequest',  long, 0, ReqAttrs),  Globals),
+      memberchk(thread,        ReqAttrs),
+      memberchk(external,      ReqAttrs),
+      memberchk(dll(dll_mode), ReqAttrs),
+      memberchk(global('StaticCount', long, 0, [static]), Globals),
+      memberchk(global('OrigLabel', string(20), 0, OverAttrs), Globals),
+      memberchk(over('ActualLabel'), OverAttrs)
+    -> format(" [PASS]~n")
+    ;  format(" [FAIL]~n")
+    ).
+
+%% Bonus: EQUATE declarations
+
+test_equate_decl :-
+    Src = "
+  MEMBER()
+
+HOTLINK:TXFIELD    equate(7)
+HOTLINK:SITE       equate(12)
+NT::THIS_MODULE    Equate('TxCal.clw')
+
+  MAP
+  END
+",
+    format("  EQUATE declarations"),
+    ( parse_clarion(Src, AST),
+      AST = program([], [], Globals, [], []),
+      memberchk(equate('HOTLINK:TXFIELD', 7), Globals),
+      memberchk(equate('HOTLINK:SITE',   12), Globals),
+      memberchk(equate('NT::THIS_MODULE', 'TxCal.clw'), Globals)
+    -> format(" [PASS]~n")
+    ;  format(" [FAIL]~n")
+    ).
+
+%% Bonus: QUEUE declarations
+
+test_queue_decl :-
+    Src = "
+  MEMBER()
+
+TolTblQ    QUEUE,PRE(TolTblQ)
+Name          STRING(20)
+TOL_ID        LONG
+           END
+
+  MAP
+  END
+",
+    format("  QUEUE declaration"),
+    ( parse_clarion(Src, AST),
+      AST = program([], Groups, [], [], []),
+      memberchk(queue('TolTblQ', 'TolTblQ', Fields), Groups),
+      length(Fields, 2)
+    -> format(" [PASS]~n")
+    ;  format(" [FAIL]~n")
+    ).
+
+%% Bonus: LIKE in GROUP fields
+
+test_like_in_fields :-
+    Src = "
+  MEMBER()
+
+SiteFxQ    QUEUE,PRE()
+Site_Name     LIKE(SIT:Site_Name)
+Fx_Display    STRING(10)
+           END
+
+  MAP
+  END
+",
+    format("  LIKE() in QUEUE fields"),
+    ( parse_clarion(Src, AST),
+      AST = program([], Groups, [], [], []),
+      Groups = [queue('SiteFxQ', _, Fields)],
+      Fields = [field('Site_Name', like('SIT:Site_Name'), []),
+                field('Fx_Display', string(10), [])]
+    -> format(" [PASS]~n")
+    ;  format(" [FAIL]~n")
+    ).
+
+%% Bonus: INCLUDE declaration
+
+test_include_decl :-
+    Src = "
+  MEMBER('RAD.clw')
+  INCLUDE('Equates.CLW')
+  INCLUDE('AllFiles.inc')
+  MAP
+    INCLUDE('GLB_RA.inc')
+  END
+",
+    format("  INCLUDE declarations (top-level and in MAP)"),
+    ( parse_clarion(Src, AST),
+      AST = program([], [], Globals, MapEntries, []),
+      memberchk(include('Equates.CLW'), Globals),
+      memberchk(include('AllFiles.inc'), Globals),
+      memberchk(include('GLB_RA.inc'), MapEntries)
+    -> format(" [PASS]~n")
+    ;  format(" [FAIL]~n")
+    ).
+
+%% Combined: snippet resembling real Mosaiq MEMBER file structure
+
+test_mosaiq_snippet :-
+    Src = "
+  MEMBER('RTC.clw')
+
+NT::THIS_MODULE    Equate('TxFieldUtils.clw(RTC.app)')
+
+ReturnCode         SHORT
+NumFields          SHORT
+WindowWidth        SHORT
+WindowHeight       SHORT
+
+  MAP
+  END
+",
+    format("  Mosaiq-style MEMBER snippet"),
+    ( parse_clarion(Src, AST),
+      AST = program([], [], Globals, [], []),
+      memberchk(equate('NT::THIS_MODULE', 'TxFieldUtils.clw(RTC.app)'), Globals),
+      memberchk(global('ReturnCode', short, 0, []), Globals),
+      memberchk(global('NumFields',  short, 0, []), Globals)
+    -> format(" [PASS]~n")
+    ;  format(" [FAIL]~n")
+    ).
+
+%% ==========================================================================
+%% File-based tests
+%% ==========================================================================
+
 test_sensorlib_parse :-
     File = '../../clarion_projects/sensor-data/SensorLib.clw',
     ( exists_file(File) -> true ; format(" [FAIL: ~w not found]~n", [File]), fail ),
@@ -329,6 +554,17 @@ main :-
     run(test_local_vars),
     run(test_cstring_params),
     run(test_diagstore_parse),
+    nl,
+    format("Items 1-4 (line continuation, MEMBER file, types, attrs):~n"),
+    run(test_line_continuation),
+    run(test_member_with_filename),
+    run(test_new_types),
+    run(test_var_attrs),
+    run(test_equate_decl),
+    run(test_queue_decl),
+    run(test_like_in_fields),
+    run(test_include_decl),
+    run(test_mosaiq_snippet),
     nl,
     format("File sources:~n"),
     run(test_from_file_parse),

@@ -273,19 +273,19 @@ exec_stmt_call(Name, Args, Env, Env) :-
 %% ==========================================================================
 
 load_record_to_env(_, [], [], Env, Env).
-load_record_to_env(Prefix, [field(FName, _)|Fs], [V|Vs], Env, NewEnv) :-
+load_record_to_env(Prefix, [field(FName, _, _)|Fs], [V|Vs], Env, NewEnv) :-
     atomic_list_concat([Prefix, ':', FName], QName),
     update_env(QName, V, Env, Env1),
     load_record_to_env(Prefix, Fs, Vs, Env1, NewEnv).
 
 read_record_from_env(_, [], _, []).
-read_record_from_env(Prefix, [field(FName, _)|Fs], Env, [V|Vs]) :-
+read_record_from_env(Prefix, [field(FName, _, _)|Fs], Env, [V|Vs]) :-
     atomic_list_concat([Prefix, ':', FName], QName),
     ( memberchk(QName=V, Env) -> true ; V = 0 ),
     read_record_from_env(Prefix, Fs, Env, Vs).
 
 clear_fields(_, [], Env, Env).
-clear_fields(Prefix, [field(FName, _)|Fs], Env, NewEnv) :-
+clear_fields(Prefix, [field(FName, _, _)|Fs], Env, NewEnv) :-
     atomic_list_concat([Prefix, ':', FName], QName),
     update_env(QName, 0, Env, Env1),
     clear_fields(Prefix, Fs, Env1, NewEnv).
@@ -327,17 +327,19 @@ bind_params([param(Name, _)|Ps], [V|Vs], [Name=V|Es]) :-
     bind_params(Ps, Vs, Es).
 
 init_locals([], []).
-init_locals([local(Name, _, Init)|Ls], [Name=Init|Es]) :-
+init_locals([local(Name, _, Init, _)|Ls], [Name=Init|Es]) :-
+    init_locals(Ls, Es).
+init_locals([_|Ls], Es) :-   % skip queue/group/include blocks in locals
     init_locals(Ls, Es).
 
 init_globals([], []).
-init_globals([global(Name, _, Init)|Gs], [Name=Val|Es]) :-
+init_globals([global(Name, _, Init, _)|Gs], [Name=Val|Es]) :-
     ( global_var(Name, Val) -> true ; Val = Init ),
     init_globals(Gs, Es).
 init_globals([_|Gs], Es) :- init_globals(Gs, Es).
 
 persist_globals([], _).
-persist_globals([global(Name, _, _)|Gs], Env) :-
+persist_globals([global(Name, _, _, _)|Gs], Env) :-
     ( memberchk(Name=Val, Env) ->
         retractall(global_var(Name, _)),
         assert(global_var(Name, Val))
@@ -604,7 +606,7 @@ eval_size(Name, Env, Size) :-
     ).
 
 calc_fields_size([], 0).
-calc_fields_size([field(_, Type)|Fs], Size) :-
+calc_fields_size([field(_, Type, _)|Fs], Size) :-
     type_size(Type, S1),
     calc_fields_size(Fs, S2),
     Size is S1 + S2.
