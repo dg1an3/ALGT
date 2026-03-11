@@ -9,6 +9,8 @@
 ]).
 
 :- set_prolog_flag(double_quotes, codes).
+:- discontiguous top_decl_item//1.
+:- discontiguous statement//1.
 
 %% ==========================================================================
 %% AST definition

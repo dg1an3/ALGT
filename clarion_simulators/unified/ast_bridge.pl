@@ -22,10 +22,11 @@
 bridge_ast(program(Files, Groups, Globals, MapEntries, Procedures),
            program(map(MapDecls), GlobalDecls, code(MainBody), ModProcs)) :-
     bridge_map_entries(MapEntries, MapDecls),
-    bridge_files(Files, FileDecs),
+    bridge_files(Files, FileDecs, NestedGroups),
     bridge_groups(Groups, GroupDecs),
+    bridge_groups(NestedGroups, NestedGroupDecs),
     bridge_globals(Globals, VarDecs, Windows, MainBody0),
-    append([FileDecs, GroupDecs, VarDecs, Windows], GlobalDecls),
+    append([FileDecs, GroupDecs, NestedGroupDecs, VarDecs, Windows], GlobalDecls),
     bridge_procedures(Procedures, MainBody0, ModProcs, MainBody).
 
 %------------------------------------------------------------
@@ -84,12 +85,15 @@ bridge_map_attrs([_|Rest], BRest) :- bridge_map_attrs(Rest, BRest).
 % FILE declarations
 %------------------------------------------------------------
 
-bridge_files([], []).
+bridge_files([], [], []).
 bridge_files([file(Name, Prefix, Attrs, Fields)|Rest],
-             [file(Name, BridgedAttrs, [record(BridgedFields)])|RestDecs]) :-
+             [file(Name, BridgedAttrs, [record(BridgedFields)])|RestDecs],
+             AllNestedGroups) :-
     bridge_file_attrs(Prefix, Attrs, BridgedAttrs),
     bridge_fields(Fields, BridgedFields),
-    bridge_files(Rest, RestDecs).
+    extract_nested_groups(Fields, NestedGroups),
+    bridge_files(Rest, RestDecs, RestNestedGroups),
+    append(NestedGroups, RestNestedGroups, AllNestedGroups).
 
 bridge_file_attrs(Prefix, Attrs, [pre(Prefix)|BridgedAttrs]) :-
     bridge_file_attr_list(Attrs, BridgedAttrs).
@@ -115,9 +119,13 @@ bridge_file_attr_list([_|Rest], BRest) :-
 
 bridge_groups([], []).
 bridge_groups([group(Name, Prefix, Fields)|Rest],
-              [group(Name, Prefix, BridgedFields)|RestDecs]) :-
+              AllDecs) :-
     bridge_fields(Fields, BridgedFields),
-    bridge_groups(Rest, RestDecs).
+    extract_nested_groups(Fields, NestedGroups),
+    bridge_groups(NestedGroups, NestedDecs),
+    bridge_groups(Rest, RestDecs),
+    append([group(Name, Prefix, BridgedFields)], NestedDecs, ThisDecs),
+    append(ThisDecs, RestDecs, AllDecs).
 
 %------------------------------------------------------------
 % Field declarations (shared by FILE and GROUP)
@@ -130,6 +138,20 @@ bridge_fields([field(Name, Type)|Rest], [field(Name, TypeAtom, none)|BRest]) :-
 bridge_fields([field(Name, Type, Size)|Rest], [field(Name, TypeAtom, size(Size))|BRest]) :-
     bridge_type_name(Type, TypeAtom),
     bridge_fields(Rest, BRest).
+% Nested GROUP inside RECORD/GROUP: flatten sub-fields into the parent field list
+bridge_fields([group(_Name, _Prefix, SubFields)|Rest], Result) :-
+    bridge_fields(SubFields, BridgedSub),
+    bridge_fields(Rest, BRest),
+    append(BridgedSub, BRest, Result).
+
+% Extract nested group declarations from a field list (for prefix registration)
+extract_nested_groups([], []).
+extract_nested_groups([group(Name, Prefix, SubFields)|Rest], [group(Name, Prefix, SubFields)|AllGroups]) :-
+    extract_nested_groups(SubFields, SubGroups),
+    extract_nested_groups(Rest, RestGroups),
+    append(SubGroups, RestGroups, AllGroups).
+extract_nested_groups([_|Rest], Groups) :-
+    extract_nested_groups(Rest, Groups).
 
 bridge_type_name(long, 'LONG').
 bridge_type_name(short, 'SHORT').

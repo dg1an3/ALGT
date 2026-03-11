@@ -661,6 +661,58 @@ test_map_proto_arity :-
     check('MAP proto arity: 0, 1, 3 params', ok, ok).
 
 %------------------------------------------------------------
+% Qualified Names / Nested Groups
+%------------------------------------------------------------
+
+test_parse_qualnames :-
+    read_file_to_string('../../clarion_projects/qualified-names/QualNames.clw', Src, []),
+    ( parse_clarion(Src, _AST) ->
+        check('Parse QualNames.clw', ok, ok)
+    ;   check('Parse QualNames.clw', failed, ok)
+    ).
+
+test_nested_group_in_file :-
+    % FILE with nested GROUP,PRE(SB) inside RECORD
+    Src = "  MEMBER()\nDF FILE,DRIVER('DOS'),PRE(DF)\nRec  RECORD\nX      LONG\nSub    GROUP,PRE(SB)\nY        LONG\nZ        LONG\n       END\n     END\n   END\n  MAP\n    TestNG(),LONG\n  END\nTestNG PROCEDURE()\n  CODE\n  SB:Y = 10\n  SB:Z = 20\n  RETURN(SB:Y + SB:Z)\n",
+    exec_procedure(Src, 'TestNG', [], R),
+    check('Nested GROUP in FILE (SB:Y + SB:Z)', R, 30).
+
+test_nested_group_in_group :-
+    % Top-level GROUP with nested GROUP inside
+    Src = "  MEMBER()\nOuter GROUP,PRE(OT)\nInner   GROUP,PRE(IN)\nVal       LONG\n        END\nFlag    LONG\n      END\n  MAP\n    TestGG(),LONG\n  END\nTestGG PROCEDURE()\n  CODE\n  IN:Val = 77\n  OT:Flag = 33\n  RETURN(IN:Val + OT:Flag)\n",
+    exec_procedure(Src, 'TestGG', [], R),
+    check('Nested GROUP in GROUP (IN:Val + OT:Flag)', R, 110).
+
+test_qualnames_full :-
+    % Full QualNames project: FILE with nested GROUP + top-level nested GROUP
+    read_file_to_string('../../clarion_projects/qualified-names/QualNames.clw', Src, []),
+    init_session(Src, S0),
+    call_procedure(S0, 'InitDose', [], R0, S1),
+    check('QN InitDose()', R0, 0),
+    call_procedure(S1, 'SetDisplay', [42, 3], R1, S2),
+    check('QN SetDisplay(42,3)', R1, 0),
+    call_procedure(S2, 'GetDisplaySize', [], R2, S3),
+    check('QN GetDisplaySize()', R2, 42),
+    call_procedure(S3, 'GetDisplayScale', [], R3, S4),
+    check('QN GetDisplayScale()', R3, 3),
+    call_procedure(S4, 'CalcTotal', [], R4, S5),
+    check('QN CalcTotal() = 42*3', R4, 126),
+    call_procedure(S5, 'SetPlan', [5, 200], R5, S6),
+    check('QN SetPlan(5,200)', R5, 0),
+    call_procedure(S6, 'GetBeamCount', [], R6, S7),
+    check('QN GetBeamCount()', R6, 5),
+    call_procedure(S7, 'GetEnergy', [], R7, S8),
+    check('QN GetEnergy()', R7, 200),
+    call_procedure(S8, 'CalcDoseProduct', [], R8, _),
+    check('QN CalcDoseProduct() = 5*200+0', R8, 1000).
+
+test_double_colon_parse :-
+    % Identifiers with :: (scope resolution) should parse correctly
+    Src = "  MEMBER()\nSAV GROUP,PRE(SAV)\nSIT   GROUP,PRE(SIT)\nRecord  LONG\n      END\n    END\n  MAP\n    TestDC(),LONG\n  END\nTestDC PROCEDURE()\n  CODE\n  SIT:Record = 42\n  RETURN(SIT:Record)\n",
+    exec_procedure(Src, 'TestDC', [], R),
+    check('Double-colon style nested group', R, 42).
+
+%------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
@@ -753,6 +805,12 @@ main :-
     run_test(test_map_external_stub),
     run_test(test_map_external_void_stub),
     run_test(test_map_proto_arity),
+    % Qualified names / nested groups
+    run_test(test_parse_qualnames),
+    run_test(test_nested_group_in_file),
+    run_test(test_nested_group_in_group),
+    run_test(test_qualnames_full),
+    run_test(test_double_colon_parse),
     % Summary
     test_count(Total),
     pass_count(Pass),

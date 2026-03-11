@@ -100,6 +100,9 @@ Bridge now translates `array(Name, Type, Size)` globals to `var(Name, TypeAtom, 
 ### 11. SELECT with index (simulator_builtins.pl)
 Added 2-argument `SELECT(control, index)` builtin that stores list choice state for `CHOICE()` retrieval.
 
+### 12. Nested GROUP support (ast_bridge.pl)
+`bridge_fields` now handles nested `group(Name, Prefix, SubFields)` inside RECORD and GROUP declarations by flattening sub-fields into the parent field list. `bridge_files` and `bridge_groups` extract nested groups and emit standalone group declarations so `init_group` registers their prefixes. This enables colon-chain access like `DSP:Size` for fields in nested groups.
+
 ## Key Fixes Applied to Parser
 
 ### 1. PROGRAM form extended
@@ -144,7 +147,7 @@ call_procedure(Session, ProcName, Args, Result, Session2).
 exec_program(Source, Events, Result).
 ```
 
-## Test Coverage (55 tests)
+## Test Coverage (107 tests)
 
 - **Parser + Bridge** (11): MEMBER parse, MathLib, SensorLib, DiagnosisStore, FormDemo, OdbcStore, control_flow.clw PROGRAM
 - **Arithmetic** (4): MathAdd, Multiply with various inputs
@@ -155,6 +158,7 @@ exec_program(Source, Events, Result).
 - **GUI Form Simulation** (5): ACCEPT/CASE ACCEPTED(), equate mapping, event queue, FormDemo.clw end-to-end
 - **ODBC Store** (7): Open, add readings, count, delete all, close (in-memory simulation)
 - **StatsLib** (3): CASE with range matching (OF 0 TO 10), Classify function
+- **Qualified Names / Nested Groups** (5): Nested GROUP in FILE, nested GROUP in GROUP, QualNames.clw end-to-end (FILE+GROUP with sub-GROUPs and colon-chain prefixes)
 
 ## Running Tests
 
