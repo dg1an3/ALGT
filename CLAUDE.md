@@ -11,7 +11,7 @@ Combined repository: formal algorithm verification (ALGT) + Clarion language sem
 ## Technology Stack
 
 - **Clarion 11.1**: 4GL language, compiles to 32-bit Windows DLLs/EXEs
-- **SWI Prolog**: Two Clarion interpreters (clarion_simulators/prolog-interp/ and clarion_simulators/clarion_interpreter/)
+- **SWI Prolog**: Unified Clarion simulator (clarion_simulators/unified/)
 - **Logtalk**: Object-oriented Prolog extension (ALGT domain models)
 - **Python 3.11 (32-bit)**: ctypes interop with Clarion DLLs
 - **MSBuild**: Clarion project builds (.cwproj)
@@ -32,9 +32,8 @@ Combined repository: formal algorithm verification (ALGT) + Clarion language sem
 - `form-cli/` — CLI form with EventReader, .evt file format
 - `treatment-offset/` — Treatment offset entry with direction dropdowns, sign-flip, ISqrt magnitude
 
-### Clarion Interpreters (Prolog) — `clarion_simulators/`
-- `prolog-interp/` — Original interpreter (2,764 lines, 8 files, simple)
-- `clarion_interpreter/` — ALGT interpreter (7,629 lines, 18 files, modular)
+### Clarion Simulator (Prolog) — `clarion_simulators/`
+- `unified/` — Unified simulator combining DCG parser + modular execution engine (130 tests, storage dispatch, scenario DSL, execution tracer with ML exports)
 
 ### ALGT Verification & Domain Models
 - `algt_tests/` — Formal verification of geometric algorithms (beam volume, mesh, margins)
@@ -61,10 +60,9 @@ Strategy for verifying the Prolog interpreter produces the same behavior as comp
 
 Both sides emit `CALL ProcName(args) -> result` lines and are compared with `diff`.
 
-**Prolog side** (`clarion_simulators/prolog-interp/trace_sensorlib.pl`):
-- `set_trace(on)` enables the trace infrastructure in `clarion.pl`
-- `exec_procedure` emits `proc_enter`/`proc_exit` entries via `assert`
-- `print_trace` formats the log; grep `^CALL.*->` for procedure-level lines
+**Prolog side** (`clarion_simulators/unified/trace_sensorlib.pl`):
+- Uses `init_session`/`call_procedure` from unified `clarion.pl` module
+- Outputs `CALL ProcName(args) -> result` format lines
 
 **Python side** (`clarion_projects/sensor-data/trace_sensorlib.py`):
 - `trace_call(lib, name, *args)` wraps each `ctypes` DLL call with logging
@@ -73,7 +71,7 @@ Both sides emit `CALL ProcName(args) -> result` lines and are compared with `dif
 **Comparison**:
 ```bash
 diff <(cd clarion_projects/sensor-data && python trace_sensorlib.py | grep "^CALL") \
-     <(cd clarion_simulators/prolog-interp && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
+     <(cd clarion_simulators/unified && swipl -g "main,halt" trace_sensorlib.pl | grep "^CALL.*->")
 ```
 
 ### Level 1b: CDB debugger traces (implemented)
@@ -208,16 +206,15 @@ Clarion DLL with ODBC-based sensor reading storage using SQL Server.
 
 **Key files:** `OdbcStore.clw`, `setup_db.py`, `test_odbcstore.py`
 
-### prolog-interp/ (`clarion_simulators/`)
-Original SWI-Prolog interpreter for Clarion source code.
+### unified/ (`clarion_simulators/`)
+Unified SWI-Prolog Clarion simulator. DCG parser + AST bridge + modular execution engine with pluggable storage backends, scenario DSL, and execution tracer with ML exports (PGM, PyMC, Stan, GNN-VAE).
 
-**Key files:** `clarion_parser.pl`, `clarion_interpreter.pl`, `clarion.pl`, test suites
+**Key files:** `clarion.pl` (API), `clarion_parser.pl`, `ast_bridge.pl`, `simulator.pl`, `simulator_builtins.pl`, `test_unified.pl`
 
 **Run tests:**
 ```bash
-cd clarion_simulators/prolog-interp
-swipl -g "main,halt" -t "halt(1)" test_parser.pl
-swipl -g "main,halt" -t "halt(1)" test_interpreter.pl
+cd clarion_simulators/unified
+swipl -g "main,halt" -t "halt(1)" test_unified.pl
 ```
 
 ## ALGT Components
@@ -225,9 +222,6 @@ swipl -g "main,halt" -t "halt(1)" test_interpreter.pl
 ### Algorithm Verification Tests (`algt_tests/`)
 Formal verification of geometric algorithms for medical imaging:
 - Beam Volume, Mesh Generation, Isodensity, Structure Projection, Margins, SSD
-
-### Clarion Interpreter (`clarion_simulators/clarion_interpreter/`)
-Modular interpreter: lexer, parser, interpreter core, builtins, state management, control flow, expression evaluation, class support, execution tracer, UI backend, scenario DSL.
 
 ### Model Checker (`model_checker/`)
 Verifies interleaved concurrent operations to identify race conditions.
