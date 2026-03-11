@@ -58,11 +58,13 @@ parse_clarion(Source, AST) :-
 %% Top-level structure
 %% ==========================================================================
 
-% MEMBER() form (DLLs with procedures)
+% MEMBER('file') form — strip filename, treat as MEMBER()
 program(program(Files, Groups, Globals, MapEntries, Procs)) -->
-    ws, kw("MEMBER"), ws, "(", ws, ")", ws,
+    ws, kw("MEMBER"), ws, "(", ws,
+    ( "'", qchars(_), "'" ; [] ), ws,
+    ")", ws,
     top_decls(Files, Groups, Globals), ws,
-    map_block(MapEntries), ws,
+    opt_map_block(MapEntries), ws,
     procedures(Procs), ws.
 
 % PROGRAM form (EXE with inline CODE + optional procedures)
@@ -90,7 +92,7 @@ top_decl_item(file(Name, Prefix, Attrs, Fields)) -->
     file_attrs(Attrs0, Prefix), ws,
     key_decls(_Keys), ws,
     record_block(Fields), ws,
-    kw("END"),
+    end_or_dot,
     { exclude_pre(Attrs0, Attrs) }.
 
 % GROUP declaration
@@ -98,13 +100,21 @@ top_decl_item(group(Name, Prefix, Fields)) -->
     ident(Name), ws, kw("GROUP"), ws, !,
     group_attrs(Prefix), ws,
     field_list(Fields), ws,
-    kw("END").
+    end_or_dot.
 
-% QUEUE declaration
+% QUEUE declaration (with optional ,PRE(prefix) and END or . terminator)
 top_decl_item(queue(Name, Fields)) -->
     ident(Name), ws, kw("QUEUE"), ws, !,
+    queue_attrs(_), ws,
     field_list(Fields), ws,
-    kw("END").
+    end_or_dot.
+
+queue_attrs(Pre) --> ",", ws, kw("PRE"), ws, "(", ws,
+    ( ident(Pre) ; { Pre = none } ), ws,
+    ")", ws, queue_attrs_rest(_).
+queue_attrs(none) --> [].
+queue_attrs_rest(_) --> ",", ws, word(_), ws, queue_attrs_rest(_).
+queue_attrs_rest(done) --> [].
 
 % CLASS declaration: Name CLASS[(Parent)][,TYPE]
 top_decl_item(class(Name, Parent, Attrs, Members)) -->
@@ -112,7 +122,7 @@ top_decl_item(class(Name, Parent, Attrs, Members)) -->
     class_parent(Parent), ws,
     class_attrs(Attrs), ws,
     class_members(Members), ws,
-    kw("END").
+    end_or_dot.
 
 % WINDOW declaration
 top_decl_item(window(Name, Title, Attrs, Controls)) -->
@@ -120,7 +130,7 @@ top_decl_item(window(Name, Title, Attrs, Controls)) -->
     "(", ws, "'", qchars(TCs), "'", ws, ")", ws,
     window_attrs(Attrs), ws,
     control_list(Controls), ws,
-    kw("END"),
+    end_or_dot,
     { atom_codes(Title, TCs) }.
 
 % Array declaration: Name TYPE,DIM(n)
@@ -368,7 +378,7 @@ key_attr(dup) --> kw("DUP").
 record_block(Fields) -->
     word(_), ws, kw("RECORD"), ws,
     field_list(Fields), ws,
-    kw("END").
+    end_or_dot.
 
 %% --- GROUP attributes ---
 
@@ -380,7 +390,22 @@ group_attrs(none) --> [].
 field_list([F|Fs]) --> field_decl(F), !, ws, field_list(Fs).
 field_list([]) --> [].
 
+% Inline GROUP inside RECORD: Name GROUP[,OVER(x)][,PRE(x)] ... END
+field_decl(group(Name, Prefix, SubFields)) -->
+    word(Name), ws, kw("GROUP"), ws, !,
+    inline_group_attrs(Prefix), ws,
+    field_list(SubFields), ws,
+    end_or_dot.
+
 field_decl(field(Name, Type)) --> word(Name), ws, type(Type).
+
+% Inline GROUP attributes: ,OVER(x) and/or ,PRE(x)
+inline_group_attrs(Prefix) -->
+    ",", ws, kw("OVER"), ws, "(", ws, ident(_), ws, ")", ws,
+    ( ",", ws, kw("PRE"), ws, "(", ws, ident(Prefix), ws, ")" ; { Prefix = none } ).
+inline_group_attrs(Prefix) -->
+    ",", ws, kw("PRE"), ws, "(", ws, ident(Prefix), ws, ")".
+inline_group_attrs(none) --> [].
 
 %% ==========================================================================
 %% MAP block
@@ -389,7 +414,11 @@ field_decl(field(Name, Type)) --> word(Name), ws, type(Type).
 map_block(Entries) -->
     kw("MAP"), ws,
     map_entries(Entries), ws,
-    kw("END").
+    end_or_dot.
+
+% Optional MAP block — MEMBER files may not have one
+opt_map_block(Entries) --> map_block(Entries), !.
+opt_map_block([]) --> [].
 
 map_entries([E|Es]) --> map_entry_or_module(E), !, ws, map_entries(Es).
 map_entries([]) --> [].
@@ -398,7 +427,7 @@ map_entries([]) --> [].
 map_entry_or_module(module_entry(ModName, Entries)) -->
     kw("MODULE"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")", ws,
     map_entries(Entries), ws,
-    kw("END"),
+    end_or_dot,
     { atom_codes(ModName, Cs) }.
 
 % Regular map entry
@@ -474,6 +503,8 @@ proc_def_params([]) --> [].
 
 routine(routine(Name, Body)) -->
     ident(Name), ws, kw("ROUTINE"), ws,
+    % Optional DATA section with local declarations
+    ( kw("DATA"), ws, local_vars(_), ws, kw("CODE"), ws ; [] ),
     statements(Body).
 
 return_type(RetType) --> ",", ws, type(RetType), ws.
@@ -483,13 +514,36 @@ return_type(void) --> [].
 local_vars([L|Ls]) --> local_var(L), !, ws, local_vars(Ls).
 local_vars([]) --> [].
 
+% Local QUEUE declaration
+local_var(queue(Name, Fields)) -->
+    ident(Name), ws, kw("QUEUE"), ws, !,
+    queue_attrs(_), ws,
+    field_list(Fields), ws,
+    end_or_dot.
+
+% Local WINDOW declaration (skip the entire thing)
+local_var(window(Name, Title, Attrs, Controls)) -->
+    ident(Name), ws, kw("WINDOW"), ws, !,
+    "(", ws, "'", qchars(TCs), "'", ws, ")", ws,
+    window_attrs(Attrs), ws,
+    control_list(Controls), ws,
+    end_or_dot,
+    { atom_codes(Title, TCs) }.
+
+% Local GROUP declaration
+local_var(group(Name, Prefix, Fields)) -->
+    ident(Name), ws, kw("GROUP"), ws, !,
+    inline_group_attrs(Prefix), ws,
+    field_list(Fields), ws,
+    end_or_dot.
+
 local_var(local(Name, Type, Init)) -->
-    word(Name), ws, type(Type), ws,
+    ident(Name), ws, type(Type), ws,
     ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
 
 % Local instance variable: Name ClassName (where neither is a keyword or built-in type)
 local_var(instance_var(Name, ClassName)) -->
-    word(Name), { \+ is_keyword(Name) }, ws,
+    ident(Name), ws,
     word(ClassName), { \+ is_keyword(ClassName), \+ is_builtin_type(ClassName) }.
 
 is_builtin_type(Name) :-
@@ -547,44 +601,44 @@ statement(if(Cond, Then, Else)) -->
     kw("IF"), ws, expr(Cond), ws,
     statements(Then), ws,
     elsif_else(Else), ws,
-    kw("END").
+    end_or_dot.
 
 % LOOP var = start TO end / stmts / END
 statement(loop_for(Var, Start, End, Body)) -->
     kw("LOOP"), ws, ident(Var), ws, "=", ws, expr(Start), ws, kw("TO"), ws, expr(End), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 % LOOP WHILE cond / stmts / END
 statement(loop_while(Cond, Body)) -->
     kw("LOOP"), ws, kw("WHILE"), ws, expr(Cond), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 % LOOP UNTIL cond / stmts / END
 statement(loop_until(Cond, Body)) -->
     kw("LOOP"), ws, kw("UNTIL"), ws, expr(Cond), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 % LOOP / stmts / END
 statement(loop(Body)) -->
     kw("LOOP"), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 % CASE expr / OF val / stmts / ... / ELSE / stmts / END
 statement(case(Expr, Ofs, Else)) -->
     kw("CASE"), ws, expr(Expr), ws,
     of_blocks(Ofs), ws,
     case_else(Else), ws,
-    kw("END").
+    end_or_dot.
 
 % ACCEPT / stmts / END (GUI event loop)
 statement(accept(Body)) -->
     kw("ACCEPT"), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 statement(display) -->
     kw("DISPLAY").
@@ -613,14 +667,23 @@ statement(return) -->
 statement(self_assign(Prop, Expr)) -->
     kw("SELF"), ws, ".", ws, word(Prop), ws, "=", ws, expr(Expr).
 
+% SELF.Method(Args) (self method call)
+statement(self_call(Method, Args)) -->
+    kw("SELF"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")".
+
 % PARENT.Method(Args) (parent method call)
 statement(parent_call(Method, Args)) -->
     kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")".
 
 % Obj.Method(Args) (method call on instance variable)
+% No whitespace before "." — prevents consuming a dot-terminator across lines
 statement(method_call(Obj, Method, Args)) -->
-    word(Obj), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")",
+    word(Obj), ".", word(Method), ws, "(", ws, expr_list(Args), ws, ")",
     { \+ is_keyword(Obj) }.
+
+% File{PROP:Name} = Expr (property assignment)
+statement(prop_assign(File, Prop, Expr)) -->
+    word(File), ws, "{", ws, prop_ref(Prop), ws, "}", ws, "=", ws, expr(Expr).
 
 statement(assign(array_ref(Name, Index), Expr)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", ws, "=", ws, expr(Expr).
@@ -631,11 +694,21 @@ statement(assign(Var, Expr)) -->
 statement(assign(Var, add(var(Var), Expr))) -->
     ident(Var), ws, "+=", ws, expr(Expr).
 
+statement(assign(Var, sub(var(Var), Expr))) -->
+    ident(Var), ws, "-=", ws, expr(Expr).
+
+% SELF.Prop += Expr / SELF.Prop -= Expr
+statement(self_assign(Prop, add(self_access(Prop), Expr))) -->
+    kw("SELF"), ws, ".", ws, word(Prop), ws, "+=", ws, expr(Expr).
+
+statement(self_assign(Prop, sub(self_access(Prop), Expr))) -->
+    kw("SELF"), ws, ".", ws, word(Prop), ws, "-=", ws, expr(Expr).
+
 statement(call('DELETE', [var(Name)])) -->
     kw("DELETE"), ws, "(", ws, ident(Name), ws, ")".
 
 statement(call(Name, Args)) -->
-    word(Name), ws, "(", ws, expr_list(Args), ws, ")".
+    callable_name(Name), ws, "(", ws, expr_list(Args), ws, ")".
 
 % ELSIF chain: wraps nested if() in a statement list
 elsif_else([if(Cond, Then, Rest)]) -->
@@ -667,11 +740,11 @@ case_else([]) --> [].
 expr(E) --> or_expr(E).
 
 or_expr(E) --> and_expr(L), ws, or_rest(L, E).
-or_rest(L, or(L, R)) --> kw("OR"), ws, and_expr(R).
+or_rest(L, E) --> kw("OR"), ws, and_expr(R), ws, or_rest(or(L, R), E).
 or_rest(E, E) --> [].
 
 and_expr(E) --> compare_expr(L), ws, and_rest(L, E).
-and_rest(L, and(L, R)) --> kw("AND"), ws, compare_expr(R).
+and_rest(L, E) --> kw("AND"), ws, compare_expr(R), ws, and_rest(and(L, R), E).
 and_rest(E, E) --> [].
 
 compare_expr(E) --> add_expr(L), ws, compare_rest(L, E).
@@ -699,6 +772,19 @@ primary(lit(N))    --> number(N), !.
 primary(lit(S))    --> "'", qchars(Cs), "'", { atom_codes(S, Cs) }, !.
 primary(equate(Name)) --> "?", word(Name), !.
 
+% ~Expr (NOT / bitwise complement)
+primary(not(E))    --> "~", ws, primary(E), !.
+% NOT Expr
+primary(not(E))    --> kw("NOT"), ws, primary(E), !.
+
+% File{PROP:Name} (property access in expressions)
+primary(prop_access(File, Prop)) -->
+    word(File), ws, "{", ws, prop_ref(Prop), ws, "}", !.
+
+% SELF.Method(Args) (self method call in expressions)
+primary(self_call(Method, Args)) -->
+    kw("SELF"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
+
 % SELF.Prop (self property access in expressions)
 primary(self_access(Prop)) -->
     kw("SELF"), ws, ".", ws, word(Prop), !.
@@ -708,12 +794,13 @@ primary(parent_call(Method, Args)) -->
     kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
 
 % Obj.Method(Args) (method call on instance variable in expressions)
+% No whitespace before "." — prevents consuming a dot-terminator across lines
 primary(method_call(Obj, Method, Args)) -->
     word(Obj), { \+ is_keyword(Obj) },
-    ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
+    ".", word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
 
 primary(call(Name, Args)) -->
-    word(Name), ws, "(", ws, expr_list(Args), ws, ")", !.
+    callable_name(Name), ws, "(", ws, expr_list(Args), ws, ")", !.
 primary(array_ref(Name, Index)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", !.
 primary(var(Name)) --> ident(Name), !.
@@ -724,6 +811,16 @@ expr_list([]) --> [].
 
 expr_list_rest([E|Es]) --> ",", ws, expr(E), ws, expr_list_rest(Es).
 expr_list_rest([]) --> [].
+
+%% --- Property references (PROP:Name) ---
+
+prop_ref(Prop) -->
+    kw("PROP"), ws, ":", ws, word(Prop).
+
+%% --- Structure terminator: END or . ---
+
+end_or_dot --> kw("END"), !.
+end_or_dot --> ".".
 
 %% ==========================================================================
 %% Lexical rules
@@ -743,13 +840,30 @@ word(Name) -->
     { atom_codes(Name, [C|Cs]) }.
 
 % Identifier: word that is not a keyword
+% Handles colon-chains like O:R:OrigSITRecord and dot-notation like ADOClass.Connect
 ident(Name) -->
     word(Part1),
-    ( ":", word(Part2) -> { atomic_list_concat([Part1, ':', Part2], Name) }
+    ( ":", word(Part2), ident_colon_rest(Part2, ColonTail) ->
+        { atomic_list_concat([Part1, ':', ColonTail], Name) }
     ; ".", word(Part2) -> { atomic_list_concat([Part1, '.', Part2], Name) }
     ; { Name = Part1 }
     ),
     { \+ is_keyword(Name) }.
+
+ident_colon_rest(Acc, Result) -->
+    ":", word(Next), !,
+    { atomic_list_concat([Acc, ':', Next], Acc2) },
+    ident_colon_rest(Acc2, Result).
+ident_colon_rest(Acc, Acc) --> [].
+
+% Callable name: like ident but allows keywords (for built-in functions like CLIP, MESSAGE, etc.)
+% Also allows colon-chains like SiteIO:Core
+callable_name(Name) -->
+    word(Part1),
+    ( ":", word(Part2), ident_colon_rest(Part2, ColonTail) ->
+        { atomic_list_concat([Part1, ':', ColonTail], Name) }
+    ; { Name = Part1 }
+    ).
 
 ident_start(C) :- C >= 0'a, C =< 0'z.
 ident_start(C) :- C >= 0'A, C =< 0'Z.
@@ -766,7 +880,7 @@ is_keyword(Name) :-
     member(U, ['MEMBER','PROGRAM','MAP','END','PROCEDURE','CODE','RETURN',
                'LONG','CSTRING','NAME','EXPORT','FILE','DRIVER',
                'CREATE','PRE','RECORD','GROUP','MODULE','RAW','PASCAL',
-               'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET',
+               'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET','DATA',
                'NEXT','OPEN','CLOSE','GET','PUT','ADD','CLEAR',
                'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER',
                'TO','CASE','OF','DIM','AND','OR',
@@ -791,6 +905,7 @@ digits([D|Ds]) --> digit(D), !, digits(Ds).
 digits([]) --> [].
 
 % Quoted characters (returns code list)
+qchars([0''|Cs]) --> "'", "'", !, qchars(Cs).  % '' escaped quote
 qchars([C|Cs]) --> [C], { C \= 0'' }, !, qchars(Cs).
 qchars([]) --> [].
 
