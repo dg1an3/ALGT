@@ -13,6 +13,14 @@
 :- use_module(simulator_state).
 :- use_module(execution_tracer).
 :- use_module(scenario_dsl).
+:- use_module(storage_backend).
+:- use_module(storage_memory, [
+    mem_open/2, mem_close/2, mem_add/2, mem_get/3, mem_put/2,
+    mem_delete/2, mem_next/2, mem_set/2, mem_records/2,
+    mem_empty/2, mem_clear/2
+]).
+:- use_module(ui_backend).
+:- use_module(ui_simulation).
 
 :- dynamic test_count/1, pass_count/1, fail_count/1.
 test_count(0). pass_count(0). fail_count(0).
@@ -907,6 +915,205 @@ test_scenario_no_error :-
     check('Scenario no_error check', ROk, ok).
 
 %------------------------------------------------------------
+% Storage Backend Tests
+%------------------------------------------------------------
+
+test_storage_backend_selection :-
+    format("~nStorage backend selection tests:~n"),
+    get_backend('TOPSPEED', B1), check('TOPSPEED -> memory', B1, memory),
+    get_backend('DOS', B2), check('DOS -> memory', B2, memory),
+    get_backend('ASCII', B3), check('ASCII -> csv', B3, csv),
+    get_backend('BASIC', B4), check('BASIC -> csv', B4, csv),
+    get_backend('ODBC', B5), check('ODBC -> odbc', B5, odbc),
+    get_backend('ADO', B6), check('ADO -> odbc', B6, odbc).
+
+test_storage_memory_lifecycle :-
+    format("~nStorage memory lifecycle tests:~n"),
+    Fields = [field('ID', 'LONG', 4), field('Value', 'LONG', 4)],
+    Keys = [key('IDKey', ['ID'])],
+    FS0 = file_state(sensors, 'S', Keys, Fields, [], [0, 0], -1, false),
+    % Open
+    mem_open(FS0, FS1),
+    FS1 = file_state(_, _, _, _, _, _, _, IsOpen1),
+    check('mem_open sets open', IsOpen1, true),
+    % Clear buffer and set values for add
+    mem_clear(FS1, FS2),
+    FS2 = file_state(N2, Pre2, K2, F2, R2, _, P2, O2),
+    FSWithData = file_state(N2, Pre2, K2, F2, R2, [1, 100], P2, O2),
+    % Add a record
+    mem_add(FSWithData, FS3),
+    mem_records(FS3, Count1),
+    check('mem_add 1 record', Count1, 1),
+    % Add a second record
+    FS3 = file_state(N3, Pre3, K3, F3, R3, _, _, O3),
+    FSWithData2 = file_state(N3, Pre3, K3, F3, R3, [2, 200], -1, O3),
+    mem_add(FSWithData2, FS4),
+    mem_records(FS4, Count2),
+    check('mem_add 2 records', Count2, 2),
+    % SET resets position
+    mem_set(FS4, FS5),
+    FS5 = file_state(_, _, _, _, _, _, Pos5, _),
+    check('mem_set resets pos', Pos5, -1),
+    % NEXT advances
+    mem_next(FS5, FS6),
+    FS6 = file_state(_, _, _, _, _, Buf6, Pos6, _),
+    check('mem_next pos 0', Pos6, 0),
+    check('mem_next buf', Buf6, [1, 100]),
+    % GET by key
+    mem_get(key_search('IDKey', ['ID'], [2]), FS4, FS7),
+    FS7 = file_state(_, _, _, _, _, Buf7, Pos7, _),
+    check('mem_get finds key=2', Buf7, [2, 200]),
+    check('mem_get pos=1', Pos7, 1),
+    % PUT updates record at position
+    FS7b = file_state(_, _, _, _, _, _, _, _),
+    FS4 = file_state(N4, Pre4, K4, F4, R4, _, _, O4),
+    FSForPut = file_state(N4, Pre4, K4, F4, R4, [2, 999], 1, O4),
+    mem_put(FSForPut, FS8),
+    mem_get(key_search('IDKey', ['ID'], [2]), FS8, FS9),
+    FS9 = file_state(_, _, _, _, _, Buf9, _, _),
+    check('mem_put updated', Buf9, [2, 999]),
+    % DELETE
+    mem_delete(FS9, FS10),
+    mem_records(FS10, Count3),
+    check('mem_delete removes 1', Count3, 1),
+    % EMPTY clears all
+    mem_empty(FS10, FS11),
+    mem_records(FS11, Count4),
+    check('mem_empty clears all', Count4, 0),
+    % Close
+    mem_close(FS11, FS12),
+    FS12 = file_state(_, _, _, _, _, _, _, IsOpen12),
+    check('mem_close sets closed', IsOpen12, false).
+
+test_storage_dispatch :-
+    format("~nStorage dispatch tests:~n"),
+    Fields = [field('X', 'LONG', 4)],
+    Keys = [key('XKey', ['X'])],
+    FS0 = file_state(test, 'T', Keys, Fields, [], [0], -1, false),
+    % Dispatch through storage_backend with memory driver
+    storage_open('TOPSPEED', test, FS0, FS1),
+    FS1 = file_state(_, _, _, _, _, _, _, O1),
+    check('storage_open dispatch', O1, true),
+    FS1 = file_state(N1, Pre1, K1, F1, R1, _, P1, O1b),
+    FSAdd = file_state(N1, Pre1, K1, F1, R1, [42], P1, O1b),
+    storage_add('TOPSPEED', FSAdd, FS2),
+    storage_records('TOPSPEED', FS2, C1),
+    check('storage_add dispatch', C1, 1),
+    storage_close('TOPSPEED', FS2, FS3),
+    FS3 = file_state(_, _, _, _, _, _, _, O3),
+    check('storage_close dispatch', O3, false).
+
+%------------------------------------------------------------
+% UI Backend Tests
+%------------------------------------------------------------
+
+test_ui_init_shutdown :-
+    format("~nUI backend tests:~n"),
+    empty_state(S0),
+    % Init
+    ui_init(simulation, S0, S1),
+    ui_get_backend(S1, B1),
+    check('ui_init backend', B1, simulation),
+    % Shutdown
+    ui_shutdown(S1, S2),
+    ui_get_backend(S2, B2),
+    check('ui_shutdown preserves backend', B2, simulation).
+
+test_ui_window_ops :-
+    format("~nUI window operation tests:~n"),
+    empty_state(S0),
+    ui_init(simulation, S0, S1),
+    % Open window with controls
+    Controls = [
+        control(entry, '@n3', [use(control_ref(sensorID))]),
+        control(entry, '@n6', [use(control_ref(reading))]),
+        control(button, '&Calculate', [use(control_ref(calcBtn))])
+    ],
+    WindowDef = window('TestWindow', 'Test Form', Controls),
+    ui_open_window(WindowDef, S1, S2, R1),
+    check('ui_open_window ok', R1, ok),
+    % Get control value (default empty)
+    ui_get_control_value(sensorID, S2, Val1, R2),
+    check('ui_get_control default', Val1, ''),
+    check('ui_get_control ok', R2, ok),
+    % Set control value
+    ui_set_control_value(sensorID, 42, S2, S3, R3),
+    check('ui_set_control ok', R3, ok),
+    ui_get_control_value(sensorID, S3, Val2, _),
+    check('ui_get_control after set', Val2, 42),
+    % Select (focus)
+    ui_select(reading, S3, S4, R4),
+    check('ui_select ok', R4, ok),
+    % Set control property
+    ui_set_control_prop(sensorID, color, red, S4, S5, R5),
+    check('ui_set_control_prop ok', R5, ok),
+    % Display (no-op)
+    ui_display(S5, S6, R6),
+    check('ui_display ok', R6, ok),
+    % Close window
+    ui_close_window(S6, _, R7),
+    check('ui_close_window ok', R7, ok).
+
+test_ui_event_queue :-
+    format("~nUI event queue tests:~n"),
+    empty_state(S0),
+    ui_init(simulation, S0, S1),
+    % Initially no events
+    ui_has_events(S1, HasE1),
+    check('no events initially', HasE1, false),
+    % Push events
+    ui_push_event(set('SensorID', 5), S1, S2, _),
+    ui_push_event(1, S2, S3, _),
+    ui_has_events(S3, HasE2),
+    check('has events after push', HasE2, true),
+    % Poll events (FIFO)
+    ui_poll_event(S3, S4, Evt1),
+    check('poll first event', Evt1, set('SensorID', 5)),
+    ui_poll_event(S4, S5, Evt2),
+    check('poll second event', Evt2, 1),
+    % Queue empty now
+    ui_poll_event(S5, _, Evt3),
+    check('poll empty returns none', Evt3, none),
+    ui_has_events(S5, HasE3),
+    check('no events after drain', HasE3, false).
+
+test_ui_mode_control :-
+    format("~nUI mode control tests:~n"),
+    empty_state(S0),
+    ui_init(simulation, S0, S1),
+    % Default mode
+    ui_get_mode(S1, Mode1),
+    check('default mode sync', Mode1, sync),
+    % Set async
+    ui_set_mode(async, S1, S2, R1),
+    check('set_mode async ok', R1, ok),
+    ui_get_mode(S2, Mode2),
+    check('mode now async', Mode2, async),
+    % Invalid mode
+    ui_set_mode(invalid, S2, _, R2),
+    check('invalid mode error', R2, error(invalid_mode)).
+
+test_ui_current_event :-
+    format("~nUI current event tests:~n"),
+    empty_state(S0),
+    ui_init(simulation, S0, S1),
+    % Default current event
+    ui_get_current_event(S1, CE1),
+    check('default current event', CE1, none),
+    % Set current event
+    ui_set_current_event(42, S1, S2, R1),
+    check('set current event ok', R1, ok),
+    ui_get_current_event(S2, CE2),
+    check('current event is 42', CE2, 42).
+
+test_ui_close_no_window :-
+    format("~nUI close no window test:~n"),
+    empty_state(S0),
+    ui_init(simulation, S0, S1),
+    ui_close_window(S1, _, R1),
+    check('close no window error', R1, error(no_window)).
+
+%------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
@@ -1032,6 +1239,17 @@ main :-
     run_test(test_scenario_var_check),
     run_test(test_scenario_fail_expect),
     run_test(test_scenario_no_error),
+    % Storage backends
+    run_test(test_storage_backend_selection),
+    run_test(test_storage_memory_lifecycle),
+    run_test(test_storage_dispatch),
+    % UI backends
+    run_test(test_ui_init_shutdown),
+    run_test(test_ui_window_ops),
+    run_test(test_ui_event_queue),
+    run_test(test_ui_mode_control),
+    run_test(test_ui_current_event),
+    run_test(test_ui_close_no_window),
     % Summary
     test_count(Total),
     pass_count(Pass),

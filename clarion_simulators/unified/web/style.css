@@ -1,0 +1,119 @@
+:root {
+    --bg: #1e1e2e;
+    --surface: #181825;
+    --overlay: #313244;
+    --text: #cdd6f4;
+    --subtext: #a6adc8;
+    --blue: #89b4fa;
+    --green: #a6e3a1;
+    --peach: #fab387;
+    --red: #f38ba8;
+    --mauve: #cba6f7;
+    --yellow: #f9e2af;
+    --teal: #94e2d5;
+    --pink: #f5c2e7;
+    --sky: #89dceb;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
+    background: var(--bg); color: var(--text);
+    line-height: 1.6; padding: 1rem;
+}
+h1 { color: var(--blue); margin-bottom: 1rem; font-size: 1.4rem; }
+h2 { color: var(--mauve); margin: 1rem 0 0.5rem; font-size: 1.1rem; }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.file-list { list-style: none; }
+.file-list li { padding: 0.3rem 0; }
+.file-list a { font-size: 0.95rem; }
+.file-list .dir-header {
+    color: var(--subtext); font-size: 0.85rem;
+    margin-top: 0.8rem; margin-bottom: 0.2rem;
+    border-bottom: 1px solid var(--overlay); padding-bottom: 0.2rem;
+}
+
+.container { max-width: 1400px; margin: 0 auto; }
+.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+.panel {
+    background: var(--surface); border: 1px solid var(--overlay);
+    border-radius: 8px; padding: 1rem; overflow: auto; max-height: 80vh;
+}
+.panel-header {
+    color: var(--peach); font-size: 0.9rem; font-weight: bold;
+    margin-bottom: 0.5rem; padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--overlay);
+}
+
+/* Source code */
+pre {
+    font-size: 0.85rem; line-height: 1.5;
+    white-space: pre-wrap; word-wrap: break-word;
+}
+.line-num { color: var(--subtext); user-select: none; display: inline-block;
+            width: 3ch; text-align: right; margin-right: 1ch; }
+.kw { color: var(--mauve); font-weight: bold; }
+.type-kw { color: var(--yellow); }
+.str { color: var(--green); }
+.comment { color: var(--subtext); font-style: italic; }
+.num { color: var(--peach); }
+.proc-name { color: var(--blue); }
+.op { color: var(--sky); }
+
+/* AST */
+.ast { font-size: 0.8rem; color: var(--text); }
+.ast-functor { color: var(--mauve); font-weight: bold; }
+.ast-atom { color: var(--green); }
+.ast-number { color: var(--peach); }
+.ast-var { color: var(--blue); }
+.ast-list { color: var(--subtext); }
+.ast-indent { margin-left: 1.2em; }
+
+/* Run panel */
+.run-section { margin-top: 1rem; }
+.run-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.run-form label { color: var(--subtext); font-size: 0.85rem; }
+.run-form input, .run-form select {
+    background: var(--overlay); color: var(--text); border: 1px solid var(--subtext);
+    border-radius: 4px; padding: 0.3rem 0.6rem; font-family: inherit; font-size: 0.85rem;
+}
+.run-btn {
+    background: var(--blue); color: var(--bg); border: none; border-radius: 4px;
+    padding: 0.4rem 1rem; cursor: pointer; font-family: inherit;
+    font-weight: bold; font-size: 0.85rem;
+}
+.run-btn:hover { opacity: 0.85; }
+.run-output {
+    margin-top: 0.5rem; background: var(--bg); border: 1px solid var(--overlay);
+    border-radius: 4px; padding: 0.8rem; font-size: 0.85rem;
+    min-height: 2rem; white-space: pre-wrap;
+}
+.run-result { color: var(--green); }
+.run-error { color: var(--red); }
+
+/* Editor panel */
+.editor-wrapper { margin-top: 1rem; }
+textarea.code-editor {
+    width: 100%; min-height: 300px; background: var(--surface);
+    color: var(--text); border: 1px solid var(--overlay); border-radius: 8px;
+    padding: 1rem; font-family: inherit; font-size: 0.85rem;
+    line-height: 1.5; resize: vertical;
+}
+.editor-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+
+/* Tabs */
+.tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--overlay); }
+.tab {
+    padding: 0.4rem 1rem; cursor: pointer; color: var(--subtext);
+    border: 1px solid transparent; border-bottom: none;
+    border-radius: 6px 6px 0 0; font-size: 0.85rem;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--blue); background: var(--surface);
+              border-color: var(--overlay); font-weight: bold; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.nav { margin-bottom: 1rem; }
+.nav a { margin-right: 1rem; }
