@@ -11,6 +11,29 @@
 :- set_prolog_flag(double_quotes, codes).
 
 %% ==========================================================================
+%% Generic DCG combinators
+%% ==========================================================================
+
+:- meta_predicate star(3, -, ?, ?).
+:- meta_predicate comma_list(3, -, ?, ?).
+:- meta_predicate comma_attrs(3, -, ?, ?).
+
+%% star(+Goal, -List)// — zero or more Goal, whitespace-separated
+star(Goal, [X|Xs]) --> call(Goal, X), !, ws, star(Goal, Xs).
+star(_, []) --> [].
+
+%% comma_list(+Goal, -List)// — comma-separated list (zero or more)
+comma_list(Goal, [X|Xs]) --> call(Goal, X), ws, comma_list_rest(Goal, Xs).
+comma_list(_, []) --> [].
+
+comma_list_rest(Goal, [X|Xs]) --> ",", ws, call(Goal, X), ws, comma_list_rest(Goal, Xs).
+comma_list_rest(_, []) --> [].
+
+%% comma_attrs(+Goal, -List)// — comma-prefixed attribute list
+comma_attrs(Goal, [A|As]) --> ",", ws, call(Goal, A), !, ws, comma_attrs(Goal, As).
+comma_attrs(_, []) --> [].
+
+%% ==========================================================================
 %% AST definition
 %% ==========================================================================
 %
@@ -78,11 +101,8 @@ program(program(Files, Groups, Globals, MapEntries, [MainProc|Procs])) -->
 % --- Top-level declarations (FILE, GROUP, global vars) ---
 
 top_decls(Files, Groups, Globals) -->
-    top_decl_items(Items),
+    star(top_decl_item, Items),
     { partition_decls(Items, Files, Groups, Globals) }.
-
-top_decl_items([I|Is]) --> top_decl_item(I), !, ws, top_decl_items(Is).
-top_decl_items([]) --> [].
 
 % FILE declaration
 top_decl_item(file(Name, Prefix, Attrs, Fields)) -->
@@ -111,15 +131,15 @@ top_decl_item(class(Name, Parent, Attrs, Members)) -->
     word(Name), ws, kw("CLASS"), ws, !,
     class_parent(Parent), ws,
     class_attrs(Attrs), ws,
-    class_members(Members), ws,
+    star(class_member, Members), ws,
     kw("END").
 
 % WINDOW declaration
 top_decl_item(window(Name, Title, Attrs, Controls)) -->
     ident(Name), ws, kw("WINDOW"), ws, !,
     "(", ws, "'", qchars(TCs), "'", ws, ")", ws,
-    window_attrs(Attrs), ws,
-    control_list(Controls), ws,
+    comma_attrs(window_attr, Attrs), ws,
+    star(control_decl, Controls), ws,
     kw("END"),
     { atom_codes(Title, TCs) }.
 
@@ -138,15 +158,12 @@ top_decl_item(global(Name, Type, Init)) -->
 class_parent(Parent) --> "(", ws, word(Parent), ws, ")".
 class_parent(none) --> [].
 
-class_attrs([type|As]) --> ",", ws, kw("TYPE"), ws, class_attrs(As).
-class_attrs([A|As]) --> ",", ws, class_attr(A), ws, class_attrs(As).
-class_attrs([]) --> [].
+class_attrs(Attrs) --> comma_attrs(class_attr, Attrs).
 
+class_attr(type) --> kw("TYPE").
 class_attr(virtual) --> kw("VIRTUAL").
 
 % CLASS members: properties (fields) and method declarations
-class_members([M|Ms]) --> class_member(M), !, ws, class_members(Ms).
-class_members([]) --> [].
 
 % Method declaration with params and optional return type + VIRTUAL
 class_member(method(Name, Params, RetType, MAttrs)) -->
@@ -187,19 +204,13 @@ class_method_ret_attrs(RetType, Attrs) -->
 class_method_ret_attrs(void, []) --> [].
 
 class_method_ret_or_attr(RetType, Attrs) -->
-    type(RetType), !, ws, class_method_attrs(Attrs).
+    type(RetType), !, ws, comma_attrs(class_method_attr, Attrs).
 class_method_ret_or_attr(void, [Attr|Attrs]) -->
-    class_method_attr(Attr), ws, class_method_attrs(Attrs).
-
-class_method_attrs([A|As]) --> ",", ws, class_method_attr(A), !, ws, class_method_attrs(As).
-class_method_attrs([]) --> [].
+    class_method_attr(Attr), ws, comma_attrs(class_method_attr, Attrs).
 
 class_method_attr(virtual) --> kw("VIRTUAL").
 
 %% --- WINDOW attributes ---
-
-window_attrs([A|As]) --> ",", ws, window_attr(A), ws, window_attrs(As).
-window_attrs([]) --> [].
 
 window_attr(at(X, Y, W, H)) -->
     kw("AT"), ws, "(", ws, opt_number(X), ws, ",", ws, opt_number(Y), ws,
@@ -211,12 +222,9 @@ opt_number(0) --> [].
 
 %% --- Control list inside WINDOW ---
 
-control_list([C|Cs]) --> control_decl(C), !, ws, control_list(Cs).
-control_list([]) --> [].
-
 control_decl(prompt(Text, Attrs)) -->
     kw("PROMPT"), ws, "(", ws, "'", qchars(TCs), "'", ws, ")", ws,
-    control_attrs(Attrs),
+    comma_attrs(control_attr, Attrs),
     { atom_codes(Text, TCs) }.
 
 control_decl(entry(Format, Attrs, UseVar)) -->
@@ -250,11 +258,8 @@ format_picture(Format) -->
     { atom_codes(Format, [0'@, T | Ds]) }.
 
 % Control attributes (comma-separated)
-control_attrs([A|As]) --> ",", ws, control_attr(A), ws, control_attrs(As).
-control_attrs([]) --> [].
-
 control_attrs_with_use(Attrs, UseRef) -->
-    control_attrs(AllAttrs),
+    comma_attrs(control_attr, AllAttrs),
     { select(use(UseRef), AllAttrs, Attrs) -> true
     ; Attrs = AllAttrs, UseRef = none
     }.
@@ -344,20 +349,11 @@ exclude_pre([pre(_)|As], Bs) :- !, exclude_pre(As, Bs).
 exclude_pre([A|As], [A|Bs]) :- exclude_pre(As, Bs).
 
 % KEY declarations (optional, between FILE attrs and RECORD)
-key_decls([K|Ks]) --> key_decl(K), !, ws, key_decls(Ks).
-key_decls([]) --> [].
+key_decls(Keys) --> star(key_decl, Keys).
 
 key_decl(key(Name, Fields, Attrs)) -->
-    word(Name), ws, kw("KEY"), ws, "(", ws, key_field_list(Fields), ws, ")", ws,
-    key_attrs(Attrs).
-
-key_field_list([F|Fs]) --> ident(F), ws, key_field_rest(Fs).
-key_field_list([]) --> [].
-key_field_rest([F|Fs]) --> ",", ws, ident(F), ws, key_field_rest(Fs).
-key_field_rest([]) --> [].
-
-key_attrs([A|As]) --> ",", ws, key_attr(A), ws, key_attrs(As).
-key_attrs([]) --> [].
+    word(Name), ws, kw("KEY"), ws, "(", ws, comma_list(ident, Fields), ws, ")", ws,
+    comma_attrs(key_attr, Attrs).
 
 key_attr(primary) --> kw("PRIMARY").
 key_attr(nocase) --> kw("NOCASE").
@@ -377,8 +373,7 @@ group_attrs(none) --> [].
 
 %% --- Field list (shared by RECORD and GROUP) ---
 
-field_list([F|Fs]) --> field_decl(F), !, ws, field_list(Fs).
-field_list([]) --> [].
+field_list(Fields) --> star(field_decl, Fields).
 
 field_decl(field(Name, Type)) --> word(Name), ws, type(Type).
 
@@ -388,23 +383,20 @@ field_decl(field(Name, Type)) --> word(Name), ws, type(Type).
 
 map_block(Entries) -->
     kw("MAP"), ws,
-    map_entries(Entries), ws,
+    star(map_entry_or_module, Entries), ws,
     kw("END").
-
-map_entries([E|Es]) --> map_entry_or_module(E), !, ws, map_entries(Es).
-map_entries([]) --> [].
 
 % MODULE('name') ... END
 map_entry_or_module(module_entry(ModName, Entries)) -->
     kw("MODULE"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")", ws,
-    map_entries(Entries), ws,
+    star(map_entry_or_module, Entries), ws,
     kw("END"),
     { atom_codes(ModName, Cs) }.
 
 % Regular map entry
 % Name(params),RetType,Attrs  format
 map_entry_or_module(map_entry(Name, Params, RetType, Attrs)) -->
-    ident(Name), ws, "(", ws, map_param_list(Params), ws, ")", ws,
+    ident(Name), ws, "(", ws, comma_list(map_param, Params), ws, ")", ws,
     map_return_and_attrs(RetType, Attrs).
 
 % Name PROCEDURE[(params)][,RetType][,Attrs] format
@@ -413,7 +405,7 @@ map_entry_or_module(map_entry(Name, Params, RetType, Attrs)) -->
     map_proc_params(Params), ws,
     map_return_and_attrs(RetType, Attrs).
 
-map_proc_params(Params) --> "(", ws, map_param_list(Params), ws, ")".
+map_proc_params(Params) --> "(", ws, comma_list(map_param, Params), ws, ")".
 map_proc_params([]) --> [].
 
 map_return_and_attrs(RetType, Attrs) -->
@@ -421,12 +413,9 @@ map_return_and_attrs(RetType, Attrs) -->
 map_return_and_attrs(void, []) --> [].
 
 map_ret_or_attr(RetType, Attrs) -->
-    type(RetType), !, ws, map_attrs(Attrs).
+    type(RetType), !, ws, comma_attrs(map_attr, Attrs).
 map_ret_or_attr(void, [Attr|Attrs]) -->
-    map_attr(Attr), ws, map_attrs(Attrs).
-
-map_attrs([A|As]) --> ",", ws, map_attr(A), !, ws, map_attrs(As).
-map_attrs([]) --> [].
+    map_attr(Attr), ws, comma_attrs(map_attr, Attrs).
 
 map_attr(c) --> kw("C").
 map_attr(raw) --> kw("RAW").
@@ -437,13 +426,7 @@ map_attr(name(N)) -->
     kw("NAME"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")",
     { atom_codes(N, Cs) }.
 
-% MAP parameter list
-map_param_list([P|Ps]) --> map_param(P), ws, map_param_list_rest(Ps).
-map_param_list([]) --> [].
-
-map_param_list_rest([P|Ps]) --> ",", ws, map_param(P), ws, map_param_list_rest(Ps).
-map_param_list_rest([]) --> [].
-
+% MAP parameter
 map_param(param(Name, ref(Type), optional)) --> "<", ws, "*", ws, type(Type), ws, opt_ident(Name), ws, ">".
 map_param(param(Name, Type, optional)) --> "<", ws, type(Type), ws, opt_ident(Name), ws, ">".
 map_param(param(Name, ref(Type))) --> "*", ws, type(Type), ws, opt_ident(Name).
@@ -456,16 +439,17 @@ opt_ident(anonymous) --> [].
 %% Procedure definitions
 %% ==========================================================================
 
-procedures([P|Ps]) --> procedure(P), !, ws, procedures(Ps).
-procedures([P|Ps]) --> routine(P), !, ws, procedures(Ps).
-procedures([]) --> [].
+procedures(Procs) --> star(proc_or_routine, Procs).
+
+proc_or_routine(P) --> procedure(P).
+proc_or_routine(P) --> routine(P).
 
 procedure(procedure(Name, Params, RetType, Locals, Body)) -->
     ident(Name), ws,
     kw("PROCEDURE"), ws,
     proc_def_params(Params), ws,
     return_type(RetType), ws,
-    local_vars(Locals), ws,
+    star(local_var, Locals), ws,
     kw("CODE"), ws,
     statements(Body).
 
@@ -480,9 +464,6 @@ return_type(RetType) --> ",", ws, type(RetType), ws.
 return_type(void) --> [].
 
 % Local variables between PROCEDURE line and CODE
-local_vars([L|Ls]) --> local_var(L), !, ws, local_vars(Ls).
-local_vars([]) --> [].
-
 local_var(local(Name, Type, Init)) -->
     word(Name), ws, type(Type), ws,
     ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
@@ -499,11 +480,7 @@ is_builtin_type(Name) :-
 
 %% --- Procedure parameter list ---
 
-proc_param_list([P|Ps]) --> proc_param(P), ws, proc_param_list_rest(Ps).
-proc_param_list([]) --> [].
-
-proc_param_list_rest([P|Ps]) --> ",", ws, proc_param(P), ws, proc_param_list_rest(Ps).
-proc_param_list_rest([]) --> [].
+proc_param_list(Params) --> comma_list(proc_param, Params).
 
 proc_param(param(Name, ref(Type), optional)) --> "<", ws, "*", ws, type(Type), ws, ident(Name), ws, ">".
 proc_param(param(Name, Type, optional)) --> "<", ws, type(Type), ws, ident(Name), ws, ">".
@@ -536,8 +513,7 @@ type(string) --> kw("STRING").
 %% Statements
 %% ==========================================================================
 
-statements([S|Ss]) --> statement(S), !, ws, statements(Ss).
-statements([]) --> [].
+statements(Stmts) --> star(statement, Stmts).
 
 statement(if(Cond, [Then], [])) -->
     kw("IF"), ws, expr(Cond), ws, kw("THEN"), ws, statement(Then), ws, ".".
@@ -576,7 +552,7 @@ statement(loop(Body)) -->
 % CASE expr / OF val / stmts / ... / ELSE / stmts / END
 statement(case(Expr, Ofs, Else)) -->
     kw("CASE"), ws, expr(Expr), ws,
-    of_blocks(Ofs), ws,
+    star(of_block, Ofs), ws,
     case_else(Else), ws,
     kw("END").
 
@@ -615,11 +591,11 @@ statement(self_assign(Prop, Expr)) -->
 
 % PARENT.Method(Args) (parent method call)
 statement(parent_call(Method, Args)) -->
-    kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")".
+    kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, comma_list(expr, Args), ws, ")".
 
 % Obj.Method(Args) (method call on instance variable)
 statement(method_call(Obj, Method, Args)) -->
-    word(Obj), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")",
+    word(Obj), ws, ".", ws, word(Method), ws, "(", ws, comma_list(expr, Args), ws, ")",
     { \+ is_keyword(Obj) }.
 
 statement(assign(array_ref(Name, Index), Expr)) -->
@@ -635,7 +611,7 @@ statement(call('DELETE', [var(Name)])) -->
     kw("DELETE"), ws, "(", ws, ident(Name), ws, ")".
 
 statement(call(Name, Args)) -->
-    word(Name), ws, "(", ws, expr_list(Args), ws, ")".
+    word(Name), ws, "(", ws, comma_list(expr, Args), ws, ")".
 
 % ELSIF chain: wraps nested if() in a statement list
 elsif_else([if(Cond, Then, Rest)]) -->
@@ -647,9 +623,6 @@ elsif_else([]) --> [].
 
 if_else(Stmts) --> kw("ELSE"), ws, statements(Stmts).
 if_else([]) --> [].
-
-of_blocks([O|Os]) --> of_block(O), ws, of_blocks(Os).
-of_blocks([]) --> [].
 
 of_block(of(Range, Stmts)) -->
     kw("OF"), ws, range(Range), ws, statements(Stmts).
@@ -705,25 +678,19 @@ primary(self_access(Prop)) -->
 
 % PARENT.Method(Args) (parent method call in expressions)
 primary(parent_call(Method, Args)) -->
-    kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
+    kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, comma_list(expr, Args), ws, ")", !.
 
 % Obj.Method(Args) (method call on instance variable in expressions)
 primary(method_call(Obj, Method, Args)) -->
     word(Obj), { \+ is_keyword(Obj) },
-    ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
+    ws, ".", ws, word(Method), ws, "(", ws, comma_list(expr, Args), ws, ")", !.
 
 primary(call(Name, Args)) -->
-    word(Name), ws, "(", ws, expr_list(Args), ws, ")", !.
+    word(Name), ws, "(", ws, comma_list(expr, Args), ws, ")", !.
 primary(array_ref(Name, Index)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", !.
 primary(var(Name)) --> ident(Name), !.
 primary(E)         --> "(", ws, expr(E), ws, ")".
-
-expr_list([E|Es]) --> expr(E), ws, expr_list_rest(Es).
-expr_list([]) --> [].
-
-expr_list_rest([E|Es]) --> ",", ws, expr(E), ws, expr_list_rest(Es).
-expr_list_rest([]) --> [].
 
 %% ==========================================================================
 %% Lexical rules

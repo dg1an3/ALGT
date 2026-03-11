@@ -69,7 +69,8 @@ is_dcg_rule((Head --> _Body)) :-
     functor(Head, Name, _),
     \+ member(Name, [ws, ws_nonnl, comment_body, line_continuation,
                      kw, digit, digits, qchars, ident_rest,
-                     to_upper]).
+                     to_upper,
+                     star, comma_list, comma_list_rest, comma_attrs]).
 
 %% ==========================================================================
 %% Group rules by head functor name
@@ -205,6 +206,44 @@ body_to_mermaid([C], InId, OutId, [Node], [Edge]) :-
     format(atom(Label), '~w', [Safe]),
     format_node(NId, Label, terminal, Node),
     format(atom(Edge), '    ~w --> ~w --> ~w\n', [InId, NId, OutId]).
+
+% star(Goal, _) — zero or more Goal (loop construct)
+body_to_mermaid(star(Goal, _), InId, OutId, Nodes, Edges) :-
+    callable(Goal), !,
+    functor(Goal, GoalName, _),
+    fresh_id(NId),
+    format_node(NId, GoalName, nonterminal, Node),
+    format(atom(E1), '    ~w --> ~w\n', [InId, OutId]),        % bypass (empty)
+    format(atom(E2), '    ~w --> ~w --> ~w\n', [InId, NId, OutId]),  % through Goal
+    format(atom(E3), '    ~w -.-> ~w\n', [NId, InId]),         % loop back (dotted)
+    Nodes = [Node],
+    Edges = [E1, E2, E3].
+
+% comma_list(Goal, _) — comma-separated list (zero or more)
+body_to_mermaid(comma_list(Goal, _), InId, OutId, Nodes, Edges) :-
+    callable(Goal), !,
+    functor(Goal, GoalName, _),
+    fresh_id(NId), fresh_id(CommaId),
+    format_node(NId, GoalName, nonterminal, GNode),
+    format_node(CommaId, ',', terminal, CNode),
+    format(atom(E1), '    ~w --> ~w\n', [InId, OutId]),        % bypass (empty)
+    format(atom(E2), '    ~w --> ~w --> ~w\n', [InId, NId, OutId]),  % single item
+    format(atom(E3), '    ~w -.-> ~w -.-> ~w\n', [NId, CommaId, InId]), % comma loop
+    Nodes = [GNode, CNode],
+    Edges = [E1, E2, E3].
+
+% comma_attrs(Goal, _) — comma-prefixed attribute list
+body_to_mermaid(comma_attrs(Goal, _), InId, OutId, Nodes, Edges) :-
+    callable(Goal), !,
+    functor(Goal, GoalName, _),
+    fresh_id(CommaId), fresh_id(NId),
+    format_node(CommaId, ',', terminal, CNode),
+    format_node(NId, GoalName, nonterminal, GNode),
+    format(atom(E1), '    ~w --> ~w\n', [InId, OutId]),        % bypass (empty)
+    format(atom(E2), '    ~w --> ~w --> ~w --> ~w\n', [InId, CommaId, NId, OutId]),
+    format(atom(E3), '    ~w -.-> ~w\n', [NId, InId]),         % loop back
+    Nodes = [CNode, GNode],
+    Edges = [E1, E2, E3].
 
 % ws — skip (transparent, it's whitespace)
 body_to_mermaid(ws, InId, OutId, [], [Edge]) :- !,
