@@ -302,20 +302,21 @@ test_member_with_filename :-
 %% Item 3: Expanded type system
 
 test_new_types :-
-    % Note: 'Today'/'NowTime' conflict with TODAY/TIME keywords — use non-keyword names
+    % Note: TODAY/TIME are keywords — use non-keyword names like TxDate/TxTime
+    % Note: LIKE target uses synthetic TST: prefix to avoid Mosaiq field name collisions
     Src = "
   MEMBER()
 
-QAMode          SHORT
-CapGeo          SHORT(0)
-Counter         BYTE
-BigNum          ULONG
-Ratio           REAL
-TxDate          DATE
-TxTime          TIME
-Label           STRING(40)
-Amount          PDECIMAL(9,2)
-FieldName       LIKE(FLD:Field_Name)
+XQAMode         SHORT
+XCapGeo         SHORT(0)
+XCounter        BYTE
+XBigNum         ULONG
+XRatio          REAL
+XTxDate         DATE
+XTxTime         TIME
+XLabel          STRING(40)
+XAmount         PDECIMAL(9,2)
+XFieldRef       LIKE(TST:ColName)
 
   MAP
   END
@@ -324,16 +325,16 @@ FieldName       LIKE(FLD:Field_Name)
     ( parse_clarion(Src, AST),
       AST = program([], [], Globals, [], []),
       length(Globals, 10),
-      memberchk(global('QAMode',    short,         0, []), Globals),
-      memberchk(global('CapGeo',    short,         0, []), Globals),
-      memberchk(global('Counter',   byte,          0, []), Globals),
-      memberchk(global('BigNum',    ulong,         0, []), Globals),
-      memberchk(global('Ratio',     real,          0, []), Globals),
-      memberchk(global('TxDate',    date,          0, []), Globals),
-      memberchk(global('TxTime',    time,          0, []), Globals),
-      memberchk(global('Label',     string(40),    0, []), Globals),
-      memberchk(global('Amount',    pdecimal(9,2), 0, []), Globals),
-      memberchk(global('FieldName', like('FLD:Field_Name'), 0, []), Globals)
+      memberchk(global('XQAMode',   short,         0, []), Globals),
+      memberchk(global('XCapGeo',   short,         0, []), Globals),
+      memberchk(global('XCounter',  byte,          0, []), Globals),
+      memberchk(global('XBigNum',   ulong,         0, []), Globals),
+      memberchk(global('XRatio',    real,          0, []), Globals),
+      memberchk(global('XTxDate',   date,          0, []), Globals),
+      memberchk(global('XTxTime',   time,          0, []), Globals),
+      memberchk(global('XLabel',    string(40),    0, []), Globals),
+      memberchk(global('XAmount',   pdecimal(9,2), 0, []), Globals),
+      memberchk(global('XFieldRef', like('TST:ColName'), 0, []), Globals)
     -> format(" [PASS]~n")
     ;  format(" [FAIL]~n")
     ).
@@ -370,12 +371,13 @@ ActualLabel      STRING(20)
 %% Bonus: EQUATE declarations
 
 test_equate_decl :-
+    % Use TST: and MOD:: prefixes — synthetic, not matching any Mosaiq equate names
     Src = "
   MEMBER()
 
-HOTLINK:TXFIELD    equate(7)
-HOTLINK:SITE       equate(12)
-NT::THIS_MODULE    Equate('TxCal.clw')
+TST:FIELDTYPE      equate(7)
+TST:SITETYPE       equate(12)
+MOD::MODULE_ID     Equate('test_module.clw')
 
   MAP
   END
@@ -383,9 +385,9 @@ NT::THIS_MODULE    Equate('TxCal.clw')
     format("  EQUATE declarations"),
     ( parse_clarion(Src, AST),
       AST = program([], [], Globals, [], []),
-      memberchk(equate('HOTLINK:TXFIELD', 7), Globals),
-      memberchk(equate('HOTLINK:SITE',   12), Globals),
-      memberchk(equate('NT::THIS_MODULE', 'TxCal.clw'), Globals)
+      memberchk(equate('TST:FIELDTYPE',  7),  Globals),
+      memberchk(equate('TST:SITETYPE',   12), Globals),
+      memberchk(equate('MOD::MODULE_ID', 'test_module.clw'), Globals)
     -> format(" [PASS]~n")
     ;  format(" [FAIL]~n")
     ).
@@ -393,12 +395,13 @@ NT::THIS_MODULE    Equate('TxCal.clw')
 %% Bonus: QUEUE declarations
 
 test_queue_decl :-
+    % Use TestQ/XTQ prefix — synthetic, not matching Mosaiq queue names like TolTblQ
     Src = "
   MEMBER()
 
-TolTblQ    QUEUE,PRE(TolTblQ)
-Name          STRING(20)
-TOL_ID        LONG
+XTestQ     QUEUE,PRE(XTestQ)
+ItemLabel     STRING(20)
+ItemId        LONG
            END
 
   MAP
@@ -407,7 +410,7 @@ TOL_ID        LONG
     format("  QUEUE declaration"),
     ( parse_clarion(Src, AST),
       AST = program([], Groups, [], [], []),
-      memberchk(queue('TolTblQ', 'TolTblQ', Fields), Groups),
+      memberchk(queue('XTestQ', 'XTestQ', Fields), Groups),
       length(Fields, 2)
     -> format(" [PASS]~n")
     ;  format(" [FAIL]~n")
@@ -416,12 +419,13 @@ TOL_ID        LONG
 %% Bonus: LIKE in GROUP fields
 
 test_like_in_fields :-
+    % Use XRowQ/TST: prefix — synthetic, not matching Mosaiq identifiers
     Src = "
   MEMBER()
 
-SiteFxQ    QUEUE,PRE()
-Site_Name     LIKE(SIT:Site_Name)
-Fx_Display    STRING(10)
+XRowQ      QUEUE,PRE()
+RowLabel      LIKE(TST:LabelCol)
+RowDisplay    STRING(10)
            END
 
   MAP
@@ -430,9 +434,9 @@ Fx_Display    STRING(10)
     format("  LIKE() in QUEUE fields"),
     ( parse_clarion(Src, AST),
       AST = program([], Groups, [], [], []),
-      Groups = [queue('SiteFxQ', _, Fields)],
-      Fields = [field('Site_Name', like('SIT:Site_Name'), []),
-                field('Fx_Display', string(10), [])]
+      Groups = [queue('XRowQ', _, Fields)],
+      Fields = [field('RowLabel',   like('TST:LabelCol'), []),
+                field('RowDisplay', string(10), [])]
     -> format(" [PASS]~n")
     ;  format(" [FAIL]~n")
     ).
@@ -459,27 +463,28 @@ test_include_decl :-
     ).
 
 %% Combined: snippet resembling real Mosaiq MEMBER file structure
+%% Uses synthetic identifiers (X-prefixed, TST: namespace) throughout
 
 test_mosaiq_snippet :-
     Src = "
-  MEMBER('RTC.clw')
+  MEMBER('test_lib.clw')
 
-NT::THIS_MODULE    Equate('TxFieldUtils.clw(RTC.app)')
+MOD::THIS_MODULE   Equate('test_lib.clw(test.app)')
 
-ReturnCode         SHORT
-NumFields          SHORT
-WindowWidth        SHORT
-WindowHeight       SHORT
+XReturnCode        SHORT
+XNumFields         SHORT
+XWindowWidth       SHORT
+XWindowHeight      SHORT
 
   MAP
   END
 ",
-    format("  Mosaiq-style MEMBER snippet"),
+    format("  Mosaiq-style MEMBER snippet (synthetic identifiers)"),
     ( parse_clarion(Src, AST),
       AST = program([], [], Globals, [], []),
-      memberchk(equate('NT::THIS_MODULE', 'TxFieldUtils.clw(RTC.app)'), Globals),
-      memberchk(global('ReturnCode', short, 0, []), Globals),
-      memberchk(global('NumFields',  short, 0, []), Globals)
+      memberchk(equate('MOD::THIS_MODULE', 'test_lib.clw(test.app)'), Globals),
+      memberchk(global('XReturnCode', short, 0, []), Globals),
+      memberchk(global('XNumFields',  short, 0, []), Globals)
     -> format(" [PASS]~n")
     ;  format(" [FAIL]~n")
     ).
