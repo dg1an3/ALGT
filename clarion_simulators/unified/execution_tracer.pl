@@ -984,7 +984,7 @@ graph_to_pgm(Graph, PGM) :-
 % Assumes uniform 0.5 probability for each branch by default.
 
 path_probability(_, [], 1.0).
-path_probability(Graph, [branch(NodeId, Decision)|Rest], Prob) :-
+path_probability(Graph, [branch(_NodeId, _Decision)|Rest], Prob) :-
     % Default: uniform probability
     BranchProb = 0.5,
     path_probability(Graph, Rest, RestProb),
@@ -1039,7 +1039,7 @@ pgm_to_pymc(PGM, PythonCode) :-
     generate_pymc_model(Vars, Factors, Observed, ModelCode),
     atomics_to_string([Imports, ModelCode], PythonCode).
 
-generate_pymc_model(Vars, Factors, Observed, ModelCode) :-
+generate_pymc_model(Vars, _Factors, Observed, ModelCode) :-
     % Separate branch vars from assign vars
     include(is_branch_var, Vars, BranchVars),
     include(is_assign_var, Vars, AssignVars),
@@ -1122,7 +1122,7 @@ pgm_to_stan(PGM, StanCode) :-
     length(BranchVars, NumBranches),
     generate_stan_model(BranchVars, NumBranches, StanCode).
 
-generate_stan_model(BranchVars, NumBranches, StanCode) :-
+generate_stan_model(BranchVars, _NumBranches, StanCode) :-
     % Generate branch parameter names for comments
     maplist(branch_var_name, BranchVars, BranchNames),
     atomics_to_string(BranchNames, BranchNamesStr),
@@ -1228,7 +1228,7 @@ graph_to_gnn_dataset(Graphs, DatasetJson) :-
     data_points_to_json(DataPoints, DataPointsJson).
 
 graph_to_data_point(Graph, DataPoint) :-
-    Graph = graph{nodes: Nodes, edges: Edges, metadata: _},
+    Graph = graph{nodes: Nodes, edges: _Edges, metadata: _},
     length(Nodes, NumNodes),
     graph_to_edge_index(Graph, EdgeIndex, EdgeTypes),
     node_type_encoding(Nodes, NodeTypeIds, _),

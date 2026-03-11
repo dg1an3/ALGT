@@ -23,7 +23,7 @@
 :- use_module(simulator_state).
 :- use_module(ui_backend).
 :- use_module(simulator).
-:- use_module(clarion).
+:- use_module(clarion, [parse_clarion/2, exec_program/3, init_session/2, call_procedure/5]).
 :- use_module(clarion_parser).
 :- use_module(ast_bridge).
 
