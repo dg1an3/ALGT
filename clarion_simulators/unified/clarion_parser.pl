@@ -9,6 +9,8 @@
 ]).
 
 :- set_prolog_flag(double_quotes, codes).
+:- discontiguous top_decl_item//1.
+:- discontiguous statement//1.
 
 %% ==========================================================================
 %% Generic DCG combinators
@@ -81,11 +83,13 @@ parse_clarion(Source, AST) :-
 %% Top-level structure
 %% ==========================================================================
 
-% MEMBER() form (DLLs with procedures)
+% MEMBER('file') form — strip filename, treat as MEMBER()
 program(program(Files, Groups, Globals, MapEntries, Procs)) -->
-    ws, kw("MEMBER"), ws, "(", ws, ")", ws,
+    ws, kw("MEMBER"), ws, "(", ws,
+    ( "'", qchars(_), "'" ; [] ), ws,
+    ")", ws,
     top_decls(Files, Groups, Globals), ws,
-    map_block(MapEntries), ws,
+    opt_map_block(MapEntries), ws,
     procedures(Procs), ws.
 
 % PROGRAM form (EXE with inline CODE + optional procedures)
@@ -110,7 +114,7 @@ top_decl_item(file(Name, Prefix, Attrs, Fields)) -->
     file_attrs(Attrs0, Prefix), ws,
     key_decls(_Keys), ws,
     record_block(Fields), ws,
-    kw("END"),
+    end_or_dot,
     { exclude_pre(Attrs0, Attrs) }.
 
 % GROUP declaration
@@ -118,13 +122,21 @@ top_decl_item(group(Name, Prefix, Fields)) -->
     ident(Name), ws, kw("GROUP"), ws, !,
     group_attrs(Prefix), ws,
     field_list(Fields), ws,
-    kw("END").
+    end_or_dot.
 
-% QUEUE declaration
+% QUEUE declaration (with optional ,PRE(prefix) and END or . terminator)
 top_decl_item(queue(Name, Fields)) -->
     ident(Name), ws, kw("QUEUE"), ws, !,
+    queue_attrs(_), ws,
     field_list(Fields), ws,
-    kw("END").
+    end_or_dot.
+
+queue_attrs(Pre) --> ",", ws, kw("PRE"), ws, "(", ws,
+    ( ident(Pre) ; { Pre = none } ), ws,
+    ")", ws, queue_attrs_rest(_).
+queue_attrs(none) --> [].
+queue_attrs_rest(_) --> ",", ws, word(_), ws, queue_attrs_rest(_).
+queue_attrs_rest(done) --> [].
 
 % CLASS declaration: Name CLASS[(Parent)][,TYPE]
 top_decl_item(class(Name, Parent, Attrs, Members)) -->
@@ -132,15 +144,22 @@ top_decl_item(class(Name, Parent, Attrs, Members)) -->
     class_parent(Parent), ws,
     class_attrs(Attrs), ws,
     star(class_member, Members), ws,
-    kw("END").
+    end_or_dot.
 
-% WINDOW declaration
+% WINDOW declaration — full 4-arg parse (title, attrs, controls)
 top_decl_item(window(Name, Title, Attrs, Controls)) -->
     ident(Name), ws, kw("WINDOW"), ws, !,
     "(", ws, "'", qchars(TCs), "'", ws, ")", ws,
     comma_attrs(window_attr, Attrs), ws,
     star(control_decl, Controls), ws,
     kw("END"),
+    { atom_codes(Title, TCs) }.
+
+% WINDOW declaration — fallback: parse title then skip body (handles nested GROUP/SHEET/TAB ENDs)
+top_decl_item(window(Name, Title)) -->
+    callable_name(Name), ws, kw("WINDOW"), ws, !,
+    "(", ws, "'", qchars(TCs), "'", ws, ")",
+    skip_window_body(1),
     { atom_codes(Title, TCs) }.
 
 % Array declaration: Name TYPE,DIM(n)
@@ -209,6 +228,87 @@ class_method_ret_or_attr(void, [Attr|Attrs]) -->
     class_method_attr(Attr), ws, comma_attrs(class_method_attr, Attrs).
 
 class_method_attr(virtual) --> kw("VIRTUAL").
+
+%% --- Skip WINDOW body (nesting-aware) ---
+%  Depth starts at 1 (the WINDOW itself). GROUP/SHEET/TAB increase depth, END decreases.
+%  A dot-terminator closes current nesting level.
+%  Quoted strings are skipped to avoid false keyword matches.
+
+% skip_window_body: Implemented in Prolog (not DCG) for efficiency.
+%  Reads the code list, processes line by line, and adjusts nesting depth.
+skip_window_body(Depth, In, Out) :-
+    skip_win_body(Depth, In, Out).
+
+skip_win_body(0, Rest, Rest) :- !.
+skip_win_body(D, In, Out) :-
+    skip_win_ws(In, In1),
+    ( In1 = [] -> Out = In1  % shouldn't happen for well-formed input
+    ; % Check for dot-terminator (just a dot followed by whitespace/newline/EOF)
+      In1 = [0'.|After],
+      win_is_dot_terminator(After) ->
+        D1 is D - 1,
+        skip_win_body(D1, After, Out)
+    ; % Read a line token: collect chars to newline
+      win_read_line(In1, LineCodes, Rest),
+      win_classify_line(LineCodes, Action),
+      ( Action = end ->
+          D1 is D - 1,
+          skip_win_body(D1, Rest, Out)
+      ; Action = nest ->
+          D1 is D + 1,
+          skip_win_body(D1, Rest, Out)
+      ; % Action = skip
+          skip_win_body(D, Rest, Out)
+      )
+    ).
+
+% Skip whitespace and comments
+skip_win_ws([C|Cs], Out) :-
+    (C =:= 0' ; C =:= 0'\t ; C =:= 0'\r ; C =:= 0'\n), !,
+    skip_win_ws(Cs, Out).
+skip_win_ws([0'!|Cs], Out) :- !,
+    skip_win_to_eol(Cs, Cs1),
+    skip_win_ws(Cs1, Out).
+skip_win_ws(Cs, Cs).
+
+skip_win_to_eol([0'\n|Cs], Cs) :- !.
+skip_win_to_eol([_|Cs], Out) :- !, skip_win_to_eol(Cs, Out).
+skip_win_to_eol([], []).
+
+% Check if after a dot it's a terminator (not a decimal number)
+win_is_dot_terminator([]) :- !.
+win_is_dot_terminator([C|_]) :- \+ (C >= 0'0, C =< 0'9).
+
+% Read to end of line (or end of input)
+win_read_line([], [], []) :- !.
+win_read_line([0'\n|Rest], [], Rest) :- !.
+win_read_line([C|Cs], [C|Ls], Rest) :- win_read_line(Cs, Ls, Rest).
+
+% Classify a line by its first keyword token
+win_classify_line(Codes, Action) :-
+    win_skip_line_ws(Codes, Trimmed),
+    win_extract_word(Trimmed, Word, _),
+    ( Word = [] -> Action = skip
+    ; upcase_codes(Word, Upper),
+      ( Upper = "END" -> Action = end
+      ; ( Upper = "GROUP" ; Upper = "SHEET" ; Upper = "TAB" ) -> Action = nest
+      ; Action = skip
+      )
+    ).
+
+win_skip_line_ws([C|Cs], Out) :- (C =:= 0' ; C =:= 0'\t), !, win_skip_line_ws(Cs, Out).
+win_skip_line_ws(Cs, Cs).
+
+win_extract_word([], [], []) :- !.
+win_extract_word([C|Cs], [C|Ws], Rest) :-
+    (C >= 0'a, C =< 0'z ; C >= 0'A, C =< 0'Z ; C >= 0'0, C =< 0'9 ; C =:= 0'_), !,
+    win_extract_word(Cs, Ws, Rest).
+win_extract_word(Cs, [], Cs).
+
+upcase_codes([], []).
+upcase_codes([C|Cs], [U|Us]) :-
+    ( C >= 0'a, C =< 0'z -> U is C - 32 ; U = C ),
+    upcase_codes(Cs, Us).
 
 %% --- WINDOW attributes ---
 
@@ -295,7 +395,7 @@ extract_list_attrs(AllAttrs, Drop, Items, RestAttrs) :-
     ( select(drop(Drop), AllAttrs, A1) -> true ; Drop = 1, A1 = AllAttrs ),
     ( select(from(Items), A1, RestAttrs) -> true ; Items = [], RestAttrs = A1 ).
 
-use_ref(equate(Name)) --> "?", word(Name).
+use_ref(equate(Name)) --> "?", callable_name(Name).
 use_ref(var(Name)) --> ident(Name).
 
 partition_decls([], [], [], []).
@@ -308,6 +408,8 @@ partition_decls([global(N,T,I)|Is], Fs, Gs, [global(N,T,I)|Vs]) :-
 partition_decls([array(N,T,S)|Is], Fs, Gs, [array(N,T,S)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([window(N,T,A,C)|Is], Fs, Gs, [window(N,T,A,C)|Vs]) :-
+    partition_decls(Is, Fs, Gs, Vs).
+partition_decls([window(N,T)|Is], Fs, Gs, [window(N,T)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([queue(N,F)|Is], Fs, Gs, [queue(N,F)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
@@ -364,18 +466,54 @@ key_attr(dup) --> kw("DUP").
 record_block(Fields) -->
     word(_), ws, kw("RECORD"), ws,
     field_list(Fields), ws,
-    kw("END").
+    end_or_dot.
 
 %% --- GROUP attributes ---
 
 group_attrs(Prefix) --> ",", ws, kw("PRE"), ws, "(", ws, ident(Prefix), ws, ")".
 group_attrs(none) --> [].
 
-%% --- Field list (shared by RECORD and GROUP) ---
+%% --- Field list (shared by RECORD, GROUP, QUEUE) ---
 
 field_list(Fields) --> star(field_decl, Fields).
 
-field_decl(field(Name, Type)) --> word(Name), ws, type(Type).
+% Inline GROUP inside RECORD: Name GROUP[,OVER(x)][,PRE(x)] ... END
+field_decl(group(Name, Prefix, SubFields)) -->
+    field_name(Name), ws, kw("GROUP"), ws, !,
+    inline_group_attrs(Prefix), ws,
+    field_list(SubFields), ws,
+    end_or_dot.
+
+field_decl(field(Name, Type)) --> field_name(Name), ws, type(Type).
+
+% Field name: like ident but allows keywords (fields can be named Record, Date, etc.)
+% Supports colon-chains like Tag:Style, Dose_Ttl:Display:Style
+field_name(Name) -->
+    word(Part1),
+    ( ident_colon_start(Part1, FullName) ->
+        { Name = FullName }
+    ; { Name = Part1 }
+    ).
+
+% Inline GROUP attributes: ,OVER(x) and/or ,PRE(x)
+inline_group_attrs(Prefix) -->
+    ",", ws, kw("OVER"), ws, "(", ws, ident(_), ws, ")", ws,
+    ( ",", ws, kw("PRE"), ws, "(", ws, ident(Prefix), ws, ")" ; { Prefix = none } ).
+inline_group_attrs(Prefix) -->
+    ",", ws, kw("PRE"), ws, "(", ws, ident(Prefix), ws, ")".
+inline_group_attrs(none) --> [].
+
+% Group/Queue local attrs: handles ,OVER, ,PRE, ,TYPE in any combination
+group_local_attrs(Prefix) --> ",", ws, group_local_attr_list(Attrs),
+    { ( member(pre(P), Attrs) -> Prefix = P ; Prefix = none ) }.
+group_local_attrs(none) --> [].
+
+group_local_attr_list([A|As]) --> group_local_attr(A), ws,
+    ( ",", ws, group_local_attr_list(As) ; { As = [] } ).
+
+group_local_attr(type) --> kw("TYPE").
+group_local_attr(pre(Pre)) --> kw("PRE"), ws, "(", ws, ( ident(Pre) ; { Pre = none } ), ws, ")".
+group_local_attr(over(Name)) --> kw("OVER"), ws, "(", ws, ident(Name), ws, ")".
 
 %% ==========================================================================
 %% MAP block
@@ -384,13 +522,17 @@ field_decl(field(Name, Type)) --> word(Name), ws, type(Type).
 map_block(Entries) -->
     kw("MAP"), ws,
     star(map_entry_or_module, Entries), ws,
-    kw("END").
+    end_or_dot.
+
+% Optional MAP block — MEMBER files may not have one
+opt_map_block(Entries) --> map_block(Entries), !.
+opt_map_block([]) --> [].
 
 % MODULE('name') ... END
 map_entry_or_module(module_entry(ModName, Entries)) -->
     kw("MODULE"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")", ws,
     star(map_entry_or_module, Entries), ws,
-    kw("END"),
+    end_or_dot,
     { atom_codes(ModName, Cs) }.
 
 % Regular map entry
@@ -449,7 +591,7 @@ procedure(procedure(Name, Params, RetType, Locals, Body)) -->
     kw("PROCEDURE"), ws,
     proc_def_params(Params), ws,
     return_type(RetType), ws,
-    star(local_var, Locals), ws,
+    local_vars(Locals), ws,
     kw("CODE"), ws,
     statements(Body).
 
@@ -458,19 +600,48 @@ proc_def_params([]) --> [].
 
 routine(routine(Name, Body)) -->
     ident(Name), ws, kw("ROUTINE"), ws,
+    % Optional DATA section with local declarations
+    ( kw("DATA"), ws, local_vars(_), ws, kw("CODE"), ws ; [] ),
     statements(Body).
 
 return_type(RetType) --> ",", ws, type(RetType), ws.
 return_type(void) --> [].
 
 % Local variables between PROCEDURE line and CODE
+local_vars([L|Ls]) --> local_var(L), !, ws, local_vars(Ls).
+local_vars([]) --> [].
+
+% Local QUEUE declaration: Name QUEUE[(BaseType)][,PRE(x)][,TYPE]
+local_var(queue(Name, Fields)) -->
+    ident(Name), ws, kw("QUEUE"), ws, !,
+    ( "(", ws, word(_), ws, ")" ; [] ), ws,
+    queue_attrs(_), ws,
+    field_list(Fields), ws,
+    end_or_dot.
+
+% Local WINDOW declaration — parse title then skip body
+% Use callable_name instead of ident because the variable name may match the WINDOW keyword
+local_var(window(Name, Title)) -->
+    callable_name(Name), ws, kw("WINDOW"), ws, !,
+    "(", ws, "'", qchars(TCs), "'", ws, ")",
+    skip_window_body(1),
+    { atom_codes(Title, TCs) }.
+
+% Local GROUP declaration: Name GROUP[(BaseType)][,OVER(x)][,PRE(x)][,TYPE]
+local_var(group(Name, Prefix, Fields)) -->
+    ident(Name), ws, kw("GROUP"), ws, !,
+    ( "(", ws, word(_), ws, ")" ; [] ), ws,
+    group_local_attrs(Prefix), ws,
+    field_list(Fields), ws,
+    end_or_dot.
+
 local_var(local(Name, Type, Init)) -->
-    word(Name), ws, type(Type), ws,
+    ident(Name), ws, type(Type), ws,
     ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
 
 % Local instance variable: Name ClassName (where neither is a keyword or built-in type)
 local_var(instance_var(Name, ClassName)) -->
-    word(Name), { \+ is_keyword(Name) }, ws,
+    ident(Name), ws,
     word(ClassName), { \+ is_keyword(ClassName), \+ is_builtin_type(ClassName) }.
 
 is_builtin_type(Name) :-
@@ -513,7 +684,9 @@ type(string) --> kw("STRING").
 %% Statements
 %% ==========================================================================
 
-statements(Stmts) --> star(statement, Stmts).
+% Hand-rolled: supports optional semicolons between statements
+statements([S|Ss]) --> statement(S), !, ws, ( ";", ws ; [] ), statements(Ss).
+statements([]) --> [].
 
 statement(if(Cond, [Then], [])) -->
     kw("IF"), ws, expr(Cond), ws, kw("THEN"), ws, statement(Then), ws, ".".
@@ -523,47 +696,47 @@ statement(if(Cond, Then, Else)) -->
     kw("IF"), ws, expr(Cond), ws,
     statements(Then), ws,
     elsif_else(Else), ws,
-    kw("END").
+    end_or_dot.
 
 % LOOP var = start TO end / stmts / END
 statement(loop_for(Var, Start, End, Body)) -->
     kw("LOOP"), ws, ident(Var), ws, "=", ws, expr(Start), ws, kw("TO"), ws, expr(End), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 % LOOP WHILE cond / stmts / END
 statement(loop_while(Cond, Body)) -->
     kw("LOOP"), ws, kw("WHILE"), ws, expr(Cond), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 % LOOP UNTIL cond / stmts / END
 statement(loop_until(Cond, Body)) -->
     kw("LOOP"), ws, kw("UNTIL"), ws, expr(Cond), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 % LOOP / stmts / END
 statement(loop(Body)) -->
     kw("LOOP"), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 % CASE expr / OF val / stmts / ... / ELSE / stmts / END
 statement(case(Expr, Ofs, Else)) -->
     kw("CASE"), ws, expr(Expr), ws,
     star(of_block, Ofs), ws,
     case_else(Else), ws,
-    kw("END").
+    end_or_dot.
 
 % ACCEPT / stmts / END (GUI event loop)
 statement(accept(Body)) -->
     kw("ACCEPT"), ws,
     statements(Body), ws,
-    kw("END").
+    end_or_dot.
 
 statement(display) -->
-    kw("DISPLAY").
+    kw("DISPLAY"), ( ws, "(", ws, ")" ; [] ).
 
 statement(break) -->
     kw("BREAK").
@@ -589,14 +762,26 @@ statement(return) -->
 statement(self_assign(Prop, Expr)) -->
     kw("SELF"), ws, ".", ws, word(Prop), ws, "=", ws, expr(Expr).
 
+% SELF.Method(Args) (self method call)
+statement(self_call(Method, Args)) -->
+    kw("SELF"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")".
+
 % PARENT.Method(Args) (parent method call)
 statement(parent_call(Method, Args)) -->
     kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, comma_list(expr, Args), ws, ")".
 
 % Obj.Method(Args) (method call on instance variable)
+% No whitespace before "." — prevents consuming a dot-terminator across lines
 statement(method_call(Obj, Method, Args)) -->
-    word(Obj), ws, ".", ws, word(Method), ws, "(", ws, comma_list(expr, Args), ws, ")",
+    word(Obj), ".", word(Method), ws, "(", ws, expr_list(Args), ws, ")",
     { \+ is_keyword(Obj) }.
+
+% File{PROP:Name} = Expr (property assignment)
+statement(prop_assign(File, Prop, Expr)) -->
+    prop_target(File), ws, "{", ws, prop_ref(Prop), ws, "}", ws, "=", ws, expr(Expr).
+
+prop_target(equate(Name)) --> "?", callable_name(Name).
+prop_target(Name) --> word(Name).
 
 statement(assign(array_ref(Name, Index), Expr)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", ws, "=", ws, expr(Expr).
@@ -607,11 +792,21 @@ statement(assign(Var, Expr)) -->
 statement(assign(Var, add(var(Var), Expr))) -->
     ident(Var), ws, "+=", ws, expr(Expr).
 
+statement(assign(Var, sub(var(Var), Expr))) -->
+    ident(Var), ws, "-=", ws, expr(Expr).
+
+% SELF.Prop += Expr / SELF.Prop -= Expr
+statement(self_assign(Prop, add(self_access(Prop), Expr))) -->
+    kw("SELF"), ws, ".", ws, word(Prop), ws, "+=", ws, expr(Expr).
+
+statement(self_assign(Prop, sub(self_access(Prop), Expr))) -->
+    kw("SELF"), ws, ".", ws, word(Prop), ws, "-=", ws, expr(Expr).
+
 statement(call('DELETE', [var(Name)])) -->
     kw("DELETE"), ws, "(", ws, ident(Name), ws, ")".
 
 statement(call(Name, Args)) -->
-    word(Name), ws, "(", ws, comma_list(expr, Args), ws, ")".
+    callable_name(Name), ws, "(", ws, expr_list(Args), ws, ")".
 
 % ELSIF chain: wraps nested if() in a statement list
 elsif_else([if(Cond, Then, Rest)]) -->
@@ -640,11 +835,11 @@ case_else([]) --> [].
 expr(E) --> or_expr(E).
 
 or_expr(E) --> and_expr(L), ws, or_rest(L, E).
-or_rest(L, or(L, R)) --> kw("OR"), ws, and_expr(R).
+or_rest(L, E) --> kw("OR"), ws, and_expr(R), ws, or_rest(or(L, R), E).
 or_rest(E, E) --> [].
 
 and_expr(E) --> compare_expr(L), ws, and_rest(L, E).
-and_rest(L, and(L, R)) --> kw("AND"), ws, compare_expr(R).
+and_rest(L, E) --> kw("AND"), ws, compare_expr(R), ws, and_rest(and(L, R), E).
 and_rest(E, E) --> [].
 
 compare_expr(E) --> add_expr(L), ws, compare_rest(L, E).
@@ -670,7 +865,20 @@ mul_rest(E, E) --> [].
 
 primary(lit(N))    --> number(N), !.
 primary(lit(S))    --> "'", qchars(Cs), "'", { atom_codes(S, Cs) }, !.
-primary(equate(Name)) --> "?", word(Name), !.
+primary(equate(Name)) --> "?", callable_name(Name), !.
+
+% ~Expr (NOT / bitwise complement)
+primary(not(E))    --> "~", ws, primary(E), !.
+% NOT Expr
+primary(not(E))    --> kw("NOT"), ws, primary(E), !.
+
+% File{PROP:Name} (property access in expressions)
+primary(prop_access(File, Prop)) -->
+    prop_target(File), ws, "{", ws, prop_ref(Prop), ws, "}", !.
+
+% SELF.Method(Args) (self method call in expressions)
+primary(self_call(Method, Args)) -->
+    kw("SELF"), ws, ".", ws, word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
 
 % SELF.Prop (self property access in expressions)
 primary(self_access(Prop)) -->
@@ -681,16 +889,38 @@ primary(parent_call(Method, Args)) -->
     kw("PARENT"), ws, ".", ws, word(Method), ws, "(", ws, comma_list(expr, Args), ws, ")", !.
 
 % Obj.Method(Args) (method call on instance variable in expressions)
+% No whitespace before "." — prevents consuming a dot-terminator across lines
 primary(method_call(Obj, Method, Args)) -->
     word(Obj), { \+ is_keyword(Obj) },
-    ws, ".", ws, word(Method), ws, "(", ws, comma_list(expr, Args), ws, ")", !.
+    ".", word(Method), ws, "(", ws, expr_list(Args), ws, ")", !.
 
 primary(call(Name, Args)) -->
-    word(Name), ws, "(", ws, comma_list(expr, Args), ws, ")", !.
+    callable_name(Name), ws, "(", ws, expr_list(Args), ws, ")", !.
 primary(array_ref(Name, Index)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", !.
 primary(var(Name)) --> ident(Name), !.
 primary(E)         --> "(", ws, expr(E), ws, ")".
+
+% Hand-rolled expr_list: supports expr_or_omit for omitted args
+expr_list([E|Es]) --> expr(E), ws, expr_list_rest(Es).
+expr_list([]) --> [].
+
+expr_list_rest([E|Es]) --> ",", ws, expr_or_omit(E), ws, expr_list_rest(Es).
+expr_list_rest([]) --> [].
+
+% After a comma: expression or omitted argument (empty before next , or ))
+expr_or_omit(E) --> expr(E), !.
+expr_or_omit(omitted) --> [].  % empty — followed by , or )
+
+%% --- Property references (PROP:Name) ---
+
+prop_ref(Prop) -->
+    kw("PROP"), ws, ":", ws, word(Prop).
+
+%% --- Structure terminator: END or . ---
+
+end_or_dot --> kw("END"), !.
+end_or_dot --> ".".
 
 %% ==========================================================================
 %% Lexical rules
@@ -710,13 +940,42 @@ word(Name) -->
     { atom_codes(Name, [C|Cs]) }.
 
 % Identifier: word that is not a keyword
+% Handles colon-chains like O:R:OrigSITRecord, SAV::SIT:Record, and dot-notation
+% Also handles dot-member after colon chain: SRQ:Record.SIT_ID
 ident(Name) -->
     word(Part1),
-    ( ":", word(Part2) -> { atomic_list_concat([Part1, ':', Part2], Name) }
+    ( ident_colon_start(Part1, ColonName) ->
+        ( ".", word(Member) ->
+            { atomic_list_concat([ColonName, '.', Member], Name) }
+        ; { Name = ColonName }
+        )
     ; ".", word(Part2) -> { atomic_list_concat([Part1, '.', Part2], Name) }
     ; { Name = Part1 }
     ),
     { \+ is_keyword(Name) }.
+
+% Start a colon chain: at least one ":" after the first word
+ident_colon_start(Part1, Name) -->
+    ":", ( ":" -> { Sep = '::' } ; { Sep = ':' } ),
+    word(Part2), !,
+    { atomic_list_concat([Part1, Sep, Part2], Acc) },
+    ident_colon_rest(Acc, Name).
+
+ident_colon_rest(Acc, Result) -->
+    ":", ( ":" -> { Sep = '::' } ; { Sep = ':' } ),
+    word(Next), !,
+    { atomic_list_concat([Acc, Sep, Next], Acc2) },
+    ident_colon_rest(Acc2, Result).
+ident_colon_rest(Acc, Acc) --> [].
+
+% Callable name: like ident but allows keywords (for built-in functions like CLIP, MESSAGE, etc.)
+% Also allows colon-chains like SiteIO:Core
+callable_name(Name) -->
+    word(Part1),
+    ( ident_colon_start(Part1, FullName) ->
+        { Name = FullName }
+    ; { Name = Part1 }
+    ).
 
 ident_start(C) :- C >= 0'a, C =< 0'z.
 ident_start(C) :- C >= 0'A, C =< 0'Z.
@@ -733,12 +992,12 @@ is_keyword(Name) :-
     member(U, ['MEMBER','PROGRAM','MAP','END','PROCEDURE','CODE','RETURN',
                'LONG','CSTRING','NAME','EXPORT','FILE','DRIVER',
                'CREATE','PRE','RECORD','GROUP','MODULE','RAW','PASCAL',
-               'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET',
+               'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET','DATA',
                'NEXT','OPEN','CLOSE','GET','PUT','ADD','CLEAR',
                'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER',
                'TO','CASE','OF','DIM','AND','OR',
                'DELETE','KEY','PRIMARY','OWNER',
-               'WINDOW','ACCEPT','DISPLAY','ACCEPTED',
+               'ACCEPT','DISPLAY','ACCEPTED',
                'PROMPT','ENTRY','BUTTON','STRING','LIST','AT','USE',
                'CENTER','DROP','FROM','CHOICE','SELECT',
                'WHILE','UNTIL','ELSIF','CYCLE','DO','ROUTINE','EXIT',
@@ -747,17 +1006,39 @@ is_keyword(Name) :-
                'QUEUE','FREE','SORT','RECORDS','NOT',
                'CLASS','TYPE','VIRTUAL','SELF','PARENT']).
 
-% Integer literal
+% Integer literal (decimal or hex with 'h' suffix like 22h, 0FFh)
 number(N) -->
-    ( "-", { Sign = [0'-] } ; { Sign = [] } ),
-    digit(D), digits(Ds),
-    { append(Sign, [D|Ds], Codes), number_codes(N, Codes) }.
+    ( "-", { Sign = -1 } ; { Sign = 1 } ),
+    ( hex_number(V), ! ; decimal_number(V) ),
+    { N is Sign * V }.
+
+decimal_number(N) --> digit(D), digits(Ds), { number_codes(N, [D|Ds]) }.
+
+% Hex literal: must start with decimal digit (0-9), then hex digits, ending with h/H
+hex_number(N) -->
+    digit(D), hex_digits_rest(Ds), ( "h" ; "H" ),
+    { hex_digits_value([D|Ds], 0, N) }.
+
+hex_digit(C) --> [C], { C >= 0'0, C =< 0'9 ; C >= 0'a, C =< 0'f ; C >= 0'A, C =< 0'F }.
+hex_digits_rest([D|Ds]) --> hex_digit(D), !, hex_digits_rest(Ds).
+hex_digits_rest([]) --> [].
+
+hex_digits_value([], Acc, Acc).
+hex_digits_value([C|Cs], Acc, V) :-
+    hex_digit_val(C, DV),
+    Acc1 is Acc * 16 + DV,
+    hex_digits_value(Cs, Acc1, V).
+
+hex_digit_val(C, V) :- C >= 0'0, C =< 0'9, !, V is C - 0'0.
+hex_digit_val(C, V) :- C >= 0'a, C =< 0'f, !, V is C - 0'a + 10.
+hex_digit_val(C, V) :- C >= 0'A, C =< 0'F, V is C - 0'A + 10.
 
 digit(D) --> [D], { D >= 0'0, D =< 0'9 }.
 digits([D|Ds]) --> digit(D), !, digits(Ds).
 digits([]) --> [].
 
 % Quoted characters (returns code list)
+qchars([0''|Cs]) --> "'", "'", !, qchars(Cs).  % '' escaped quote
 qchars([C|Cs]) --> [C], { C \= 0'' }, !, qchars(Cs).
 qchars([]) --> [].
 
