@@ -500,11 +500,11 @@ format_ast(Term, Indent) -->
     { Term =.. [Functor|Args],
       NextIndent is Indent + 1 },
     html(span(class('ast-functor'), Functor)),
-    ( { Args = [] } -> html('') ; \format_ast_args(Args, NextIndent) ).
+    ( { Args = [] } -> html('') ; format_ast_args(Args, NextIndent) ).
 format_ast(List, Indent) -->
     { is_list(List) },
     !,
-    \format_ast_list(List, Indent).
+    format_ast_list(List, Indent).
 format_ast(N, _) -->
     { number(N) },
     !,
@@ -529,31 +529,31 @@ format_ast_args(Args, Indent) -->
     html('('),
     ( { length(Args, Len), Len =< 2, all_simple(Args) } ->
         % Inline short args
-        \format_ast_inline(Args, Indent)
+        format_ast_inline(Args, Indent)
     ;
         html('\n'),
-        \format_ast_indented(Args, Indent)
+        format_ast_indented(Args, Indent)
     ),
     html(')').
 
 format_ast_inline([], _) --> [].
 format_ast_inline([Arg], Indent) -->
-    \format_ast(Arg, Indent).
+    format_ast(Arg, Indent).
 format_ast_inline([Arg|Rest], Indent) -->
     { Rest \= [] },
-    \format_ast(Arg, Indent),
+    format_ast(Arg, Indent),
     html(', '),
     format_ast_inline(Rest, Indent).
 
 format_ast_indented([], _) --> [].
 format_ast_indented([Arg], Indent) -->
-    \indent_html(Indent),
-    \format_ast(Arg, Indent),
+    indent_html(Indent),
+    format_ast(Arg, Indent),
     html('\n').
 format_ast_indented([Arg|Rest], Indent) -->
     { Rest \= [] },
-    \indent_html(Indent),
-    \format_ast(Arg, Indent),
+    indent_html(Indent),
+    format_ast(Arg, Indent),
     html(',\n'),
     format_ast_indented(Rest, Indent).
 
@@ -568,7 +568,7 @@ format_ast_list(List, Indent) -->
     { NextIndent is Indent + 1 },
     html(span(class('ast-list'), '[\n')),
     format_ast_indented(List, NextIndent),
-    \indent_html(Indent),
+    indent_html(Indent),
     html(span(class('ast-list'), ']')).
 
 all_simple([]).
