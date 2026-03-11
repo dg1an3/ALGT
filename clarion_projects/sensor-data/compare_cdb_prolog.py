@@ -17,7 +17,7 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CDB = r"C:\Program Files (x86)\Windows Kits\10\Debuggers\x86\cdb.exe"
 PYTHON32 = os.path.expanduser(r"~\.pyenv\pyenv-win\versions\3.11.9-win32\python.exe")
-PROLOG_DIR = os.path.join(SCRIPT_DIR, "..", "..", "clarion_simulators", "prolog-interp")
+PROLOG_DIR = os.path.join(SCRIPT_DIR, "..", "..", "clarion_simulators", "unified")
 
 
 def run_cdb_trace():
