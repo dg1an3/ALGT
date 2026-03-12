@@ -26,8 +26,8 @@ import glob
 PICBUF_FMT = '<hBBBBBBBi12s'
 PICBUF_SIZE = struct.calcsize(PICBUF_FMT)
 
-# DecodeBuf: SHORT(2) + BYTE*6(6) = 8 bytes
-DECODEBUF_FMT = '<hBBBBBB'
+# DecodeBuf: SHORT(2) + BYTE*7(7) = 9 bytes
+DECODEBUF_FMT = '<hBBBBBBB'
 DECODEBUF_SIZE = struct.calcsize(DECODEBUF_FMT)
 
 

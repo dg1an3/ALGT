@@ -1,18 +1,41 @@
-<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <ClarionVersion>11.1</ClarionVersion>
+    <ProjectGuid>{C3D4E5F6-A7B8-9012-CDEF-AB3456789012}</ProjectGuid>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">Win32</Platform>
     <OutputType>Library</OutputType>
-    <Model>Dll</Model>
+    <RootNamespace>PicDB</RootNamespace>
     <AssemblyName>PicDB</AssemblyName>
+    <OutputName>PicDB</OutputName>
+    <Model>Dll</Model>
+    <RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
+    <stack_size>16384</stack_size>
+    <CopyCore>True</CopyCore>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>True</DebugSymbols>
+    <DebugType>Full</DebugType>
+    <vid>full</vid>
+    <check_stack>True</check_stack>
+    <check_index>True</check_index>
     <OutputPath>bin\</OutputPath>
-    <IntermediateOutputPath>obj\</IntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>False</DebugSymbols>
+    <DebugType>None</DebugType>
+    <vid>min</vid>
+    <check_stack>False</check_stack>
+    <check_index>False</check_index>
+    <OutputPath>bin\</OutputPath>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="PicDB.clw" />
   </ItemGroup>
   <ItemGroup>
-    <Library Include="C:\Clarion11.1\bin\ClaDOS.lib" />
+    <ExpFile Include="PicDB.exp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="C:\Clarion11.1\Lib\ClaDOS.lib" />
   </ItemGroup>
   <Import Project="C:\Clarion11.1\bin\SoftVelocity.Build.Clarion.targets" />
 </Project>

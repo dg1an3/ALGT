@@ -196,7 +196,7 @@ def main():
     # =========================================================
     # Combined transforms: Pitch + Translate
     # Pitch 90 then Translate(0,0,5), transform (0,1,0)
-    # Pitch: (0,1,0) -> (0,0,1), then add translate: (0,0,6)
+    # Pitch: (0,1,0) -> (0,0,-1), then add translate: (0,0,4)
     # =========================================================
     print("=== Combined: Pitch + Translate ===")
     lib.G3Init()
@@ -206,7 +206,7 @@ def main():
     lib.G3Transform()
     check("Pitch+Trans x", lib.G3GetPtX(), 0, tol=2)
     check("Pitch+Trans y", lib.G3GetPtY(), 0, tol=2)
-    check("Pitch+Trans z", lib.G3GetPtZ(), fp(6.0), tol=2)
+    check("Pitch+Trans z", lib.G3GetPtZ(), fp(4.0), tol=2)
 
     # =========================================================
     # G3SetMatrix / G3GetMatrix
