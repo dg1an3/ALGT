@@ -51,11 +51,18 @@
       GraphGetMajorX(),REAL,C,NAME('GraphGetMajorX')
       GraphGetMajorY(),REAL,C,NAME('GraphGetMajorY')
     END
+    MODULE('GDI32')
+      GdiSetPixel(LONG hdc, LONG x, LONG y, LONG color),LONG,PASCAL,NAME('SetPixel')
+    END
+    MODULE('USER32')
+      GetDC(LONG hwnd),LONG,PASCAL,NAME('GetDC')
+      ReleaseDC(LONG hwnd, LONG hdc),LONG,PASCAL,NAME('ReleaseDC')
+    END
     GenerateTestData()
     DrawDoseOverlay()
     DrawDVH()
     UpdateDisplay()
-    EXP(REAL),REAL
+    LocalExp(REAL),REAL
   END
 
 ! --- Rainbow colormap ---
@@ -122,10 +129,10 @@ MainWin WINDOW('PenBeam Edit'),AT(,,800,500),SYSTEM,MAX,RESIZE
   END
 
 ! ============================================================================
-! EXP function (Taylor series)
+! LocalExp - Taylor series exp(val) since Clarion has no built-in EXP
 ! ============================================================================
 
-EXP PROCEDURE(REAL val)
+LocalExp PROCEDURE(REAL val)
 Result REAL(1)
 Term   REAL(1)
 I      LONG
@@ -181,12 +188,12 @@ DoseVal  REAL
 
   ! 99 pencil beams with Gaussian weights
   LOOP I = 1 TO 99
-    Weight = 1.0 / SQRT(2 * PI * SIGMA) * EXP(-1.0 * (50 - I) * (50 - I) / (SIGMA * SIGMA))
+    Weight = 1.0 / SQRT(2 * PI * SIGMA) * LocalExp(-1.0 * (50 - I) * (50 - I) / (SIGMA * SIGMA))
     BeamIdx = PlanAddBeam(Weight, 0, 0, 0)
     LOOP Y = 0 TO GridW - 1
       LOOP X = 0 TO GridW - 1
         Dist = ABS(X - I * GridW / 100.0)
-        DoseVal = EXP(-Dist * Dist / 8.0) * EXP(-Y * 0.03)
+        DoseVal = LocalExp(-Dist * Dist / 8.0) * LocalExp(-Y * 0.03)
         PlanSetBeamDose(BeamIdx, X, Y, 0, DoseVal)
       END
     END
@@ -211,7 +218,7 @@ UpdateDisplay PROCEDURE()
   RETURN
 
 ! ============================================================================
-! Draw dose/density overlay on left IMAGE
+! Draw dose/density overlay on left IMAGE using GDI SetPixel
 ! ============================================================================
 
 DrawDoseOverlay PROCEDURE()
@@ -231,9 +238,15 @@ DrawX     LONG
 DrawY     LONG
 DX        LONG
 DY        LONG
+hWnd      LONG
+hDC       LONG
   CODE
   IF DataLoaded = 0 THEN RETURN.
   IF GridSize = 0 THEN RETURN.
+
+  hWnd = ?DoseImage{PROP:Handle}
+  hDC = GetDC(hWnd)
+  IF hDC = 0 THEN RETURN.
 
   ImgW = ?DoseImage{PROP:Width}
   ImgH = ?DoseImage{PROP:Height}
@@ -265,15 +278,17 @@ DY        LONG
       DrawY = Y * PxSz
       LOOP DY = 0 TO PxSz - 1
         LOOP DX = 0 TO PxSz - 1
-          ?DoseImage{PROP:Pixel, DrawX + DX, DrawY + DY} = PixColor
+          GdiSetPixel(hDC, DrawX + DX, DrawY + DY, PixColor)
         END
       END
     END
   END
+
+  ReleaseDC(hWnd, hDC)
   RETURN
 
 ! ============================================================================
-! Draw DVH graph on right IMAGE
+! Draw DVH graph on right IMAGE using GDI SetPixel
 ! ============================================================================
 
 DrawDVH PROCEDURE()
@@ -294,8 +309,14 @@ TickX      REAL
 TickY      REAL
 TX         LONG
 TY         LONG
+hWnd       LONG
+hDC        LONG
   CODE
   IF DataLoaded = 0 THEN RETURN.
+
+  hWnd = ?DVHImage{PROP:Handle}
+  hDC = GetDC(hWnd)
+  IF hDC = 0 THEN RETURN.
 
   ImgW = ?DVHImage{PROP:Width}
   ImgH = ?DVHImage{PROP:Height}
@@ -304,7 +325,7 @@ TY         LONG
   PixColor = 0FFFFFFh   ! White
   LOOP TY = 0 TO ImgH - 1
     LOOP TX = 0 TO ImgW - 1
-      ?DVHImage{PROP:Pixel, TX, TY} = PixColor
+      GdiSetPixel(hDC, TX, TY, PixColor)
     END
   END
 
@@ -329,7 +350,7 @@ TY         LONG
     TX = GraphToPixelX(TickX, ImgW)
     IF TX >= 0 AND TX < ImgW
       LOOP TY = 0 TO ImgH - 1
-        ?DVHImage{PROP:Pixel, TX, TY} = PixColor
+        GdiSetPixel(hDC, TX, TY, PixColor)
       END
     END
     TickX += 200
@@ -339,7 +360,7 @@ TY         LONG
     TY = GraphToPixelY(TickY, ImgH)
     IF TY >= 0 AND TY < ImgH
       LOOP TX = 0 TO ImgW - 1
-        ?DVHImage{PROP:Pixel, TX, TY} = PixColor
+        GdiSetPixel(hDC, TX, TY, PixColor)
       END
     END
     TickY += 20
@@ -354,9 +375,9 @@ TY         LONG
       PtY1 = GraphToPixelY(GraphGetPointY(SeriesIdx, I), ImgH)
       PtX2 = GraphToPixelX(GraphGetPointX(SeriesIdx, I+1), ImgW)
       PtY2 = GraphToPixelY(GraphGetPointY(SeriesIdx, I+1), ImgH)
-      ! Draw line segment using Bresenham-like stepping
+      ! Draw line segment using linear interpolation
       IF PtX1 >= 0 AND PtX1 < ImgW AND PtY1 >= 0 AND PtY1 < ImgH
-        ?DVHImage{PROP:Pixel, PtX1, PtY1} = PixColor
+        GdiSetPixel(hDC, PtX1, PtY1, PixColor)
       END
       ! Simple horizontal stepping (DVH X is monotonically increasing)
       IF PtX2 > PtX1 AND PtX2 - PtX1 > 0
@@ -367,10 +388,10 @@ TY         LONG
             TY = PtY1
           END
           IF TX >= 0 AND TX < ImgW AND TY >= 0 AND TY < ImgH
-            ?DVHImage{PROP:Pixel, TX, TY} = PixColor
+            GdiSetPixel(hDC, TX, TY, PixColor)
             ! Make line 2px thick
             IF TY + 1 < ImgH
-              ?DVHImage{PROP:Pixel, TX, TY + 1} = PixColor
+              GdiSetPixel(hDC, TX, TY + 1, PixColor)
             END
           END
         END
@@ -378,4 +399,5 @@ TY         LONG
     END
   END
 
+  ReleaseDC(hWnd, hDC)
   RETURN

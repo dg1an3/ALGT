@@ -10,7 +10,6 @@
 ! ============================================================================
 
   INCLUDE('EQUATES.CLW')
-  INCLUDE('PROPERTY.CLW')
 
   MAP
     MODULE('RtModelLib')
