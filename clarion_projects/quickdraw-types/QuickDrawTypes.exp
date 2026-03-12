@@ -1,0 +1,13 @@
+EXPORTS
+  QDSetPt
+  QDEqualPt
+  QDAddPt
+  QDSubPt
+  QDSetRect
+  QDEqualRect
+  QDEmptyRect
+  QDOffsetRect
+  QDInsetRect
+  QDSectRect
+  QDUnionRect
+  QDPtInRect

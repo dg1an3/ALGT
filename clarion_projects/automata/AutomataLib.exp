@@ -1,0 +1,11 @@
+EXPORTS
+  CAInit
+  CASetRule
+  CAGetRule
+  CASetCell
+  CAGetCell
+  CAStep
+  CASpatialEntropy
+  CATemporalEntropy
+  CASetRuleFromHex
+  CAGetCellCount
