@@ -1,0 +1,27 @@
+  NAME('MtlLib')
+
+  MAP
+    MODULE('MtlLib')
+      VNCreate(LONG),LONG,C,NAME('VNCreate')
+      VNFree(LONG),LONG,C,NAME('VNFree')
+      VNGetDim(LONG),LONG,C,NAME('VNGetDim')
+      VNSetElement(LONG, LONG, REAL),LONG,C,NAME('VNSetElement')
+      VNGetElement(LONG, LONG),REAL,C,NAME('VNGetElement')
+      VNSetZero(LONG),LONG,C,NAME('VNSetZero')
+      VNGetLength(LONG),REAL,C,NAME('VNGetLength')
+      VNDotProduct(LONG, LONG),REAL,C,NAME('VNDotProduct')
+      VNScale(LONG, REAL),LONG,C,NAME('VNScale')
+      VNAddInPlace(LONG, LONG),LONG,C,NAME('VNAddInPlace')
+      VNCopy(LONG),LONG,C,NAME('VNCopy')
+      M4Create(),LONG,C,NAME('M4Create')
+      M4Free(LONG),LONG,C,NAME('M4Free')
+      M4SetIdentity(LONG),LONG,C,NAME('M4SetIdentity')
+      M4SetElement(LONG, LONG, LONG, REAL),LONG,C,NAME('M4SetElement')
+      M4GetElement(LONG, LONG, LONG),REAL,C,NAME('M4GetElement')
+      M4Multiply(LONG, LONG),LONG,C,NAME('M4Multiply')
+      M4Transpose(LONG),LONG,C,NAME('M4Transpose')
+      MtlSqrt(REAL),REAL,C,NAME('MtlSqrt')
+      MtlExp(REAL),REAL,C,NAME('MtlExp')
+      MtlPi(),REAL,C,NAME('MtlPi')
+    END
+  END

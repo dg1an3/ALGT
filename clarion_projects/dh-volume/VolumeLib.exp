@@ -1,0 +1,20 @@
+  NAME('VolumeLib')
+
+  MAP
+    MODULE('VolumeLib')
+      VolCreate(LONG, LONG, LONG),LONG,C,NAME('VolCreate')
+      VolFree(LONG),LONG,C,NAME('VolFree')
+      VolGetWidth(LONG),LONG,C,NAME('VolGetWidth')
+      VolGetHeight(LONG),LONG,C,NAME('VolGetHeight')
+      VolGetDepth(LONG),LONG,C,NAME('VolGetDepth')
+      VolSetVoxel(LONG, LONG, LONG, LONG, REAL),LONG,C,NAME('VolSetVoxel')
+      VolGetVoxel(LONG, LONG, LONG, LONG),REAL,C,NAME('VolGetVoxel')
+      VolClear(LONG),LONG,C,NAME('VolClear')
+      VolAccumulate(LONG, LONG, REAL),LONG,C,NAME('VolAccumulate')
+      VolGetMax(LONG),REAL,C,NAME('VolGetMax')
+      VolGetMin(LONG),REAL,C,NAME('VolGetMin')
+      VolGetSum(LONG),REAL,C,NAME('VolGetSum')
+      VolScale(LONG, REAL),LONG,C,NAME('VolScale')
+      VolNormalize(LONG),LONG,C,NAME('VolNormalize')
+    END
+  END

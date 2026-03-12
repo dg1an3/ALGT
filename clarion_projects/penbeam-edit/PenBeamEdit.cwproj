@@ -1,0 +1,39 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{D1A2B3C4-E5F6-7890-ABCD-100000000006}</ProjectGuid>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">Win32</Platform>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PenBeamEdit</RootNamespace>
+    <AssemblyName>PenBeamEdit</AssemblyName>
+    <OutputName>PenBeamEdit</OutputName>
+    <Model>Exe</Model>
+    <RunPostBuildEvent>OnBuildSuccess</RunPostBuildEvent>
+    <stack_size>16384</stack_size>
+    <CopyCore>True</CopyCore>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>True</DebugSymbols>
+    <DebugType>Full</DebugType>
+    <vid>full</vid>
+    <check_stack>True</check_stack>
+    <check_index>True</check_index>
+    <OutputPath>bin\</OutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>False</DebugSymbols>
+    <DebugType>None</DebugType>
+    <vid>min</vid>
+    <check_stack>False</check_stack>
+    <check_index>False</check_index>
+    <OutputPath>bin\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="PenBeamEdit.clw" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="..\dh-rtmodel\bin\RtModelLib.lib" />
+    <Library Include="..\dh-graph\bin\GraphLib.lib" />
+  </ItemGroup>
+  <Import Project="C:\Clarion11.1\bin\SoftVelocity.Build.Clarion.targets" />
+</Project>
