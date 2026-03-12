@@ -1,0 +1,16 @@
+EXPORTS
+  GUBitAnd
+  GUBitOr
+  GUBitXor
+  GUBitNot
+  GUBitShift
+  GUBitTst
+  GUBitSet
+  GUBitClr
+  GULongMulHi
+  GULongMulLo
+  GUFixMul
+  GUFixRatio
+  GUHiWord
+  GULoWord
+  GUFixRound

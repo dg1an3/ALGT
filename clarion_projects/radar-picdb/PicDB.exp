@@ -1,0 +1,10 @@
+EXPORTS
+  PDOpen
+  PDClose
+  PDAddPicture
+  PDGetPicture
+  PDGetPictureCount
+  PDDeletePicture
+  PDEncodeFileName
+  PDDecodeFileName
+  PDFindByParams

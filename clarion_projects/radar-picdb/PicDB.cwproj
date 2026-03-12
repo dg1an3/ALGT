@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ClarionVersion>11.1</ClarionVersion>
+    <OutputType>Library</OutputType>
+    <Model>Dll</Model>
+    <AssemblyName>PicDB</AssemblyName>
+    <OutputPath>bin\</OutputPath>
+    <IntermediateOutputPath>obj\</IntermediateOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="PicDB.clw" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="C:\Clarion11.1\bin\ClaDOS.lib" />
+  </ItemGroup>
+  <Import Project="C:\Clarion11.1\bin\SoftVelocity.Build.Clarion.targets" />
+</Project>

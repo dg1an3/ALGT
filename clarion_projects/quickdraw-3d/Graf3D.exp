@@ -1,0 +1,15 @@
+EXPORTS
+  G3Init
+  G3SetPt
+  G3GetPtX
+  G3GetPtY
+  G3GetPtZ
+  G3Identity
+  G3Scale
+  G3Translate
+  G3Pitch
+  G3Yaw
+  G3Roll
+  G3Transform
+  G3GetMatrix
+  G3SetMatrix
