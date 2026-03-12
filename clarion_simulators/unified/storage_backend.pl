@@ -1,11 +1,14 @@
 %============================================================
-% storage_backend.pl - Storage Backend Dispatcher
+% storage_backend.pl - Storage Backend Dispatcher (Logtalk Bridge)
+%
+% Thin Prolog module wrapper that delegates to Logtalk
+% storage_dispatcher and storage_memory objects.
 %
 % Routes file operations to appropriate backend based on
 % DRIVER attribute:
-%   - ODBC/ADO → storage_odbc.pl (database)
-%   - ASCII/BASIC → storage_csv.pl (CSV files)
-%   - TOPSPEED/none → storage_memory.pl (in-memory)
+%   - ODBC/ADO → storage_odbc (database)
+%   - ASCII/BASIC → storage_csv (CSV files)
+%   - TOPSPEED/none → storage_memory (in-memory)
 %============================================================
 
 :- module(storage_backend, [
@@ -21,102 +24,75 @@
     storage_records/3,
     storage_empty/3,
     storage_clear/3,
-    get_backend/2
+    get_backend/2,
+    ensure_logtalk_backends/0
 ]).
 
-:- use_module(storage_memory).
-:- use_module(storage_csv).
-:- use_module(storage_odbc).
+:- use_module(library(logtalk)).
 
-% Backend Selection
-get_backend(Driver, odbc) :-
-    atom(Driver), atom_string(Driver, DriverStr),
-    ( DriverStr = "ODBC" ; DriverStr = "ADO" ), !.
-get_backend(Driver, csv) :-
-    atom(Driver), atom_string(Driver, DriverStr),
-    ( DriverStr = "ASCII" ; DriverStr = "BASIC" ), !.
-get_backend(_, memory).
+%% ensure_logtalk_backends is det.
+%  Loads the Logtalk storage/UI backend objects if not already loaded.
+:- dynamic logtalk_backends_loaded/0.
 
-% OPEN
+ensure_logtalk_backends :-
+    logtalk_backends_loaded, !.
+ensure_logtalk_backends :-
+    logtalk_load([
+        storage_protocol,
+        ui_protocol,
+        storage_memory,
+        storage_csv,
+        storage_odbc,
+        storage_dispatcher,
+        ui_simulation,
+        ui_dispatcher
+    ]),
+    assert(logtalk_backends_loaded).
+
+:- ensure_logtalk_backends.
+
+% Backend Selection — delegates to storage_dispatcher Logtalk object
+get_backend(Driver, Backend) :-
+    storage_dispatcher::get_backend(Driver, BackendObj),
+    backend_atom(BackendObj, Backend).
+
+backend_atom(storage_memory, memory).
+backend_atom(storage_csv, csv).
+backend_atom(storage_odbc, odbc).
+
+% All operations delegate to storage_dispatcher Logtalk object
 storage_open(Driver, FileName, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_open(B, FileName, FSIn, FSOut).
-dispatch_open(memory, _, FSIn, FSOut) :- storage_memory:mem_open(FSIn, FSOut).
-dispatch_open(csv, FN, FSIn, FSOut) :- storage_csv:csv_open(FN, FSIn, FSOut).
-dispatch_open(odbc, FN, FSIn, FSOut) :- storage_odbc:odbc_open(FN, FSIn, FSOut).
+    storage_dispatcher::open(Driver, FileName, FSIn, FSOut).
 
-% CLOSE
 storage_close(Driver, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_close(B, FSIn, FSOut).
-dispatch_close(memory, FSIn, FSOut) :- storage_memory:mem_close(FSIn, FSOut).
-dispatch_close(csv, FSIn, FSOut) :- storage_csv:csv_close(FSIn, FSOut).
-dispatch_close(odbc, FSIn, FSOut) :- storage_odbc:odbc_close(FSIn, FSOut).
+    storage_dispatcher::close(Driver, FSIn, FSOut).
 
-% CREATE
 storage_create(Driver, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_create(B, FSIn, FSOut).
-dispatch_create(memory, FS, FS).
-dispatch_create(csv, FSIn, FSOut) :- storage_csv:csv_create(FSIn, FSOut).
-dispatch_create(odbc, FS, FS).
+    storage_dispatcher::create(Driver, FSIn, FSOut).
 
-% ADD
 storage_add(Driver, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_add(B, FSIn, FSOut).
-dispatch_add(memory, FSIn, FSOut) :- storage_memory:mem_add(FSIn, FSOut).
-dispatch_add(csv, FSIn, FSOut) :- storage_csv:csv_add(FSIn, FSOut).
-dispatch_add(odbc, FSIn, FSOut) :- storage_odbc:odbc_add(FSIn, FSOut).
+    storage_dispatcher::add(Driver, FSIn, FSOut).
 
-% GET
-storage_get(Driver, KI, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_get(B, KI, FSIn, FSOut).
-dispatch_get(memory, KI, FSIn, FSOut) :- storage_memory:mem_get(KI, FSIn, FSOut).
-dispatch_get(csv, KI, FSIn, FSOut) :- storage_csv:csv_get(KI, FSIn, FSOut).
-dispatch_get(odbc, KI, FSIn, FSOut) :- storage_odbc:odbc_get(KI, FSIn, FSOut).
+storage_get(Driver, KeyInfo, FSIn, FSOut) :-
+    storage_dispatcher::get(Driver, KeyInfo, FSIn, FSOut).
 
-% PUT
 storage_put(Driver, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_put(B, FSIn, FSOut).
-dispatch_put(memory, FSIn, FSOut) :- storage_memory:mem_put(FSIn, FSOut).
-dispatch_put(csv, FSIn, FSOut) :- storage_csv:csv_put(FSIn, FSOut).
-dispatch_put(odbc, FSIn, FSOut) :- storage_odbc:odbc_put(FSIn, FSOut).
+    storage_dispatcher::put(Driver, FSIn, FSOut).
 
-% DELETE
 storage_delete(Driver, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_delete(B, FSIn, FSOut).
-dispatch_delete(memory, FSIn, FSOut) :- storage_memory:mem_delete(FSIn, FSOut).
-dispatch_delete(csv, FSIn, FSOut) :- storage_csv:csv_delete(FSIn, FSOut).
-dispatch_delete(odbc, FSIn, FSOut) :- storage_odbc:odbc_delete(FSIn, FSOut).
+    storage_dispatcher::delete(Driver, FSIn, FSOut).
 
-% NEXT
 storage_next(Driver, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_next(B, FSIn, FSOut).
-dispatch_next(memory, FSIn, FSOut) :- storage_memory:mem_next(FSIn, FSOut).
-dispatch_next(csv, FSIn, FSOut) :- storage_csv:csv_next(FSIn, FSOut).
-dispatch_next(odbc, FSIn, FSOut) :- storage_odbc:odbc_next(FSIn, FSOut).
+    storage_dispatcher::next(Driver, FSIn, FSOut).
 
-% SET
 storage_set(Driver, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_set(B, FSIn, FSOut).
-dispatch_set(memory, FSIn, FSOut) :- storage_memory:mem_set(FSIn, FSOut).
-dispatch_set(csv, FSIn, FSOut) :- storage_csv:csv_set(FSIn, FSOut).
-dispatch_set(odbc, FSIn, FSOut) :- storage_odbc:odbc_set(FSIn, FSOut).
+    storage_dispatcher::set(Driver, FSIn, FSOut).
 
-% RECORDS
 storage_records(Driver, FS, Count) :-
-    get_backend(Driver, B), dispatch_records(B, FS, Count).
-dispatch_records(memory, FS, C) :- storage_memory:mem_records(FS, C).
-dispatch_records(csv, FS, C) :- storage_csv:csv_records(FS, C).
-dispatch_records(odbc, FS, C) :- storage_odbc:odbc_records(FS, C).
+    storage_dispatcher::records(Driver, FS, Count).
 
-% EMPTY
 storage_empty(Driver, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_empty(B, FSIn, FSOut).
-dispatch_empty(memory, FSIn, FSOut) :- storage_memory:mem_empty(FSIn, FSOut).
-dispatch_empty(csv, FSIn, FSOut) :- storage_csv:csv_empty(FSIn, FSOut).
-dispatch_empty(odbc, FSIn, FSOut) :- storage_odbc:odbc_empty(FSIn, FSOut).
+    storage_dispatcher::empty(Driver, FSIn, FSOut).
 
-% CLEAR
 storage_clear(Driver, FSIn, FSOut) :-
-    get_backend(Driver, B), dispatch_clear(B, FSIn, FSOut).
-dispatch_clear(memory, FSIn, FSOut) :- storage_memory:mem_clear(FSIn, FSOut).
-dispatch_clear(csv, FSIn, FSOut) :- storage_csv:csv_clear(FSIn, FSOut).
-dispatch_clear(odbc, FSIn, FSOut) :- storage_odbc:odbc_clear(FSIn, FSOut).
+    storage_dispatcher::clear(Driver, FSIn, FSOut).

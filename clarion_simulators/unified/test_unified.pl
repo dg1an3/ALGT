@@ -14,13 +14,7 @@
 :- use_module(execution_tracer).
 :- use_module(scenario_dsl).
 :- use_module(storage_backend).
-:- use_module(storage_memory, [
-    mem_open/2, mem_close/2, mem_add/2, mem_get/3, mem_put/2,
-    mem_delete/2, mem_next/2, mem_set/2, mem_records/2,
-    mem_empty/2, mem_clear/2
-]).
 :- use_module(ui_backend).
-:- use_module(ui_simulation).
 
 :- dynamic test_count/1, pass_count/1, fail_count/1.
 test_count(0). pass_count(0). fail_count(0).
@@ -671,7 +665,6 @@ test_map_proto_arity :-
     check('MAP proto arity: 0, 1, 3 params', ok, ok).
 
 %------------------------------------------------------------
-<<<<<<< HEAD
 % String Builtin Tests
 %------------------------------------------------------------
 
@@ -934,55 +927,54 @@ test_storage_memory_lifecycle :-
     Keys = [key('IDKey', ['ID'])],
     FS0 = file_state(sensors, 'S', Keys, Fields, [], [0, 0], -1, false),
     % Open
-    mem_open(FS0, FS1),
+    storage_memory::open(FS0, FS1),
     FS1 = file_state(_, _, _, _, _, _, _, IsOpen1),
     check('mem_open sets open', IsOpen1, true),
     % Clear buffer and set values for add
-    mem_clear(FS1, FS2),
+    storage_memory::clear(FS1, FS2),
     FS2 = file_state(N2, Pre2, K2, F2, R2, _, P2, O2),
     FSWithData = file_state(N2, Pre2, K2, F2, R2, [1, 100], P2, O2),
     % Add a record
-    mem_add(FSWithData, FS3),
-    mem_records(FS3, Count1),
+    storage_memory::add(FSWithData, FS3),
+    storage_memory::records(FS3, Count1),
     check('mem_add 1 record', Count1, 1),
     % Add a second record
     FS3 = file_state(N3, Pre3, K3, F3, R3, _, _, O3),
     FSWithData2 = file_state(N3, Pre3, K3, F3, R3, [2, 200], -1, O3),
-    mem_add(FSWithData2, FS4),
-    mem_records(FS4, Count2),
+    storage_memory::add(FSWithData2, FS4),
+    storage_memory::records(FS4, Count2),
     check('mem_add 2 records', Count2, 2),
     % SET resets position
-    mem_set(FS4, FS5),
+    storage_memory::set(FS4, FS5),
     FS5 = file_state(_, _, _, _, _, _, Pos5, _),
     check('mem_set resets pos', Pos5, -1),
     % NEXT advances
-    mem_next(FS5, FS6),
+    storage_memory::next(FS5, FS6),
     FS6 = file_state(_, _, _, _, _, Buf6, Pos6, _),
     check('mem_next pos 0', Pos6, 0),
     check('mem_next buf', Buf6, [1, 100]),
     % GET by key
-    mem_get(key_search('IDKey', ['ID'], [2]), FS4, FS7),
+    storage_memory::get(key_search('IDKey', ['ID'], [2]), FS4, FS7),
     FS7 = file_state(_, _, _, _, _, Buf7, Pos7, _),
     check('mem_get finds key=2', Buf7, [2, 200]),
     check('mem_get pos=1', Pos7, 1),
     % PUT updates record at position
-    FS7b = file_state(_, _, _, _, _, _, _, _),
     FS4 = file_state(N4, Pre4, K4, F4, R4, _, _, O4),
     FSForPut = file_state(N4, Pre4, K4, F4, R4, [2, 999], 1, O4),
-    mem_put(FSForPut, FS8),
-    mem_get(key_search('IDKey', ['ID'], [2]), FS8, FS9),
+    storage_memory::put(FSForPut, FS8),
+    storage_memory::get(key_search('IDKey', ['ID'], [2]), FS8, FS9),
     FS9 = file_state(_, _, _, _, _, Buf9, _, _),
     check('mem_put updated', Buf9, [2, 999]),
     % DELETE
-    mem_delete(FS9, FS10),
-    mem_records(FS10, Count3),
+    storage_memory::delete(FS9, FS10),
+    storage_memory::records(FS10, Count3),
     check('mem_delete removes 1', Count3, 1),
     % EMPTY clears all
-    mem_empty(FS10, FS11),
-    mem_records(FS11, Count4),
+    storage_memory::empty(FS10, FS11),
+    storage_memory::records(FS11, Count4),
     check('mem_empty clears all', Count4, 0),
     % Close
-    mem_close(FS11, FS12),
+    storage_memory::close(FS11, FS12),
     FS12 = file_state(_, _, _, _, _, _, _, IsOpen12),
     check('mem_close sets closed', IsOpen12, false).
 
@@ -1113,7 +1105,8 @@ test_ui_close_no_window :-
     ui_init(simulation, S0, S1),
     ui_close_window(S1, _, R1),
     check('close no window error', R1, error(no_window)).
-=======
+
+%------------------------------------------------------------
 % Qualified Names / Nested Groups
 %------------------------------------------------------------
 
@@ -1164,7 +1157,6 @@ test_double_colon_parse :-
     Src = "  MEMBER()\nSAV GROUP,PRE(SAV)\nSIT   GROUP,PRE(SIT)\nRecord  LONG\n      END\n    END\n  MAP\n    TestDC(),LONG\n  END\nTestDC PROCEDURE()\n  CODE\n  SIT:Record = 42\n  RETURN(SIT:Record)\n",
     exec_procedure(Src, 'TestDC', [], R),
     check('Double-colon style nested group', R, 42).
->>>>>>> elekta/main
 
 %------------------------------------------------------------
 % Main
@@ -1259,7 +1251,6 @@ main :-
     run_test(test_map_external_stub),
     run_test(test_map_external_void_stub),
     run_test(test_map_proto_arity),
-<<<<<<< HEAD
     % String builtins
     run_test(test_upper),
     run_test(test_upper_value),
@@ -1304,14 +1295,12 @@ main :-
     run_test(test_ui_mode_control),
     run_test(test_ui_current_event),
     run_test(test_ui_close_no_window),
-=======
     % Qualified names / nested groups
     run_test(test_parse_qualnames),
     run_test(test_nested_group_in_file),
     run_test(test_nested_group_in_group),
     run_test(test_qualnames_full),
     run_test(test_double_colon_parse),
->>>>>>> elekta/main
     % Summary
     test_count(Total),
     pass_count(Pass),

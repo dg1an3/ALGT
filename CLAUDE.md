@@ -207,9 +207,9 @@ Clarion DLL with ODBC-based sensor reading storage using SQL Server.
 **Key files:** `OdbcStore.clw`, `setup_db.py`, `test_odbcstore.py`
 
 ### unified/ (`clarion_simulators/`)
-Unified SWI-Prolog Clarion simulator. DCG parser + AST bridge + modular execution engine with pluggable storage backends, scenario DSL, and execution tracer with ML exports (PGM, PyMC, Stan, GNN-VAE).
+Unified SWI-Prolog/Logtalk Clarion simulator. DCG parser + AST bridge + modular execution engine with Logtalk-based pluggable storage backends (memory/CSV/ODBC via protocol dispatch), Logtalk UI backends, scenario DSL, and execution tracer with ML exports (PGM, PyMC, Stan, GNN-VAE).
 
-**Key files:** `clarion.pl` (API), `clarion_parser.pl`, `ast_bridge.pl`, `simulator.pl`, `simulator_builtins.pl`, `simulator_eval.pl`, `simulator_control.pl`, `simulator_state.pl`, `simulator_classes.pl`, `execution_tracer.pl`, `scenario_dsl.pl`, `scenario_ahk.pl`, `storage_backend.pl`, `storage_memory.pl`, `storage_csv.pl`, `storage_odbc.pl`, `ui_backend.pl`, `ui_simulation.pl`, `web_server.pl`, `test_unified.pl`
+**Key files:** `clarion.pl` (API), `clarion_parser.pl`, `ast_bridge.pl`, `simulator.pl`, `simulator_builtins.pl`, `simulator_eval.pl`, `simulator_control.pl`, `simulator_state.pl`, `simulator_classes.pl`, `execution_tracer.pl`, `scenario_dsl.pl`, `scenario_ahk.pl`, `storage_backend.pl` (Logtalk bridge), `ui_backend.pl` (Logtalk bridge), `storage_protocol.lgt`, `storage_memory.lgt`, `storage_csv.lgt`, `storage_odbc.lgt`, `storage_dispatcher.lgt`, `ui_protocol.lgt`, `ui_simulation.lgt`, `ui_dispatcher.lgt`, `loader.lgt`, `web_server.pl`, `test_unified.pl`
 
 **Run tests:**
 ```bash

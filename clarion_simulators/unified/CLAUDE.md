@@ -22,10 +22,19 @@ simulator_builtins.pl ← From modular (unchanged)
 simulator_classes.pl  ← From modular (unchanged)
 simulator_control.pl  ← From modular (unchanged)
 execution_tracer.pl   ← From modular (unchanged)
-storage_*.pl          ← From modular (unchanged)
-ui_*.pl               ← From modular (unchanged)
+storage_backend.pl    ← Thin Prolog wrapper → Logtalk storage_dispatcher
+ui_backend.pl         ← Thin Prolog wrapper → Logtalk ui_dispatcher
+storage_protocol.lgt  ← Logtalk protocol (interface) for storage backends
+storage_memory.lgt    ← Logtalk in-memory storage backend
+storage_csv.lgt       ← Logtalk CSV file storage backend
+storage_odbc.lgt      ← Logtalk ODBC database storage backend
+storage_dispatcher.lgt ← Logtalk dispatcher (routes by DRIVER)
+ui_protocol.lgt       ← Logtalk protocol (interface) for UI backends
+ui_simulation.lgt     ← Logtalk headless UI backend for testing
+ui_dispatcher.lgt     ← Logtalk UI dispatcher (routes by backend type)
+loader.lgt            ← Logtalk loader for all backend objects
 scenario_*.pl         ← From modular (unchanged)
-test_unified.pl       ← Test suite (40 tests passing)
+test_unified.pl       ← Test suite (189 tests passing)
 ```
 
 ## AST Bridge Translation Rules

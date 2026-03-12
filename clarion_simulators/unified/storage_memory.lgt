@@ -8,6 +8,8 @@
 :- object(storage_memory,
     implements(istorage_backend)).
 
+    :- use_module(library(lists), [nth0/3, append/3, member/2, length/2]).
+
     :- public([
         replace_nth0/4,
         delete_nth0/3,
@@ -55,7 +57,7 @@
     % Helpers (public for reuse by csv/odbc backends)
     create_default_buffer([], []).
     create_default_buffer([field(_, Type, Size)|Rest], [Value|Values]) :-
-        simulator_classes::default_value(Type, Size, Value),
+        {simulator_classes:default_value(Type, Size, Value)},
         create_default_buffer(Rest, Values).
 
     replace_nth0(0, [_|T], Elem, [Elem|T]) :- !.

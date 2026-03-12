@@ -8,6 +8,8 @@
 :- object(storage_odbc,
     implements(istorage_backend)).
 
+    :- use_module(library(lists), [nth0/3, append/3, length/2]).
+
     :- public([
         connect_dsn/2,
         disconnect/1
@@ -178,7 +180,7 @@
     get_default_padding(0, _, _, []) :- !.
     get_default_padding(N, Fields, SI, [D|R]) :-
         nth0(SI, Fields, field(_, Type, Size)),
-        simulator_classes::default_value(Type, Size, D),
+        {simulator_classes:default_value(Type, Size, D)},
         N1 is N - 1, SI1 is SI + 1, get_default_padding(N1, Fields, SI1, R).
 
 :- end_object.

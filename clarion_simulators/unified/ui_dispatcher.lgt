@@ -12,6 +12,8 @@
 
 :- object(ui_dispatcher).
 
+    :- use_module(library(lists), [member/2, append/3]).
+
     :- public([
         % Initialization
         init/3,                 % (Backend, StateIn, StateOut)
@@ -51,14 +53,14 @@
         format(user_error, "Remote backend not implemented~n", []), fail.
 
     get_backend(State, Backend) :-
-        simulator_state::get_ui_state(State, UIState),
-        Backend = UIState.backend.
+        {simulator_state:get_ui_state(State, UIState)},
+        get_dict(backend, UIState, Backend).
 
     % Initialization
     init(Backend, StateIn, StateOut) :-
-        simulator_state::get_ui_state(StateIn, UIState),
-        NewUIState = UIState.put(backend, Backend),
-        simulator_state::set_ui_state(NewUIState, StateIn, State1),
+        {simulator_state:get_ui_state(StateIn, UIState)},
+        put_dict(backend, UIState, Backend, NewUIState),
+        {simulator_state:set_ui_state(NewUIState, StateIn, State1)},
         get_backend_object(Backend, Obj),
         Obj::init(State1, StateOut).
 
@@ -106,51 +108,51 @@
 
     % Event handling (shared across all backends)
     push_event(Event, StateIn, StateOut, Result) :-
-        simulator_state::get_ui_state(StateIn, UIState),
-        Queue = UIState.event_queue,
+        {simulator_state:get_ui_state(StateIn, UIState)},
+        get_dict(event_queue, UIState, Queue),
         append(Queue, [Event], NewQueue),
-        NewUIState = UIState.put(event_queue, NewQueue),
-        simulator_state::set_ui_state(NewUIState, StateIn, StateOut),
+        put_dict(event_queue, UIState, NewQueue, NewUIState),
+        {simulator_state:set_ui_state(NewUIState, StateIn, StateOut)},
         Result = ok.
 
     poll_event(StateIn, StateOut, Event) :-
-        simulator_state::get_ui_state(StateIn, UIState),
-        Queue = UIState.event_queue,
+        {simulator_state:get_ui_state(StateIn, UIState)},
+        get_dict(event_queue, UIState, Queue),
         ( Queue = [Event|RestQueue]
-        -> NewUIState = UIState.put(event_queue, RestQueue),
-           simulator_state::set_ui_state(NewUIState, StateIn, StateOut)
+        -> put_dict(event_queue, UIState, RestQueue, NewUIState),
+           {simulator_state:set_ui_state(NewUIState, StateIn, StateOut)}
         ;  Event = none,
            StateOut = StateIn
         ).
 
     has_events(State, Bool) :-
-        simulator_state::get_ui_state(State, UIState),
-        Queue = UIState.event_queue,
+        {simulator_state:get_ui_state(State, UIState)},
+        get_dict(event_queue, UIState, Queue),
         ( Queue = [] -> Bool = false ; Bool = true ).
 
     get_current_event(State, Event) :-
-        simulator_state::get_ui_state(State, UIState),
-        Event = UIState.current_event.
+        {simulator_state:get_ui_state(State, UIState)},
+        get_dict(current_event, UIState, Event).
 
     set_current_event(Event, StateIn, StateOut, Result) :-
-        simulator_state::get_ui_state(StateIn, UIState),
-        NewUIState = UIState.put(current_event, Event),
-        simulator_state::set_ui_state(NewUIState, StateIn, StateOut),
+        {simulator_state:get_ui_state(StateIn, UIState)},
+        put_dict(current_event, UIState, Event, NewUIState),
+        {simulator_state:set_ui_state(NewUIState, StateIn, StateOut)},
         Result = ok.
 
     % Mode control (shared across all backends)
     set_mode(Mode, StateIn, StateOut, Result) :-
         ( member(Mode, [sync, async])
-        -> simulator_state::get_ui_state(StateIn, UIState),
-           NewUIState = UIState.put(mode, Mode),
-           simulator_state::set_ui_state(NewUIState, StateIn, StateOut),
+        -> {simulator_state:get_ui_state(StateIn, UIState)},
+           put_dict(mode, UIState, Mode, NewUIState),
+           {simulator_state:set_ui_state(NewUIState, StateIn, StateOut)},
            Result = ok
         ;  StateOut = StateIn,
            Result = error(invalid_mode)
         ).
 
     get_mode(State, Mode) :-
-        simulator_state::get_ui_state(State, UIState),
-        Mode = UIState.mode.
+        {simulator_state:get_ui_state(State, UIState)},
+        get_dict(mode, UIState, Mode).
 
 :- end_object.

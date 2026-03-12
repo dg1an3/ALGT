@@ -8,7 +8,8 @@
 :- object(storage_csv,
     implements(istorage_backend)).
 
-    :- uses(library(csv, [csv_read_file/3, csv_write_file/3])).
+    :- use_module(library(csv), [csv_read_file/3, csv_write_file/3]).
+    :- use_module(library(lists), [nth0/3, append/3, length/2]).
 
     % CSV state tracked via assertz/retract
     :- private(csv_state/2).  % csv_state(FilePath, Dirty)
@@ -142,7 +143,7 @@
     get_default_padding(0, _, _, []) :- !.
     get_default_padding(N, Fields, StartIdx, [Default|Rest]) :-
         nth0(StartIdx, Fields, field(_, Type, Size)),
-        simulator_classes::default_value(Type, Size, Default),
+        {simulator_classes:default_value(Type, Size, Default)},
         N1 is N - 1, StartIdx1 is StartIdx + 1,
         get_default_padding(N1, Fields, StartIdx1, Rest).
 
