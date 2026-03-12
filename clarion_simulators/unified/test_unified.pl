@@ -1159,6 +1159,58 @@ test_double_colon_parse :-
     check('Double-colon style nested group', R, 42).
 
 %------------------------------------------------------------
+% Phase 1: EQUATE, float literals, ADDRESS
+%------------------------------------------------------------
+
+test_equate_parse :-
+    format("~nEQUATE + Float tests:~n"),
+    Src = "  MEMBER()\nMAX_SIZE EQUATE(640)\nMIN_VAL EQUATE(0)\n  MAP\n    GetMax(),LONG,C,NAME('GetMax'),EXPORT\n  END\nGetMax PROCEDURE()\n  CODE\n  RETURN(MAX_SIZE)\n",
+    parse_clarion(Src, SimpleAST),
+    bridge_ast(SimpleAST, ModAST),
+    ModAST = program(_, GlobalDecls, _, _),
+    % EQUATE should appear as a var with init value
+    member(var('MAX_SIZE', 'LONG', init(640)), GlobalDecls),
+    check('EQUATE parsed as global var', ok, ok).
+
+test_equate_exec :-
+    Src = "  MEMBER()\nMAX_SIZE EQUATE(640)\nMIN_VAL EQUATE(0)\n  MAP\n    GetMax(),LONG,C,NAME('GetMax'),EXPORT\n    GetMin(),LONG,C,NAME('GetMin'),EXPORT\n  END\nGetMax PROCEDURE()\n  CODE\n  RETURN(MAX_SIZE)\nGetMin PROCEDURE()\n  CODE\n  RETURN(MIN_VAL)\n",
+    init_session(Src, S0),
+    call_procedure(S0, 'GetMax', [], R1, S1),
+    check('EQUATE GetMax()=640', R1, 640),
+    call_procedure(S1, 'GetMin', [], R2, _),
+    check('EQUATE GetMin()=0', R2, 0).
+
+test_float_literal_parse :-
+    Src = "  MEMBER()\nSCALE REAL(10000.0)\n  MAP\n    GetScale(),REAL,C,NAME('GetScale'),EXPORT\n  END\nGetScale PROCEDURE()\n  CODE\n  RETURN(SCALE)\n",
+    parse_clarion(Src, SimpleAST),
+    bridge_ast(SimpleAST, _ModAST),
+    check('Float literal 10000.0 parsed', ok, ok).
+
+test_float_literal_exec :-
+    Src = "  MEMBER()\n  MAP\n    CalcHalf(LONG x),REAL,C,NAME('CalcHalf'),EXPORT\n  END\nCalcHalf PROCEDURE(LONG x)\nresult REAL(0.0)\n  CODE\n  result = x * 0.5\n  RETURN(result)\n",
+    exec_procedure(Src, 'CalcHalf', [100], R),
+    check('Float 100*0.5=50.0', R, 50.0).
+
+test_address_unique :-
+    format("~nADDRESS tests:~n"),
+    Src = "  MEMBER()\nA LONG(0)\nB LONG(0)\n  MAP\n    GetAddrA(),LONG,C,NAME('GetAddrA'),EXPORT\n    GetAddrB(),LONG,C,NAME('GetAddrB'),EXPORT\n  END\nGetAddrA PROCEDURE()\n  CODE\n  RETURN(ADDRESS(A))\nGetAddrB PROCEDURE()\n  CODE\n  RETURN(ADDRESS(B))\n",
+    init_session(Src, S0),
+    call_procedure(S0, 'GetAddrA', [], AddrA, S1),
+    call_procedure(S1, 'GetAddrB', [], AddrB, _),
+    ( AddrA > 0 -> APos = yes ; APos = no ),
+    check('ADDRESS(A) > 0', APos, yes),
+    ( AddrB > 0 -> BPos = yes ; BPos = no ),
+    check('ADDRESS(B) > 0', BPos, yes),
+    ( AddrA \= AddrB -> Diff = yes ; Diff = no ),
+    check('ADDRESS(A) \\= ADDRESS(B)', Diff, yes).
+
+test_memcopy_noop :-
+    % MemCopy should not crash — it's a no-op in the simulator
+    Src = "  MEMBER()\nBuf GROUP,PRE(BF)\nX LONG\nY LONG\n  END\n  MAP\n    MODULE('kernel32')\n      MemCopy(LONG dest, LONG src, LONG len),RAW,PASCAL,NAME('RtlMoveMemory')\n    END\n    TestMC(),LONG,C,NAME('TestMC'),EXPORT\n  END\nTestMC PROCEDURE()\n  CODE\n  BF:X = 42\n  BF:Y = 99\n  RETURN(BF:X + BF:Y)\n",
+    exec_procedure(Src, 'TestMC', [], R),
+    check('MemCopy module parsed + exec', R, 141).
+
+%------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
@@ -1301,6 +1353,13 @@ main :-
     run_test(test_nested_group_in_group),
     run_test(test_qualnames_full),
     run_test(test_double_colon_parse),
+    % Phase 1: EQUATE, float literals, ADDRESS, MemCopy
+    run_test(test_equate_parse),
+    run_test(test_equate_exec),
+    run_test(test_float_literal_parse),
+    run_test(test_float_literal_exec),
+    run_test(test_address_unique),
+    run_test(test_memcopy_noop),
     % Summary
     test_count(Total),
     pass_count(Pass),

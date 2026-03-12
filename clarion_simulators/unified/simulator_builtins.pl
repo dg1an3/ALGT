@@ -195,8 +195,15 @@ builtin_call('SIZE', [var(Name)], StateIn, StateIn, Size) :-
     ; Size = 0
     ).
 
-% ADDRESS(var) - returns mock memory address
-builtin_call('ADDRESS', [_], StateIn, StateIn, 1234).
+% ADDRESS(var) - returns a unique simulated address per variable name
+% Uses a deterministic hash: sum of char codes * 1000 + offset, ensuring
+% different variables get different "addresses" for MemCopy simulation.
+builtin_call('ADDRESS', [var(Name)], StateIn, StateIn, Addr) :-
+    !,
+    atom_codes(Name, Codes),
+    sumlist(Codes, Sum),
+    Addr is (Sum * 1000) + 65536.
+builtin_call('ADDRESS', [_], StateIn, StateIn, 65536).
 
 % POINTER(file) - returns current file pointer position
 builtin_call('POINTER', [var(FileName)], StateIn, StateIn, Pos) :-

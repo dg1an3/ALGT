@@ -128,6 +128,7 @@ Removed catch-all `kw([]) --> [].` that defeated the word-boundary check. This p
 
 ### 5. New parser features
 - **ELSIF**: Parses `IF...ELSIF...ELSE...END` chains as nested `if()` terms
+- **IF...THEN block form**: `IF expr THEN / stmts / END` (optional THEN before block body)
 - **LOOP WHILE/UNTIL**: Added `loop_while(Cond, Body)` and `loop_until(Cond, Body)`
 - **CYCLE/EXIT/DO**: Control flow statements for loops and routines
 - **ROUTINE**: `Name ROUTINE` parsed alongside procedures
@@ -137,6 +138,14 @@ Removed catch-all `kw([]) --> [].` that defeated the word-boundary check. This p
 - **STRING/SHORT/REAL types**: Added to type parser
 - **PROCEDURE in MAP**: `Name PROCEDURE[(params)]` MAP entry syntax
 - **Optional procedure params**: `Name PROCEDURE` without `(params)` in definitions
+- **EQUATE declarations**: `Name EQUATE(Value)` parsed as named constants
+- **Float literals**: `3.14`, `10000.0` etc. parsed alongside integers
+- **Local DIM arrays**: `Name TYPE,DIM(Size)` in local variable declarations
+- **Keyword-as-identifier**: `SIZE`, `ADDRESS`, `POINTER` removed from keyword blacklist so they can be used as variable names (e.g., `Size EQUATE(640)`)
+
+### 6. ADDRESS/MemCopy simulation
+- `ADDRESS(var)` returns a unique deterministic ID per variable name (hash-based)
+- `MemCopy` (via `MODULE('kernel32')`) is a no-op in the simulator since Clarion code uses direct GROUP field assignments for the actual data movement; MemCopy only matters for passing structs to external callers via pointer
 
 ## API
 
@@ -156,7 +165,7 @@ call_procedure(Session, ProcName, Args, Result, Session2).
 exec_program(Source, Events, Result).
 ```
 
-## Test Coverage (107 tests)
+## Test Coverage (198 tests)
 
 - **Parser + Bridge** (11): MEMBER parse, MathLib, SensorLib, DiagnosisStore, FormDemo, OdbcStore, control_flow.clw PROGRAM
 - **Arithmetic** (4): MathAdd, Multiply with various inputs

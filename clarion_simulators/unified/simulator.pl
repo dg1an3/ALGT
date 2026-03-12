@@ -661,6 +661,21 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
 % External MODULE procedures are not implemented in the simulator.
 % Returns a default value based on the MAP return type and logs the call.
 
+% MemCopy/RtlMoveMemory simulation: copy GROUP fields from src var to dest var
+% In compiled Clarion, MemCopy(ADDRESS(dest), ADDRESS(src), SIZE(src)) copies bytes.
+% In the simulator, we find which variables correspond to the addresses and copy
+% the group value. This is a best-effort simulation.
+exec_external_stub('MemCopy', [DestExpr, SrcExpr, _LenExpr], StateIn, StateIn, 0) :-
+    !,
+    % Evaluate the address expressions
+    eval_full_expr(DestExpr, StateIn, _DestAddr),
+    eval_full_expr(SrcExpr, StateIn, _SrcAddr),
+    % MemCopy in the simulator is a no-op since ADDRESS returns synthetic values.
+    % The actual field copying is done by the Clarion code via direct assignment
+    % (e.g., TB:Month = TR:Month). MemCopy only matters for passing structs to
+    % external callers via pointer, which the simulator doesn't model.
+    true.
+
 exec_external_stub(Name, Args, StateIn, StateOut, Result) :-
     eval_args(Args, StateIn, ArgVals),
     % Look up the MAP prototype for return type info

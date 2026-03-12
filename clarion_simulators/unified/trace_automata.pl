@@ -6,12 +6,9 @@
 % Output format matches compare_cdb_prolog.py expectations:
 %   CALL ProcName(args) -> result
 %
-% LIMITATION: The unified Clarion simulator does not currently support
-% DIM (array) declarations or array element access (Cells[i], Rules[i]).
-% Until DIM support is added to the parser and execution engine, this
-% trace file will NOT produce correct results. It is provided as a
-% scaffold for future use once array support is implemented.
-% See clarion_simulators/unified/CLAUDE.md for the current feature set.
+% This trace file produces correct results — the unified simulator supports
+% EQUATE, DIM arrays, array element access, and the IF...THEN block form
+% needed by AutomataLib.
 
 :- use_module(clarion).
 

@@ -194,6 +194,8 @@ bridge_globals([queue(Name, Fields)|Rest], [queue(Name, BridgedFields)|VRest], W
 bridge_globals([window(Name, Title, Attrs, Controls)|Rest], Vars,
                [window(Name, Title, Attrs, Controls)|WRest], Main) :-
     bridge_globals(Rest, Vars, WRest, Main).
+bridge_globals([equate(Name, Value)|Rest], [var(Name, 'LONG', init(Value))|VRest], Wins, Main) :-
+    bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([class(Name, Parent, _Attrs, Members)|Rest],
                [class(Name, Parent, [], BridgedMembers)|VRest], Wins, Main) :-
     bridge_class_members(Members, BridgedMembers),
@@ -274,6 +276,12 @@ bridge_params([param(Name, Type)|Rest], [param(TypeAtom, Name)|BRest]) :-
 bridge_locals([], []).
 bridge_locals([instance_var(Name, ClassName)|Rest],
               [local_var(Name, custom(ClassName), init(none))|BRest]) :-
+    bridge_locals(Rest, BRest).
+bridge_locals([array(Name, Type, Size)|Rest],
+              [local_var(Name, TypeAtom, init(array(Zeros)))|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    length(Zeros, Size),
+    maplist(=(0), Zeros),
     bridge_locals(Rest, BRest).
 bridge_locals([local(Name, Type, Init)|Rest],
               [local_var(Name, TypeAtom, init(Init))|BRest]) :-

@@ -167,6 +167,13 @@ top_decl_item(array(Name, Type, Size)) -->
     ident(Name), ws, type(Type), ws,
     ",", ws, kw("DIM"), ws, "(", ws, number(Size), ws, ")".
 
+% EQUATE declaration: Name EQUATE(Value)
+% Uses word/1 instead of ident/1 because EQUATE names may shadow keywords
+% (e.g., Size EQUATE(640) where SIZE is also a builtin function)
+top_decl_item(equate(Name, Value)) -->
+    word(Name), ws, kw("EQUATE"), ws, !,
+    "(", ws, number(Value), ws, ")".
+
 % Global variable: Name TYPE(Init)
 top_decl_item(global(Name, Type, Init)) -->
     ident(Name), ws, type(Type), ws,
@@ -415,6 +422,8 @@ partition_decls([queue(N,F)|Is], Fs, Gs, [queue(N,F)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([class(N,P,A,M)|Is], Fs, Gs, [class(N,P,A,M)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
+partition_decls([equate(N,V)|Is], Fs, Gs, [equate(N,V)|Vs]) :-
+    partition_decls(Is, Fs, Gs, Vs).
 
 %% --- FILE attributes ---
 
@@ -635,6 +644,11 @@ local_var(group(Name, Prefix, Fields)) -->
     field_list(Fields), ws,
     end_or_dot.
 
+% Local array: Name TYPE,DIM(Size)
+local_var(array(Name, Type, Size)) -->
+    ident(Name), ws, type(Type), ws,
+    ",", ws, kw("DIM"), ws, "(", ws, number(Size), ws, ")", !.
+
 local_var(local(Name, Type, Init)) -->
     ident(Name), ws, type(Type), ws,
     ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
@@ -691,9 +705,10 @@ statements([]) --> [].
 statement(if(Cond, [Then], [])) -->
     kw("IF"), ws, expr(Cond), ws, kw("THEN"), ws, statement(Then), ws, ".".
 
-% IF expr / stmts / [ELSIF ... / ELSE / stmts] / END
+% IF expr [THEN] / stmts / [ELSIF ... / ELSE / stmts] / END
 statement(if(Cond, Then, Else)) -->
     kw("IF"), ws, expr(Cond), ws,
+    ( kw("THEN"), ws ; [] ),
     statements(Then), ws,
     elsif_else(Else), ws,
     end_or_dot.
@@ -994,7 +1009,7 @@ is_keyword(Name) :-
                'CREATE','PRE','RECORD','GROUP','MODULE','RAW','PASCAL',
                'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET','DATA',
                'NEXT','OPEN','CLOSE','GET','PUT','ADD','CLEAR',
-               'ERRORCODE','TODAY','ADDRESS','SIZE','POINTER',
+               'ERRORCODE','TODAY',
                'TO','CASE','OF','DIM','AND','OR',
                'DELETE','KEY','PRIMARY','OWNER',
                'ACCEPT','DISPLAY','ACCEPTED',
@@ -1006,11 +1021,17 @@ is_keyword(Name) :-
                'QUEUE','FREE','SORT','RECORDS','NOT',
                'CLASS','TYPE','VIRTUAL','SELF','PARENT']).
 
-% Integer literal (decimal or hex with 'h' suffix like 22h, 0FFh)
+% Numeric literal: integer (decimal/hex) or float (with decimal point)
 number(N) -->
     ( "-", { Sign = -1 } ; { Sign = 1 } ),
-    ( hex_number(V), ! ; decimal_number(V) ),
+    ( hex_number(V), ! ; float_number(V), ! ; decimal_number(V) ),
     { N is Sign * V }.
+
+% Float literal: digits.digits (e.g. 10000.0, 3.14159)
+float_number(N) -->
+    digit(D), digits(Ds), ".", digit(F), digits(Fs),
+    { append([D|Ds], [0'.|[F|Fs]], AllCodes),
+      number_codes(N, AllCodes) }.
 
 decimal_number(N) --> digit(D), digits(Ds), { number_codes(N, [D|Ds]) }.
 
