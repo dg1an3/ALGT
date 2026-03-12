@@ -1,0 +1,25 @@
+  NAME('OptimLib')
+
+  MAP
+    MODULE('OptimLib')
+      BrentCreate(REAL),LONG,C,NAME('BrentCreate')
+      BrentFree(LONG),LONG,C,NAME('BrentFree')
+      BrentSetBracket(LONG, REAL, REAL),LONG,C,NAME('BrentSetBracket')
+      BrentStep(LONG),LONG,C,NAME('BrentStep')
+      BrentGetEvalX(LONG),REAL,C,NAME('BrentGetEvalX')
+      BrentSetFValue(LONG, REAL),LONG,C,NAME('BrentSetFValue')
+      BrentGetMinX(LONG),REAL,C,NAME('BrentGetMinX')
+      BrentGetMinF(LONG),REAL,C,NAME('BrentGetMinF')
+      BrentGetIter(LONG),LONG,C,NAME('BrentGetIter')
+      CGCreate(LONG, REAL),LONG,C,NAME('CGCreate')
+      CGFree(LONG),LONG,C,NAME('CGFree')
+      CGSetInitial(LONG, LONG, REAL),LONG,C,NAME('CGSetInitial')
+      CGStep(LONG),LONG,C,NAME('CGStep')
+      CGGetEvalX(LONG, LONG),REAL,C,NAME('CGGetEvalX')
+      CGSetFValue(LONG, REAL),LONG,C,NAME('CGSetFValue')
+      CGSetGrad(LONG, LONG, REAL),LONG,C,NAME('CGSetGrad')
+      CGGetResult(LONG, LONG),REAL,C,NAME('CGGetResult')
+      CGGetMinF(LONG),REAL,C,NAME('CGGetMinF')
+      CGGetIter(LONG),LONG,C,NAME('CGGetIter')
+    END
+  END
