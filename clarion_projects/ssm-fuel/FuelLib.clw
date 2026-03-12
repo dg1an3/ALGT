@@ -1,4 +1,29 @@
   MEMBER()
+! ============================================================================
+! FuelLib.clw — Fuel Inventory Manager (FIM) DLL
+!
+! Clarion 11.1 translation of the SSM Fuel Inventory Manager module.
+! Original Turbo Pascal 3.0 source by Derek G. Lane, 1985-1996.
+!
+! This file uses variant casing to demonstrate Clarion's case-insensitivity:
+!   - Uppercase: MEMBER, FILE, DRIVER, RECORD, MAP, MODULE, EXPORT
+!   - Mixed: Procedure, Code, Return, If...Then, Loop, Set, Next
+!   - Some lowercase variables alongside PascalCase
+!
+! Original Pascal (SSM FIM, D.G.Lane 1985):
+!   type TransRec = record
+!     date        : DateRec;
+!     description : string[40];
+!     amount      : real;
+!     balance     : real;
+!   end;
+!
+!   TransList = array [0..650] of TransRec;
+!
+! The Pascal version stored transactions in a typed array with sorted
+! insertion by date. Our Clarion version uses sequential DOS flat files
+! with BYTE/SHORT date fields and LONG integer cents for amounts.
+! ============================================================================
 
 TransFile FILE,DRIVER('DOS'),NAME('FuelTrans.dat'),CREATE,PRE(TR)
 Record      RECORD
@@ -60,78 +85,97 @@ Balance       LONG
     FLRecalcBalances(),LONG,C,NAME('FLRecalcBalances'),EXPORT
   END
 
-FLOpen PROCEDURE()
-  CODE
+! ============================================================================
+! FLOpen — Open transaction and price files, creating if needed
+! ============================================================================
+FLOpen Procedure()
+  Code
   OPEN(TransFile)
-  IF ERRORCODE()
+  If ERRORCODE()
     CREATE(TransFile)
-    IF ERRORCODE() THEN RETURN -1.
+    If ERRORCODE() Then Return -1.
     OPEN(TransFile)
-    IF ERRORCODE() THEN RETURN -1.
+    If ERRORCODE() Then Return -1.
   END
   OPEN(PriceFile)
-  IF ERRORCODE()
+  If ERRORCODE()
     CREATE(PriceFile)
-    IF ERRORCODE() THEN RETURN -1.
+    If ERRORCODE() Then Return -1.
     OPEN(PriceFile)
-    IF ERRORCODE() THEN RETURN -1.
+    If ERRORCODE() Then Return -1.
   END
-  RETURN 0
+  Return 0
 
-FLClose PROCEDURE()
-  CODE
+! ============================================================================
+! FLClose — Close all open files
+! ============================================================================
+FLClose Procedure()
+  Code
   CLOSE(TransFile)
   CLOSE(PriceFile)
-  RETURN 0
+  Return 0
 
-FLSetPrice PROCEDURE(LONG fuelType, LONG priceInCents)
-Found LONG(0)
-  CODE
-  IF fuelType < 1 OR fuelType > 4 THEN RETURN -1.
-  SET(PriceFile)
-  LOOP
-    NEXT(PriceFile)
-    IF ERRORCODE() THEN BREAK.
-    IF PR:FuelType = fuelType
+! ============================================================================
+! FLSetPrice — Set or update fuel price by type (1=Regular..4=Diesel)
+! ============================================================================
+FLSetPrice Procedure(LONG fuelType, LONG priceInCents)
+found LONG(0)
+  Code
+  If fuelType < 1 OR fuelType > 4 Then Return -1.
+  Set(PriceFile)
+  Loop
+    Next(PriceFile)
+    If ERRORCODE() Then BREAK.
+    If PR:FuelType = fuelType
       PR:PricePerGal = priceInCents
       PUT(PriceFile)
-      IF ERRORCODE() THEN RETURN -1.
-      Found = 1
+      If ERRORCODE() Then Return -1.
+      found = 1
       BREAK
     END
   END
-  IF Found = 0
+  If found = 0
     CLEAR(PR:Record)
     PR:FuelType = fuelType
     PR:PricePerGal = priceInCents
     ADD(PriceFile)
-    IF ERRORCODE() THEN RETURN -1.
+    If ERRORCODE() Then Return -1.
   END
-  RETURN 0
+  Return 0
 
-FLGetPrice PROCEDURE(LONG fuelType)
-  CODE
-  IF fuelType < 1 OR fuelType > 4 THEN RETURN -1.
-  SET(PriceFile)
-  LOOP
-    NEXT(PriceFile)
-    IF ERRORCODE() THEN BREAK.
-    IF PR:FuelType = fuelType
-      RETURN PR:PricePerGal
+! ============================================================================
+! FLGetPrice — Retrieve fuel price by type
+! ============================================================================
+FLGetPrice Procedure(LONG fuelType)
+  Code
+  If fuelType < 1 OR fuelType > 4 Then Return -1.
+  Set(PriceFile)
+  Loop
+    Next(PriceFile)
+    If ERRORCODE() Then BREAK.
+    If PR:FuelType = fuelType
+      Return PR:PricePerGal
     END
   END
-  RETURN -1
+  Return -1
 
-FLAddTransaction PROCEDURE(LONG month, LONG day, LONG year, LONG hour, LONG minute, LONG descPtr, LONG descLen, LONG amountCents)
-LastBalance LONG(0)
-CopyLen     LONG(0)
-  CODE
+! ============================================================================
+! FLAddTransaction — Append a new transaction, compute running balance
+!
+! Original Pascal: procedure AddTrans;
+!   { Inserts transaction in date-sorted order, maintains chronological sequence }
+!   { Our Clarion version appends sequentially instead of sorted insertion }
+! ============================================================================
+FLAddTransaction Procedure(LONG month, LONG day, LONG year, LONG hour, LONG minute, LONG descPtr, LONG descLen, LONG amountCents)
+lastBalance LONG(0)
+copyLen     LONG(0)
+  Code
   ! Get the last balance
-  SET(TransFile)
-  LOOP
-    NEXT(TransFile)
-    IF ERRORCODE() THEN BREAK.
-    LastBalance = TR:Balance
+  Set(TransFile)
+  Loop
+    Next(TransFile)
+    If ERRORCODE() Then BREAK.
+    lastBalance = TR:Balance
   END
   CLEAR(TR:Record)
   TR:Month = month
@@ -140,24 +184,27 @@ CopyLen     LONG(0)
   TR:Hour = hour
   TR:Minute = minute
   ! Copy description from pointer
-  CopyLen = descLen
-  IF CopyLen > 40 THEN CopyLen = 40.
-  IF descPtr <> 0 AND CopyLen > 0
-    MemCopy(ADDRESS(TR:Description), descPtr, CopyLen)
+  copyLen = descLen
+  If copyLen > 40 Then copyLen = 40.
+  If descPtr <> 0 AND copyLen > 0
+    MemCopy(ADDRESS(TR:Description), descPtr, copyLen)
   END
   TR:Amount = amountCents
-  TR:Balance = LastBalance + amountCents
+  TR:Balance = lastBalance + amountCents
   ADD(TransFile)
-  IF ERRORCODE() THEN RETURN -1.
-  RETURN TR:Balance
+  If ERRORCODE() Then Return -1.
+  Return TR:Balance
 
-FLGetTransaction PROCEDURE(LONG index, LONG bufPtr)
-Pos LONG(0)
-  CODE
-  IF index < 1 THEN RETURN -1.
-  Pos = ((index - 1) * SIZE(TR:Record)) + 1
-  GET(TransFile, Pos)
-  IF ERRORCODE() THEN RETURN -1.
+! ============================================================================
+! FLGetTransaction — Retrieve transaction by 1-based index into caller buffer
+! ============================================================================
+FLGetTransaction Procedure(LONG index, LONG bufPtr)
+pos LONG(0)
+  Code
+  If index < 1 Then Return -1.
+  pos = ((index - 1) * SIZE(TR:Record)) + 1
+  GET(TransFile, pos)
+  If ERRORCODE() Then Return -1.
   TB:Month = TR:Month
   TB:Day = TR:Day
   TB:Year = TR:Year
@@ -167,59 +214,79 @@ Pos LONG(0)
   TB:Amount = TR:Amount
   TB:Balance = TR:Balance
   MemCopy(bufPtr, ADDRESS(TransBuf), SIZE(TransBuf))
-  RETURN 0
+  Return 0
 
-FLGetTransactionCount PROCEDURE()
-Count LONG(0)
-  CODE
-  SET(TransFile)
-  LOOP
-    NEXT(TransFile)
-    IF ERRORCODE() THEN BREAK.
-    Count += 1
+! ============================================================================
+! FLGetTransactionCount — Count records by sequential scan
+! ============================================================================
+FLGetTransactionCount Procedure()
+count LONG(0)
+  Code
+  Set(TransFile)
+  Loop
+    Next(TransFile)
+    If ERRORCODE() Then BREAK.
+    count += 1
   END
-  RETURN Count
+  Return count
 
-FLGetBalance PROCEDURE()
-LastBalance LONG(0)
-Found       LONG(0)
-  CODE
-  SET(TransFile)
-  LOOP
-    NEXT(TransFile)
-    IF ERRORCODE() THEN BREAK.
-    LastBalance = TR:Balance
-    Found = 1
+! ============================================================================
+! FLGetBalance — Return the last transaction's running balance
+!
+! Original Pascal: procedure UpdateAcct;
+!   { Runs backward through transaction list }
+!   { Accumulates debt by transaction amount }
+!   { Marks when debt exceeds 30-day and 60-day thresholds }
+!   { Our version walks forward and recalculates running balance }
+! ============================================================================
+FLGetBalance Procedure()
+lastBalance LONG(0)
+found       LONG(0)
+  Code
+  Set(TransFile)
+  Loop
+    Next(TransFile)
+    If ERRORCODE() Then BREAK.
+    lastBalance = TR:Balance
+    found = 1
   END
-  IF Found = 0 THEN RETURN 0.
-  RETURN LastBalance
+  If found = 0 Then Return 0.
+  Return lastBalance
 
-FLDeleteTransaction PROCEDURE(LONG index)
-RecCount LONG(0)
-CurRec   LONG(0)
-RunBal   LONG(0)
-  CODE
-  IF index < 1 THEN RETURN -1.
+! ============================================================================
+! FLDeleteTransaction — Delete by index using copy-skip-rename pattern
+!
+! Note: Clarion DOS driver does not support DELETE on flat files.
+! We use a copy-skip-rename pattern: copy all records except the
+! target to a temp file, then replace the original.
+! Original Pascal used BlockRead/BlockWrite for similar file manipulation.
+! ============================================================================
+FLDeleteTransaction Procedure(LONG index)
+recCount LONG(0)
+curRec   LONG(0)
+runBal   LONG(0)
+  Code
+  If index < 1 Then Return -1.
   ! Count records
-  SET(TransFile)
-  LOOP
-    NEXT(TransFile)
-    IF ERRORCODE() THEN BREAK.
-    RecCount += 1
+  Set(TransFile)
+  Loop
+    Next(TransFile)
+    If ERRORCODE() Then BREAK.
+    recCount += 1
   END
-  IF index > RecCount THEN RETURN -1.
+  If index > recCount Then Return -1.
   ! Copy all records except deleted one to temp file with recalculated balances
   CREATE(TempFile)
   OPEN(TempFile)
-  IF ERRORCODE() THEN RETURN -1.
-  RunBal = 0
-  CurRec = 0
-  SET(TransFile)
-  LOOP
-    NEXT(TransFile)
-    IF ERRORCODE() THEN BREAK.
-    CurRec += 1
-    IF CurRec <> index
+  If ERRORCODE() Then Return -1.
+  runBal = 0
+  curRec = 0
+  Set(TransFile)
+  Loop
+    Next(TransFile)
+    If ERRORCODE() Then BREAK.
+    curRec += 1
+    If curRec <> index
       CLEAR(TF:Record)
       TF:Month = TR:Month
       TF:Day = TR:Day
@@ -228,8 +295,8 @@ RunBal   LONG(0)
       TF:Minute = TR:Minute
       TF:Description = TR:Description
       TF:Amount = TR:Amount
-      RunBal += TR:Amount
-      TF:Balance = RunBal
+      runBal += TR:Amount
+      TF:Balance = runBal
       ADD(TempFile)
     END
   END
@@ -239,30 +306,39 @@ RunBal   LONG(0)
   REMOVE('FuelTrans.dat')
   RENAME('FuelTemp.dat','FuelTrans.dat')
   OPEN(TransFile)
-  RETURN 0
+  Return 0
 
-FLRecalcBalances PROCEDURE()
-RunBal   LONG(0)
-RecCount LONG(0)
-I        LONG(0)
-Pos      LONG(0)
-  CODE
+! ============================================================================
+! FLRecalcBalances — Walk all records forward, recompute running balance
+!
+! Original Pascal: procedure UpdateAcct;
+!   { Runs backward through transaction list }
+!   { Accumulates debt by transaction amount }
+!   { Marks when debt exceeds 30-day and 60-day thresholds }
+!   { Our version walks forward and recalculates running balance }
+! ============================================================================
+FLRecalcBalances Procedure()
+runBal   LONG(0)
+recCount LONG(0)
+i        LONG(0)
+pos      LONG(0)
+  Code
   ! Count records
-  SET(TransFile)
-  LOOP
-    NEXT(TransFile)
-    IF ERRORCODE() THEN BREAK.
-    RecCount += 1
+  Set(TransFile)
+  Loop
+    Next(TransFile)
+    If ERRORCODE() Then BREAK.
+    recCount += 1
   END
   ! Walk by index and recalc
-  I = 1
-  LOOP WHILE I <= RecCount
-    Pos = ((I - 1) * SIZE(TR:Record)) + 1
-    GET(TransFile, Pos)
-    IF ERRORCODE() THEN BREAK.
-    RunBal += TR:Amount
-    TR:Balance = RunBal
+  i = 1
+  Loop While i <= recCount
+    pos = ((i - 1) * SIZE(TR:Record)) + 1
+    GET(TransFile, pos)
+    If ERRORCODE() Then BREAK.
+    runBal += TR:Amount
+    TR:Balance = runBal
     PUT(TransFile)
-    I += 1
+    i += 1
   END
-  RETURN RunBal
+  Return runBal
