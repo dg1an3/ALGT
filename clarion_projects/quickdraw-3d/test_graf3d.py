@@ -113,8 +113,8 @@ def main():
     check("Translate+pt z", lib.G3GetPtZ(), fp(33.0), tol=2)
 
     # =========================================================
-    # Pitch 90 degrees: (0,1,0) -> (0,0,1)
-    # Rotation around X axis: y->z, z->-y
+    # Pitch 90 degrees: (0,1,0) -> (0,0,-1)
+    # Original Pascal convention: TEMP:=col1*co+col2*si; col2:=col2*co-col1*si; col1:=TEMP
     # =========================================================
     print("=== G3Pitch 90 ===")
     lib.G3Init()
@@ -123,20 +123,20 @@ def main():
     lib.G3Transform()
     check("Pitch90 x", lib.G3GetPtX(), 0, tol=2)
     check("Pitch90 y", lib.G3GetPtY(), 0, tol=2)
-    check("Pitch90 z", lib.G3GetPtZ(), fp(1.0), tol=2)
+    check("Pitch90 z", lib.G3GetPtZ(), fp(-1.0), tol=2)
 
-    # Pitch 90: (0,0,1) -> (0,-1,0)
+    # Pitch 90: (0,0,1) -> (0,1,0)
     lib.G3Init()
     lib.G3Pitch(fp(90.0))
     lib.G3SetPt(0, 0, fp(1.0))
     lib.G3Transform()
-    check("Pitch90 z->-y x", lib.G3GetPtX(), 0, tol=2)
-    check("Pitch90 z->-y y", lib.G3GetPtY(), fp(-1.0), tol=2)
-    check("Pitch90 z->-y z", lib.G3GetPtZ(), 0, tol=2)
+    check("Pitch90 z->y x", lib.G3GetPtX(), 0, tol=2)
+    check("Pitch90 z->y y", lib.G3GetPtY(), fp(1.0), tol=2)
+    check("Pitch90 z->y z", lib.G3GetPtZ(), 0, tol=2)
 
     # =========================================================
-    # Yaw 90 degrees: (1,0,0) -> (0,0,-1)
-    # Rotation around Y axis: x->-z, z->x
+    # Yaw 90 degrees: (1,0,0) -> (0,0,1)
+    # Original Pascal convention: TEMP:=col0*co-col2*si; col2:=col2*co+col0*si; col0:=TEMP
     # =========================================================
     print("=== G3Yaw 90 ===")
     lib.G3Init()
@@ -145,20 +145,20 @@ def main():
     lib.G3Transform()
     check("Yaw90 x", lib.G3GetPtX(), 0, tol=2)
     check("Yaw90 y", lib.G3GetPtY(), 0, tol=2)
-    check("Yaw90 z", lib.G3GetPtZ(), fp(-1.0), tol=2)
+    check("Yaw90 z", lib.G3GetPtZ(), fp(1.0), tol=2)
 
-    # Yaw 90: (0,0,1) -> (1,0,0)
+    # Yaw 90: (0,0,1) -> (-1,0,0)
     lib.G3Init()
     lib.G3Yaw(fp(90.0))
     lib.G3SetPt(0, 0, fp(1.0))
     lib.G3Transform()
-    check("Yaw90 z->x x", lib.G3GetPtX(), fp(1.0), tol=2)
-    check("Yaw90 z->x y", lib.G3GetPtY(), 0, tol=2)
-    check("Yaw90 z->x z", lib.G3GetPtZ(), 0, tol=2)
+    check("Yaw90 z->-x x", lib.G3GetPtX(), fp(-1.0), tol=2)
+    check("Yaw90 z->-x y", lib.G3GetPtY(), 0, tol=2)
+    check("Yaw90 z->-x z", lib.G3GetPtZ(), 0, tol=2)
 
     # =========================================================
-    # Roll 90 degrees: (1,0,0) -> (0,1,0)
-    # Rotation around Z axis: x->y, y->-x
+    # Roll 90 degrees: (1,0,0) -> (0,-1,0)
+    # Original Pascal convention: TEMP:=col0*co+col1*si; col1:=col1*co-col0*si; col0:=TEMP
     # =========================================================
     print("=== G3Roll 90 ===")
     lib.G3Init()
@@ -166,17 +166,17 @@ def main():
     lib.G3SetPt(fp(1.0), 0, 0)
     lib.G3Transform()
     check("Roll90 x", lib.G3GetPtX(), 0, tol=2)
-    check("Roll90 y", lib.G3GetPtY(), fp(1.0), tol=2)
+    check("Roll90 y", lib.G3GetPtY(), fp(-1.0), tol=2)
     check("Roll90 z", lib.G3GetPtZ(), 0, tol=2)
 
-    # Roll 90: (0,1,0) -> (-1,0,0)
+    # Roll 90: (0,1,0) -> (1,0,0)
     lib.G3Init()
     lib.G3Roll(fp(90.0))
     lib.G3SetPt(0, fp(1.0), 0)
     lib.G3Transform()
-    check("Roll90 y->-x x", lib.G3GetPtX(), fp(-1.0), tol=2)
-    check("Roll90 y->-x y", lib.G3GetPtY(), 0, tol=2)
-    check("Roll90 y->-x z", lib.G3GetPtZ(), 0, tol=2)
+    check("Roll90 y->x x", lib.G3GetPtX(), fp(1.0), tol=2)
+    check("Roll90 y->x y", lib.G3GetPtY(), 0, tol=2)
+    check("Roll90 y->x z", lib.G3GetPtZ(), 0, tol=2)
 
     # =========================================================
     # Combined transforms: Scale + Translate
