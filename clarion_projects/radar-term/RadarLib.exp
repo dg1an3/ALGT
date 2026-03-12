@@ -1,0 +1,16 @@
+EXPORTS
+  RLOpen
+  RLClose
+  RLAddStation
+  RLGetStation
+  RLGetStationCount
+  RLSelectStation
+  RLSetParams
+  RLGetParams
+  RLSetMode
+  RLGetMode
+  RLAddPicture
+  RLGetPicture
+  RLGetPictureCount
+  RLDeletePicture
+  RLRangeToKm
