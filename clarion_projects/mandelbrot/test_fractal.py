@@ -206,13 +206,13 @@ def test_mandelbrot_row(lib):
     else:
         print(f"  FAIL: pixel 0 (x=-2.0) -> {values[0]} (expected {max_iter})")
 
-    # The last pixel at x near 0.7 should be in the set
+    # The last pixel at x near 0.67 escapes quickly (outside the set)
     total += 1
-    if values[9] == max_iter:
-        print(f"  PASS: pixel 9 (x~0.7) -> {values[9]} (expected {max_iter})")
+    if values[9] < max_iter:
+        print(f"  PASS: pixel 9 (x~0.67) -> {values[9]} (escapes, expected < {max_iter})")
         passed += 1
     else:
-        print(f"  FAIL: pixel 9 (x~0.7) -> {values[9]} (expected {max_iter})")
+        print(f"  FAIL: pixel 9 (x~0.67) -> {values[9]} (expected < {max_iter})")
 
     # Verify consistency: single-point values should match row values
     total += 1
