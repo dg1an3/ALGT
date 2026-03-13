@@ -1,0 +1,21 @@
+  NAME('DoseCalcLib')
+
+  MAP
+    MODULE('DoseCalcLib')
+      DcInit(LONG gridW, LONG gridH, REAL spacing),LONG,C,NAME('DcInit')
+      DcFree(),LONG,C,NAME('DcFree')
+      DcSetDensity(LONG x, LONG y, REAL val),LONG,C,NAME('DcSetDensity')
+      DcGetDensity(LONG x, LONG y),REAL,C,NAME('DcGetDensity')
+      DcSetKernel(LONG numPhi, REAL mu),LONG,C,NAME('DcSetKernel')
+      DcSetKernelAngle(LONG idx, REAL angle),LONG,C,NAME('DcSetKernelAngle')
+      DcSetKernelEnergy(LONG phi, LONG radMM, REAL val),LONG,C,NAME('DcSetKernelEnergy')
+      DcSetupLUT(),LONG,C,NAME('DcSetupLUT')
+      DcCalcTerma(REAL srcX, REAL srcY, REAL beamMinX, REAL beamMaxX, LONG raysPerVoxel),LONG,C,NAME('DcCalcTerma')
+      DcCalcDose(),LONG,C,NAME('DcCalcDose')
+      DcGetTerma(LONG x, LONG y),REAL,C,NAME('DcGetTerma')
+      DcGetDose(LONG x, LONG y),REAL,C,NAME('DcGetDose')
+      DcGetMaxDose(),REAL,C,NAME('DcGetMaxDose')
+      DcGetMaxTerma(),REAL,C,NAME('DcGetMaxTerma')
+      DcGetFluenceSurf(),REAL,C,NAME('DcGetFluenceSurf')
+    END
+  END
