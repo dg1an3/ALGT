@@ -1,0 +1,17 @@
+  NAME('KernelLib')
+
+  MAP
+    MODULE('KernelLib')
+      KernLoad(LONG energy),LONG,C,NAME('KernLoad')
+      KernFree(),LONG,C,NAME('KernFree')
+      KernGetNumPhi(),LONG,C,NAME('KernGetNumPhi')
+      KernGetNumRad(),LONG,C,NAME('KernGetNumRad')
+      KernGetMu(),REAL,C,NAME('KernGetMu')
+      KernGetAngle(LONG idx),REAL,C,NAME('KernGetAngle')
+      KernGetRadBound(LONG idx),REAL,C,NAME('KernGetRadBound')
+      KernGetIncEnergy(LONG phi, LONG rad),REAL,C,NAME('KernGetIncEnergy')
+      KernGetCumEnergy(LONG phi, LONG rad),REAL,C,NAME('KernGetCumEnergy')
+      KernGetInterpEnergy(LONG phi, LONG radMM),REAL,C,NAME('KernGetInterpEnergy')
+      KernGetInterpRows(),LONG,C,NAME('KernGetInterpRows')
+    END
+  END
