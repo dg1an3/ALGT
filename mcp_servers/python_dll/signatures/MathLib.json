@@ -1,0 +1,21 @@
+{
+  "dll": "MathLib.dll",
+  "functions": {
+    "MathAdd": {
+      "description": "Add two integers",
+      "params": [
+        {"name": "a", "type": "LONG"},
+        {"name": "b", "type": "LONG"}
+      ],
+      "returns": "LONG"
+    },
+    "Multiply": {
+      "description": "Multiply two integers",
+      "params": [
+        {"name": "a", "type": "LONG"},
+        {"name": "b", "type": "LONG"}
+      ],
+      "returns": "LONG"
+    }
+  }
+}

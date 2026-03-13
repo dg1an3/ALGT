@@ -47,6 +47,7 @@ Combined repository: formal algorithm verification (ALGT) + Clarion language sem
   - `prolog/` — Prolog MCP server
   - `erlang/` — Erlang MCP server
   - `elixir/` — Elixir MCP server
+  - `python_dll/` — Python MCP server wrapping Clarion DLLs via ctypes
 
 ### Supporting
 - `docs/` — Documentation
@@ -227,7 +228,31 @@ Formal verification of geometric algorithms for medical imaging:
 Verifies interleaved concurrent operations to identify race conditions.
 
 ### MCP Servers (`mcp_servers/`)
-Model Context Protocol server implementations for Claude Code integration (Prolog, Erlang, Elixir).
+Model Context Protocol server implementations for Claude Code integration (Prolog, Erlang, Elixir, Python).
+
+### Python DLL MCP Server (`mcp_servers/python_dll/`)
+Python-based MCP server that wraps a Clarion DLL, exposing its exported functions as MCP tools. Uses ctypes for DLL interop and PE parsing for export discovery. No external dependencies beyond the Python standard library.
+
+**Key files:**
+- `server.py` — MCP server implementing JSON-RPC 2.0 over stdio (newline-delimited JSON)
+- `dll_wrapper.py` — Generic Clarion DLL wrapper with PE export parsing and ctypes call interface
+- `test_client.py` — End-to-end test client (launches server, validates all tools)
+- `start_server.sh` — Launch script (uses 32-bit Python)
+
+**MCP Tools exposed:**
+- `list_exports` — List all exported functions from the DLL
+- `call_function` — Call an exported function by name with integer arguments
+- `get_dll_info` — Get metadata about the loaded DLL
+
+**Configuration:** `.mcp.json` in project root configures the server for Claude Code. Requires 32-bit Python (`3.11.9-win32`) since Clarion 11 produces 32-bit DLLs.
+
+**Default DLL:** MathLib.dll from `clarion_projects/python-dll/bin/`. Pass a different DLL path as `argv[1]` to wrap any Clarion DLL.
+
+**Run tests:**
+```bash
+cd mcp_servers/python_dll
+~/.pyenv/pyenv-win/versions/3.11.9-win32/python.exe test_client.py
+```
 
 ## Clarion DLL Conventions
 
