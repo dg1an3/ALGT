@@ -29,17 +29,19 @@ internal_error(-32603).
 
 %% read_jsonrpc_message(+Stream, -Message)
 %%
-%% Reads a JSON-RPC message from the stream using Content-Length header
-%% MCP uses HTTP-style headers: Content-Length: <n>\r\n\r\n<json>
+%% Reads a JSON-RPC message from the stream.
+%% MCP stdio transport uses newline-delimited JSON (one JSON object per line).
 
 read_jsonrpc_message(Stream, Message) :-
-    read_headers(Stream, Headers),
-    (   Headers == end_of_file
+    read_line_to_string(Stream, Line),
+    (   Line == end_of_file
     ->  Message = end_of_file
-    ;   memberchk(content_length(Length), Headers),
-        read_string(Stream, Length, JsonString),
+    ;   string_trim(Line, Trimmed),
+        Trimmed == ""
+    ->  read_jsonrpc_message(Stream, Message)  % skip blank lines
+    ;   string_trim(Line, Trimmed),
         catch(
-            atom_json_dict(JsonString, Message, []),
+            atom_json_dict(Trimmed, Message, []),
             Error,
             (   log_error("JSON parse error: ~w", [Error]),
                 Message = json_error(Error)
@@ -47,57 +49,23 @@ read_jsonrpc_message(Stream, Message) :-
         )
     ).
 
-%% read_headers(+Stream, -Headers)
-%%
-%% Reads HTTP-style headers until empty line
-
-read_headers(Stream, Headers) :-
-    read_line_to_string(Stream, Line),
-    (   Line == end_of_file
-    ->  Headers = end_of_file
-    ;   Line == ""
-    ->  Headers = []
-    ;   Line == "\r"
-    ->  Headers = []
-    ;   parse_header(Line, Header),
-        read_headers(Stream, RestHeaders),
-        (   RestHeaders == end_of_file
-        ->  Headers = [Header]
-        ;   Headers = [Header | RestHeaders]
-        )
-    ).
-
-%% parse_header(+Line, -Header)
-%%
-%% Parses a single header line
-
-parse_header(Line, content_length(Length)) :-
-    (   sub_string(Line, 0, _, _, "Content-Length:")
-    ;   sub_string(Line, 0, _, _, "content-length:")
-    ),
-    !,
-    sub_string(Line, _, _, 0, Rest),
-    sub_string(Rest, Start, _, 0, Value),
-    sub_string(Rest, 0, Start, _, "Content-Length:"),
-    string_codes(Value, Codes),
-    exclude(is_space_code, Codes, NumCodes),
-    number_codes(Length, NumCodes).
-
-parse_header(Line, unknown_header(Line)).
-
-is_space_code(32).   % space
-is_space_code(9).    % tab
-is_space_code(13).   % CR
+%% string_trim(+String, -Trimmed)
+%% Remove leading/trailing whitespace and CR
+string_trim(String, Trimmed) :-
+    split_string(String, "", " \t\r\n", [Trimmed|_]),
+    !.
+string_trim(_, "").
 
 %% write_jsonrpc_response(+Stream, +Response)
 %%
-%% Writes a JSON-RPC response with Content-Length header
+%% Writes a JSON-RPC response as a single line of JSON followed by a newline.
+%% MCP stdio transport uses newline-delimited JSON.
 
 write_jsonrpc_response(Stream, Response) :-
-    atom_json_dict(JsonAtom, Response, []),
-    atom_string(JsonAtom, JsonString),
-    string_length(JsonString, Length),
-    format(Stream, "Content-Length: ~d\r\n\r\n~s", [Length, JsonString]),
+    with_output_to(string(JsonString),
+        json_write_dict(current_output, Response, [width(0)])
+    ),
+    format(Stream, "~w\n", [JsonString]),
     flush_output(Stream).
 
 %% write_jsonrpc_error(+Stream, +Id, +Code, +Message)
