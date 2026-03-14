@@ -46,7 +46,48 @@ IEC 62304 and FDA guidance on software validation require hazard analysis includ
 
 These limitations leave a gap: **no systematic, tool-supported method exists for performing software FMEA on legacy medical device code written in unsupported languages.**
 
-### 2.3 Regulatory Context
+### 2.3 Historical Precedent: Prolog-Based Algorithm Verification in Production Medical Devices
+
+The methodology underlying ALGT-FMEA is not theoretical — it has a **20+ year track record** in production medical device verification.
+
+In 2003, the COHERENCE Dosimetrist Workspace 2.0 (Siemens Medical Solutions) underwent formal algorithm verification using SWI-Prolog, as documented in the **Code Review / Unit Test Procedure (CRUTPr)** (Document TH 75.000020, Revision A1). This procedure verified 12 hazard-identified geometric algorithms critical to radiation therapy treatment planning:
+
+| CRUTPr Algorithm | ALGT-FMEA Test Suite | Clinical Risk |
+|---|---|---|
+| Contouring (contour position encoding) | ALGT_CONTOURING | Wrong structure position → mistreatment |
+| Mesh Generation (3D surface from contours) | ALGT_MESH_GEN | Incorrect anatomy → treatment errors |
+| Mesh Planar Intersection | ALGT_MESH_PLANE | Contour reconstruction errors in MPR |
+| 2D Margin (dilation algorithm) | ALGT_MARGIN2D | Wrong BEV margins → target miss |
+| 3D Margin (morphological operations) | ALGT_MARGIN3D | Underdosage or OAR overdosage |
+| Isodensity Extraction | ALGT_ISODENSITY | Incorrect isodose display → clinical misjudgment |
+| Beam SSD Calculation | ALGT_SSD | Wrong SSD → dose calculation error |
+| Beam Volume Generation (conic projection) | ALGT_BEAM_VOLUME | Wrong tissue irradiated |
+| Beam Volume Planar Intersection | ALGT_BEAM_VOL_PLANAR | 2D beam geometry errors |
+| Beam Central Axis / Isocenter | ALGT_BEAM_CAX | Beam misalignment → geographic miss |
+| Structure Projection (BEV transform) | ALGT_STRUCT_PROJ | Wrong shielding |
+| DRR Calculation | — | Incorrect beam geometry visualization |
+
+The CRUTPr methodology used identical foundational techniques to those now formalized in ALGT-FMEA:
+
+- **Definite Clause Grammars (DCGs)** to parse clinical data formats (Nuages, VRML, DICOM parameters)
+- **Verification conditions** expressed as predicate logic statements (e.g., $\forall v \in P' : d(v, M) < \epsilon$), directly implemented as Prolog predicates
+- **Formal hazard traceability** linking HZRA hazard keys → functional safety requirements → verification test procedures
+- **Three-condition verification pattern**: positional correctness, volumetric consistency, and structural integrity — applied systematically across all geometric algorithms
+
+The CRUTPr established that Prolog-based formal verification can be practically applied to production medical device algorithms, with mathematical verification conditions that are both rigorous and executable. ALGT-FMEA extends this proven foundation with execution trace comparison, probabilistic inference, and machine learning capabilities.
+
+### 2.4 The Palmerston North MDR: A Motivating Case
+
+The importance of rigorous software verification for radiation therapy systems is underscored by real-world adverse events. An FDA Medical Device Report (MDR) filed in approximately 2003–2004 involved the Siemens VSIM / COHERENCE product line at a facility in Palmerston North, New Zealand. The COHERENCE system — the same product whose algorithms were the subject of the CRUTPr verification procedure — was implicated in an adverse event report filed through the FDA's MAUDE (Manufacturer and User Facility Device Experience) system (see MAUDE report for COHERENCE Oncologist Workspace Model 2.0, MDR FOI ID 4921940, Product Code IYE).
+
+This incident demonstrates several points relevant to the MDDT qualification:
+
+1. **Software-mediated failures in radiation oncology systems have real clinical consequences** — the algorithms verified by the CRUTPr address hazards classified as "Mistreatment, dose to wrong location" (HZRA1028, HZRA1029, HZRA1030, HZRA1034, etc.)
+2. **Legacy systems remain in clinical use for extended periods** — the COHERENCE product line evolved through multiple versions, with Class 2 Device Recalls issued for Coherence Therapist system 2.1 and later COHERENCE RT versions
+3. **Formal verification at development time does not eliminate the need for ongoing software FMEA** — post-market surveillance must be complemented by systematic analysis of failure modes that may emerge from software modifications, configuration changes, or newly discovered interaction effects
+4. **The verification methodology itself has proven durable** — the Prolog-based approach from the 2003 CRUTPr remains technically sound and has been substantially extended in ALGT-FMEA, validating the approach as a candidate for MDDT qualification
+
+### 2.5 Regulatory Context
 
 - **IEC 62304:2006+AMD1:2015** — Requires software hazard analysis proportional to safety classification
 - **FDA Guidance: Content of Premarket Submissions for Device Software Functions (2023)** — Expects risk analysis including software failure modes
@@ -102,7 +143,7 @@ The core of ALGT-FMEA is a **unified Clarion language simulator** that parses an
 
 ### 3.3 Layer 1: Formal Algorithm Verification
 
-Ten formal verification test suites validate geometric algorithms critical to radiation therapy:
+Ten formal verification test suites — directly descended from the 2003 CRUTPr (Section 2.3) — validate geometric algorithms critical to radiation therapy:
 
 | Test Suite | Algorithm Verified | Patient Safety Relevance |
 |---|---|---|
@@ -123,7 +164,7 @@ Each test:
 3. Verifies results against Prolog-computed geometric predicates
 4. Reports with configurable tolerance thresholds
 
-**FMEA Application:** These tests identify *algorithmic failure modes* — conditions where geometric calculations produce clinically incorrect results (e.g., mesh degeneration at extreme gantry angles, margin collapse for non-convex structures).
+**FMEA Application:** These tests identify *algorithmic failure modes* — conditions where geometric calculations produce clinically incorrect results (e.g., mesh degeneration at extreme gantry angles, margin collapse for non-convex structures). The verification conditions are mathematically equivalent to those in the original CRUTPr, providing continuity with a methodology that has been applied in production medical device verification since 2003.
 
 ### 3.4 Layer 2: Execution Trace Comparison
 
@@ -427,6 +468,8 @@ The tool **augments** but does not replace human judgment in the FMEA process.
 
 **Current Status:** 198 passing tests; 3 Clarion projects with CDB trace comparison (sensor-data, form-demo, treatment-offset); all traces match.
 
+**Historical Validation:** The Prolog-based verification approach was originally validated in production use through the CRUTPr [8], where it was applied to verify 12 geometric algorithms in the COHERENCE Dosimetrist Workspace 2.0 (Siemens Medical Solutions) against formal mathematical verification conditions. Test results were captured and archived in ClearCase as part of the regulated software development process.
+
 ### 5.2 FMEA Completeness Validation
 
 **Objective:** Demonstrate that ALGT-FMEA identifies failure modes that manual review alone would miss.
@@ -511,6 +554,9 @@ The GNN-VAE anomaly detection capability enables **continuous monitoring** of ex
 5. ISO 14971:2019. *Medical devices — Application of risk management to medical devices.*
 6. AAMI TIR57:2016. *Principles for medical device security — Risk management.*
 7. IEC 60812:2018. *Failure modes and effects analysis (FMEA and FMECA).*
+8. Lane, D. *Dosimetrist Workspace 2.0 Algorithm Verification — Code Review / Unit Test Procedure (CRUTPr).* Document TH 75.000020, Revision A1. Siemens Medical Solutions, 2003.
+9. FDA MAUDE. *Adverse Event Report: COHERENCE Oncologist Workspace Model 2.0.* MDR FOI ID 4921940, Product Code IYE. Siemens AG Med Solutions. (Palmerston North, New Zealand facility.)
+10. FDA. *Class 2 Device Recall: Coherence Therapist system 2.1.* Recall ID 66977. Siemens Medical Solutions USA, Inc.
 
 ---
 
@@ -553,7 +599,8 @@ The parser and simulator currently support:
 
 ---
 
-*Document Version: 1.0*
-*Date: 2026-03-13*
+*Document Version: 1.1*
+*Date: 2026-03-14*
 *Author: Derek Lane*
 *Status: DRAFT — For internal review prior to FDA pre-submission*
+*Change History: v1.1 — Added CRUTPr historical precedent (Section 2.3), Palmerston North MDR motivating case (Section 2.4), CRUTPr lineage in Layer 1 (Section 3.3), references [8]-[10]*
