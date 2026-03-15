@@ -255,5 +255,93 @@ test(session_multiple_calls) :-
 
 :- end_tests(llvm_integration).
 
+% ============================================================
+% Phase 2: VecMat MathUtil tests — real clang-generated LLVM IR
+% ============================================================
+
+:- begin_tests(llvm_vecmat).
+
+test(parse_mathutil_ll) :-
+    parse_llvm_file('samples/mathutil.ll', module(Globals, Declares, Defines)),
+    length(Globals, 1),
+    length(Declares, 5),
+    length(Defines, 6).
+
+test(is_approx_equal_true) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'IsApproxEqual_double', [1.0, 1.000001, 1e-5], R, _),
+    R =:= 1.
+
+test(is_approx_equal_false) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'IsApproxEqual_double', [1.0, 2.0, 1e-5], R, _),
+    R =:= 0.
+
+test(gauss_at_zero) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'Gauss_double', [0.0, 1.0], R, _),
+    % Gauss(0, 1) = 1 / sqrt(2*PI) ≈ 0.3989
+    abs(R - 0.3989422804014327) < 1e-10.
+
+test(gauss_symmetry) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'Gauss_double', [1.0, 1.0], R1, _),
+    call_function(S, 'Gauss_double', [-1.0, 1.0], R2, _),
+    abs(R1 - R2) < 1e-10.
+
+test(gauss2d_at_origin) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'Gauss2D_double', [0.0, 0.0, 1.0, 1.0], R, _),
+    % Gauss2D at origin with sx=sy=1
+    abs(R - 0.3989422804014327) < 1e-10.
+
+test(gauss2d_isotropic) :-
+    % Gauss2D(x,0,s,s) should equal Gauss(x,s) * normalizing factor
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'Gauss2D_double', [1.0, 0.0, 2.0, 2.0], R, _),
+    R > 0.0.
+
+test(dgauss2d_dx_at_origin) :-
+    % Derivative at x=0 should be 0 (peak of gaussian)
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'dGauss2D_dx_double', [0.0, 0.0, 1.0, 1.0], R, _),
+    abs(R) < 1e-10.
+
+test(dgauss2d_dy_at_origin) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'dGauss2D_dy_double', [0.0, 0.0, 1.0, 1.0], R, _),
+    abs(R) < 1e-10.
+
+test(dgauss2d_dx_negative_slope) :-
+    % Derivative at x>0 should be negative (gaussian decreasing)
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'dGauss2D_dx_double', [1.0, 0.0, 1.0, 1.0], R, _),
+    R < 0.0.
+
+test(angle_from_sincos_zero) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    call_function(S, 'AngleFromSinCos_double', [0.0, 1.0], R, _),
+    abs(R) < 1e-10.
+
+test(angle_from_sincos_pi_half) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    Pi_2 is pi / 2,
+    call_function(S, 'AngleFromSinCos_double', [1.0, 0.0], R, _),
+    abs(R - Pi_2) < 1e-10.
+
+test(angle_from_sincos_pi) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    Pi is pi,
+    call_function(S, 'AngleFromSinCos_double', [0.0, -1.0], R, _),
+    abs(R - Pi) < 1e-10.
+
+test(angle_from_sincos_three_pi_half) :-
+    init_session_from_file('samples/mathutil.ll', S),
+    ThreePi2 is 3 * pi / 2,
+    call_function(S, 'AngleFromSinCos_double', [-1.0, 0.0], R, _),
+    abs(R - ThreePi2) < 1e-10.
+
+:- end_tests(llvm_vecmat).
+
 
 :- run_tests.

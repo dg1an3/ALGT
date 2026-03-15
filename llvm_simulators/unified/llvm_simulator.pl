@@ -132,6 +132,12 @@ exec_instruction(instr(Op, Result, Type, [Op1, Op2]), StateIn, StateOut) :-
     eval_binary_op(Op, Type, V1, V2, Value),
     set_register(Result, typed_value(Type, Value), StateIn, StateOut).
 
+% Unary fneg (floating-point negate)
+exec_instruction(fneg(Result, Type, Op), StateIn, StateOut) :-
+    resolve_value(Op, Type, StateIn, V),
+    Value is -V,
+    set_register(Result, typed_value(Type, Value), StateIn, StateOut).
+
 % Integer comparison
 exec_instruction(icmp(Result, Cond, Type, Op1, Op2), StateIn, StateOut) :-
     resolve_value(Op1, Type, StateIn, V1),

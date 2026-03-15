@@ -36,35 +36,35 @@ llvm_module(module(Globals, Declares, Defines)) -->
 
 module_items(Globals, Declares, Defines) -->
     ws,
-    ( module_item(Item) ->
+    ( \+ [_] ->
+        { Globals = [], Declares = [], Defines = [] }
+    ; skip_line ->
+        module_items(Globals, Declares, Defines)
+    ; module_item(Item) ->
         { classify_item(Item, Globals, Declares, Defines,
                         Globals1, Declares1, Defines1) },
         module_items(Globals1, Declares1, Defines1)
-    ; \+ [_] ->
-        { Globals = [], Declares = [], Defines = [] }
+    ; % Skip unrecognized line
+      rest_of_line,
+      module_items(Globals, Declares, Defines)
     ).
 
 classify_item(define(R,N,P,B), Gs, Ds, [define(R,N,P,B)|Defs], Gs, Ds, Defs).
 classify_item(declare(R,N,PT), Gs, [declare(R,N,PT)|Ds], Defs, Gs, Ds, Defs).
 classify_item(global(N,T,V), [global(N,T,V)|Gs], Ds, Defs, Gs, Ds, Defs).
 
+% Lines to skip (consumed and discarded)
+skip_line --> ws, ";", rest_of_line.
+skip_line --> ws, "source_filename", rest_of_line.
+skip_line --> ws, "target", rest_of_line.
+skip_line --> ws, "attributes", rest_of_line.
+skip_line --> ws, "!", rest_of_line.
+
 module_item(Item) -->
-    ( comment_line -> { fail }
-    ; source_filename_line -> { fail }
-    ; target_line -> { fail }
-    ; attributes_line -> { fail }
-    ; metadata_line -> { fail }
-    ; define_func(Item)
+    ( define_func(Item)
     ; declare_func(Item)
     ; global_def(Item)
     ).
-
-% Skip lines we don't care about
-comment_line --> ws, ";", rest_of_line.
-source_filename_line --> ws, "source_filename", rest_of_line.
-target_line --> ws, "target", rest_of_line.
-attributes_line --> ws, "attributes", rest_of_line.
-metadata_line --> ws, "!", rest_of_line.
 
 rest_of_line --> ( "\n" ; "\r\n" ; \+ [_] ), !.
 rest_of_line --> [_], rest_of_line.
@@ -76,6 +76,7 @@ rest_of_line --> [_], rest_of_line.
 define_func(define(RetType, Name, Params, Blocks)) -->
     ws, "define", ws1,
     optional_linkage,
+    optional_return_attrs,
     llvm_type(RetType), ws,
     global_name(Name), ws,
     "(", param_list(Params), ")", ws,
@@ -83,6 +84,13 @@ define_func(define(RetType, Name, Params, Blocks)) -->
     "{", ws,
     basic_blocks(Blocks),
     ws, "}", ws.
+
+% e.g., range(i32 0, 2)
+optional_return_attrs --> "range(", skip_until_close_paren, ws.
+optional_return_attrs --> [].
+
+skip_until_close_paren --> ")".
+skip_until_close_paren --> [C], { C \= 0') }, skip_until_close_paren.
 
 declare_func(declare(RetType, Name, ParamTypes)) -->
     ws, "declare", ws1,
@@ -102,6 +110,7 @@ linkage_keyword --> "linkonce".
 linkage_keyword --> "weak".
 linkage_keyword --> "common".
 linkage_keyword --> "dso_local".
+linkage_keyword --> "appending".
 
 optional_func_attrs --> func_attr, ws, optional_func_attrs.
 optional_func_attrs --> [].
@@ -122,6 +131,12 @@ func_attr --> "optnone".
 func_attr --> "alwaysinline".
 func_attr --> "ssp".
 func_attr --> "sspstrong".
+func_attr --> "local_unnamed_addr".
+func_attr --> "unnamed_addr".
+func_attr --> "speculatable".
+func_attr --> "nocallback".
+% memory(...) attribute
+func_attr --> "memory(", skip_until_close_paren.
 
 % ============================================================
 % Parameters
@@ -178,9 +193,17 @@ basic_blocks([Block|Rest]) -->
 basic_block(block(Label, Instructions, Terminator)) -->
     block_label(Label), ws,
     instructions(Instructions, Terminator).
+% Implicit entry block (no label before first instruction)
+basic_block(block(entry, Instructions, Terminator)) -->
+    \+ block_label(_),
+    instructions(Instructions, Terminator).
 
 block_label(Label) -->
-    ws, identifier_str(Label), ":", ws.
+    ws, label_name(Label), ":", ws.
+
+label_name(Label) --> identifier_str(Label).
+label_name(Label) -->
+    digits(Codes), { Codes \= [], atom_codes(Label, Codes) }.
 
 instructions([], Terminator) -->
     terminator(Terminator), ws.
@@ -325,6 +348,11 @@ instruction_rhs(Result, cast(CastOp, Result, FromType, Val, ToType)) -->
     llvm_type(FromType), ws, operand(Val), ws,
     "to", ws1,
     llvm_type(ToType).
+
+% fneg — unary floating-point negate
+instruction_rhs(Result, fneg(Result, Type, Op)) -->
+    "fneg", ws1,
+    llvm_type(Type), ws, operand(Op).
 
 % Void instructions (no result register)
 void_instruction(store(ValType, Val, PtrType, Ptr)) -->
@@ -514,6 +542,7 @@ optional_tail --> "musttail", ws1.
 optional_tail --> "notail", ws1.
 optional_tail --> [].
 
+optional_call_attrs --> ws, "#", digits(_).
 optional_call_attrs --> [].
 
 % ============================================================
@@ -647,14 +676,25 @@ is_hex_digit(D) :-
 
 %% hex_to_float(+HexCodes, -Float)
 %  Convert LLVM hex float representation (IEEE 754 double) to Prolog float.
+%  LLVM encodes doubles as 0xHHHHHHHHHHHHHHHH (16 hex digits = 64-bit IEEE 754).
 hex_to_float(HexCodes, Float) :-
     atom_codes(HexAtom, HexCodes),
-    atom_string(HexAtom, HexStr),
-    atom_to_term(HexStr, HexInt, _),
-    % For now, handle common cases
+    atom_concat('0x', HexAtom, FullHex),
+    term_to_atom(HexInt, FullHex),
     ( HexInt =:= 0 -> Float = 0.0
-    ; % General IEEE 754 conversion would go here
-      Float = 0.0  % placeholder
+    ;
+        % IEEE 754 double: sign(1) exponent(11) mantissa(52)
+        Sign is (HexInt >> 63) /\ 1,
+        Exponent is (HexInt >> 52) /\ 0x7FF,
+        Mantissa is HexInt /\ 0xFFFFFFFFFFFFF,
+        ( Exponent =:= 0 ->
+            % Denormalized
+            Float0 is Mantissa * (2.0 ** (-1074))
+        ;
+            % Normalized
+            Float0 is (1.0 + Mantissa / (2.0 ** 52)) * (2.0 ** (Exponent - 1023))
+        ),
+        ( Sign =:= 1 -> Float is -Float0 ; Float = Float0 )
     ).
 
 % ============================================================
