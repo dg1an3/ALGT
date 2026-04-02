@@ -1,0 +1,3 @@
+%{
+  "erlog": {:git, "https://github.com/zkessin/erlog.git", "165e37afc179e42104fb1ba46643b55cb4c72e81", [branch: "master"]},
+}
