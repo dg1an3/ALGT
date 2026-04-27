@@ -1,0 +1,324 @@
+object frmAppointment: TfrmAppointment
+  Left = 220
+  Height = 600
+  Top = 130
+  Width = 920
+  Caption = 'Appointments'
+  ClientHeight = 600
+  ClientWidth = 920
+  OnClose = FormClose
+  OnCreate = FormCreate
+  Position = poScreenCenter
+  LCLVersion = '2.2.6.0'
+  object pnlTop: TPanel
+    Left = 0
+    Height = 240
+    Top = 0
+    Width = 920
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 240
+    ClientWidth = 920
+    TabOrder = 0
+    object DBGrid1: TDBGrid
+      Left = 8
+      Height = 224
+      Top = 8
+      Width = 904
+      Anchors = [akTop, akLeft, akRight, akBottom]
+      Color = clWindow
+      Columns = <
+        item
+          Title.Caption = 'Start'
+          Width = 130
+          FieldName = 'ScheduledStart'
+        end
+        item
+          Title.Caption = 'End'
+          Width = 130
+          FieldName = 'ScheduledEnd'
+        end
+        item
+          Title.Caption = 'Patient'
+          Width = 200
+          FieldName = 'PatientLabel'
+          ReadOnly = True
+        end
+        item
+          Title.Caption = 'Plan'
+          Width = 90
+          FieldName = 'PlanCode'
+          ReadOnly = True
+        end
+        item
+          Title.Caption = 'Type'
+          Width = 90
+          FieldName = 'AppointmentType'
+        end
+        item
+          Title.Caption = 'Status'
+          Width = 90
+          FieldName = 'Status'
+        end
+        item
+          Title.Caption = 'Resource'
+          Width = 100
+          FieldName = 'Resource'
+        end>
+      DataSource = nil
+      TabOrder = 0
+    end
+  end
+  object pnlEdit: TPanel
+    Left = 0
+    Height = 337
+    Top = 240
+    Width = 920
+    Align = alClient
+    BevelOuter = bvLowered
+    ClientHeight = 337
+    ClientWidth = 920
+    TabOrder = 1
+    object DBNavigator1: TDBNavigator
+      Left = 8
+      Height = 28
+      Top = 8
+      Width = 240
+      DataSource = nil
+      TabOrder = 0
+    end
+    object btnCheckIn: TBitBtn
+      Left = 256
+      Height = 28
+      Top = 8
+      Width = 100
+      Caption = 'Check &In'
+      OnClick = btnCheckInClick
+      TabOrder = 1
+    end
+    object btnComplete: TBitBtn
+      Left = 364
+      Height = 28
+      Top = 8
+      Width = 100
+      Caption = 'Co&mplete'
+      OnClick = btnCompleteClick
+      TabOrder = 2
+    end
+    object btnCancel: TBitBtn
+      Left = 472
+      Height = 28
+      Top = 8
+      Width = 100
+      Caption = 'C&ancel'
+      OnClick = btnCancelClick
+      TabOrder = 3
+    end
+    object lblPatient: TLabel
+      Left = 16
+      Height = 16
+      Top = 50
+      Width = 56
+      Caption = 'Patient:'
+    end
+    object cmbPatient: TDBLookupComboBox
+      Left = 110
+      Height = 24
+      Top = 46
+      Width = 320
+      KeyField = 'PatientID'
+      ListField = 'Label'
+      TabOrder = 4
+    end
+    object lblPlan: TLabel
+      Left = 450
+      Height = 16
+      Top = 50
+      Width = 36
+      Caption = 'Plan:'
+    end
+    object cmbPlan: TDBLookupComboBox
+      Left = 510
+      Height = 24
+      Top = 46
+      Width = 320
+      KeyField = 'PlanID'
+      ListField = 'Label'
+      TabOrder = 5
+    end
+    object lblStart: TLabel
+      Left = 16
+      Height = 16
+      Top = 86
+      Width = 36
+      Caption = 'Start:'
+    end
+    object edtStart: TDBEdit
+      Left = 110
+      Height = 24
+      Top = 82
+      Width = 160
+      DataField = 'ScheduledStart'
+      TabOrder = 6
+    end
+    object lblEnd: TLabel
+      Left = 290
+      Height = 16
+      Top = 86
+      Width = 28
+      Caption = 'End:'
+    end
+    object edtEnd: TDBEdit
+      Left = 340
+      Height = 24
+      Top = 82
+      Width = 160
+      DataField = 'ScheduledEnd'
+      TabOrder = 7
+    end
+    object lblType: TLabel
+      Left = 520
+      Height = 16
+      Top = 86
+      Width = 36
+      Caption = 'Type:'
+    end
+    object cmbType: TDBComboBox
+      Left = 570
+      Height = 24
+      Top = 82
+      Width = 120
+      DataField = 'AppointmentType'
+      ItemHeight = 16
+      Items.Strings = (
+        'Consult'
+        'Simulation'
+        'Treatment'
+        'FollowUp'
+        'Other'
+      )
+      Style = csDropDownList
+      TabOrder = 8
+    end
+    object lblStatus: TLabel
+      Left = 16
+      Height = 16
+      Top = 122
+      Width = 50
+      Caption = 'Status:'
+    end
+    object cmbStatus: TDBComboBox
+      Left = 110
+      Height = 24
+      Top = 118
+      Width = 140
+      DataField = 'Status'
+      ItemHeight = 16
+      Items.Strings = (
+        'Scheduled'
+        'CheckedIn'
+        'InProgress'
+        'Completed'
+        'Cancelled'
+        'NoShow'
+      )
+      Style = csDropDownList
+      TabOrder = 9
+    end
+    object lblResource: TLabel
+      Left = 270
+      Height = 16
+      Top = 122
+      Width = 70
+      Caption = 'Resource:'
+    end
+    object edtResource: TDBEdit
+      Left = 350
+      Height = 24
+      Top = 118
+      Width = 150
+      DataField = 'Resource'
+      TabOrder = 10
+    end
+    object lblCheckedIn: TLabel
+      Left = 16
+      Height = 16
+      Top = 158
+      Width = 90
+      Caption = 'Checked In:'
+    end
+    object edtCheckedIn: TDBEdit
+      Left = 110
+      Height = 24
+      Top = 154
+      Width = 160
+      DataField = 'CheckedInAt'
+      ReadOnly = True
+      TabOrder = 11
+    end
+    object lblCompleted: TLabel
+      Left = 290
+      Height = 16
+      Top = 158
+      Width = 80
+      Caption = 'Completed:'
+    end
+    object edtCompleted: TDBEdit
+      Left = 380
+      Height = 24
+      Top = 154
+      Width = 160
+      DataField = 'CompletedAt'
+      ReadOnly = True
+      TabOrder = 12
+    end
+    object lblCancelReason: TLabel
+      Left = 16
+      Height = 16
+      Top = 194
+      Width = 110
+      Caption = 'Cancel Reason:'
+    end
+    object edtCancelReason: TDBEdit
+      Left = 130
+      Height = 24
+      Top = 190
+      Width = 600
+      DataField = 'CancelReason'
+      TabOrder = 13
+    end
+    object lblNotes: TLabel
+      Left = 16
+      Height = 16
+      Top = 230
+      Width = 40
+      Caption = 'Notes:'
+    end
+    object memNotes: TDBMemo
+      Left = 130
+      Height = 60
+      Top = 226
+      Width = 600
+      DataField = 'Notes'
+      TabOrder = 14
+    end
+    object btnClose: TBitBtn
+      Left = 800
+      Height = 30
+      Top = 290
+      Width = 100
+      Anchors = [akRight, akBottom]
+      Caption = '&Close'
+      Kind = bkClose
+      OnClick = btnCloseClick
+      TabOrder = 15
+    end
+  end
+  object StatusBar1: TStatusBar
+    Left = 0
+    Height = 23
+    Top = 577
+    Width = 920
+    SimplePanel = True
+  end
+end

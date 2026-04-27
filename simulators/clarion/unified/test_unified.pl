@@ -15,6 +15,7 @@
 :- use_module(scenario_dsl).
 :- use_module(storage_backend).
 :- use_module(ui_backend).
+:- use_module(ast_mermaid).
 
 :- dynamic test_count/1, pass_count/1, fail_count/1.
 test_count(0). pass_count(0). fail_count(0).
@@ -1221,6 +1222,92 @@ run_test(Test) :-
     ;  true  % Continue even if test fails
     ).
 
+%------------------------------------------------------------
+% Mermaid Sequence Diagram Tests
+%------------------------------------------------------------
+
+test_mermaid_simple_call :-
+    format("~nMermaid sequence diagram tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    Greet(LONG x),LONG,C,NAME('Greet'),EXPORT\n    Helper(LONG y),LONG,C,NAME('Helper'),EXPORT\n  END\nGreet PROCEDURE(LONG x)\n  CODE\n  RETURN(Helper(x))\nHelper PROCEDURE(LONG y)\n  CODE\n  RETURN(y + 1)\n",
+    parse_clarion(Src, AST),
+    ast_to_mermaid(AST, Mermaid),
+    % Check header present
+    ( sub_atom(Mermaid, _, _, _, 'sequenceDiagram') -> HasHeader = true ; HasHeader = false ),
+    check('Mermaid has sequenceDiagram header', HasHeader, true),
+    % Check participants
+    ( sub_atom(Mermaid, _, _, _, 'participant Greet') -> HasGreet = true ; HasGreet = false ),
+    check('Mermaid has Greet participant', HasGreet, true),
+    ( sub_atom(Mermaid, _, _, _, 'participant Helper') -> HasHelper = true ; HasHelper = false ),
+    check('Mermaid has Helper participant', HasHelper, true).
+
+test_mermaid_call_arrow :-
+    Src = "  MEMBER()\n  MAP\n    A(LONG x),LONG,C,NAME('A'),EXPORT\n    B(LONG y),LONG,C,NAME('B'),EXPORT\n  END\nA PROCEDURE(LONG x)\nR LONG\n  CODE\n  R = B(x)\n  RETURN(R)\nB PROCEDURE(LONG y)\n  CODE\n  RETURN(y * 2)\n",
+    parse_clarion(Src, AST),
+    ast_to_mermaid(AST, Mermaid),
+    % Check call arrow from A to B
+    ( sub_atom(Mermaid, _, _, _, 'A->>B') -> HasCall = true ; HasCall = false ),
+    check('Mermaid has A->>B call arrow', HasCall, true),
+    % Check return arrow from B to A
+    ( sub_atom(Mermaid, _, _, _, 'B-->>A') -> HasRet = true ; HasRet = false ),
+    check('Mermaid has B-->>A return arrow', HasRet, true).
+
+test_mermaid_if_alt :-
+    Src = "  MEMBER()\n  MAP\n    Check(LONG x),LONG,C,NAME('Check'),EXPORT\n  END\nCheck PROCEDURE(LONG x)\nR LONG\n  CODE\n  IF x > 0\n    R = 1\n  ELSE\n    R = 0\n  END\n  RETURN(R)\n",
+    parse_clarion(Src, AST),
+    ast_to_mermaid(AST, Mermaid),
+    % Check alt fragment
+    ( sub_atom(Mermaid, _, _, _, 'alt x > 0') -> HasAlt = true ; HasAlt = false ),
+    check('Mermaid has alt fragment for IF', HasAlt, true),
+    ( sub_atom(Mermaid, _, _, _, 'else') -> HasElse = true ; HasElse = false ),
+    check('Mermaid has else for ELSE branch', HasElse, true).
+
+test_mermaid_loop :-
+    Src = "  MEMBER()\n  MAP\n    Count(LONG n),LONG,C,NAME('Count'),EXPORT\n  END\nCount PROCEDURE(LONG n)\nI LONG\nS LONG\n  CODE\n  S = 0\n  LOOP I = 1 TO n\n    S = S + I\n  END\n  RETURN(S)\n",
+    parse_clarion(Src, AST),
+    ast_to_mermaid(AST, Mermaid),
+    % Check loop fragment
+    ( sub_atom(Mermaid, _, _, _, 'loop I = 1 TO n') -> HasLoop = true ; HasLoop = false ),
+    check('Mermaid has loop fragment for LOOP FOR', HasLoop, true).
+
+test_mermaid_case :-
+    Src = "  MEMBER()\n  MAP\n    Grade(LONG s),LONG,C,NAME('Grade'),EXPORT\n  END\nGrade PROCEDURE(LONG s)\nR LONG\n  CODE\n  CASE s\n  OF 1\n    R = 10\n  OF 2\n    R = 20\n  ELSE\n    R = 0\n  END\n  RETURN(R)\n",
+    parse_clarion(Src, AST),
+    ast_to_mermaid(AST, Mermaid),
+    % Check alt for CASE
+    ( sub_atom(Mermaid, _, _, _, 'alt s = 1') -> HasCase1 = true ; HasCase1 = false ),
+    check('Mermaid has alt for CASE OF 1', HasCase1, true),
+    ( sub_atom(Mermaid, _, _, _, 'else s = 2') -> HasCase2 = true ; HasCase2 = false ),
+    check('Mermaid has else for CASE OF 2', HasCase2, true).
+
+test_mermaid_real_project :-
+    read_file_to_string('../../clarion_projects/python-dll/MathLib.clw', Src, []),
+    parse_clarion(Src, AST),
+    ast_to_mermaid(AST, Mermaid),
+    atom_length(Mermaid, Len),
+    ( Len > 50 -> HasContent = true ; HasContent = false ),
+    check('MathLib Mermaid diagram has content', HasContent, true),
+    ( sub_atom(Mermaid, _, _, _, 'sequenceDiagram') -> Ok = true ; Ok = false ),
+    check('MathLib Mermaid is valid diagram', Ok, true).
+
+test_mermaid_sensorlib :-
+    read_file_to_string('../../clarion_projects/sensor-data/SensorLib.clw', Src, []),
+    parse_clarion(Src, AST),
+    ast_to_mermaid(AST, Mermaid),
+    % SensorLib has inter-procedure calls (e.g. SSCalculateWeightedAverage uses file ops)
+    ( sub_atom(Mermaid, _, _, _, 'participant') -> HasParts = true ; HasParts = false ),
+    check('SensorLib Mermaid has participants', HasParts, true),
+    ( sub_atom(Mermaid, _, _, _, 'loop') -> HasLoop = true ; HasLoop = false ),
+    check('SensorLib Mermaid has loop fragments', HasLoop, true).
+
+test_mermaid_file_output :-
+    Src = "  MEMBER()\n  MAP\n    Foo(),LONG,C,NAME('Foo'),EXPORT\n  END\nFoo PROCEDURE()\n  CODE\n  RETURN(42)\n",
+    parse_clarion(Src, AST),
+    TmpFile = '/tmp/test_mermaid_output.md',
+    ast_to_mermaid_file(AST, TmpFile),
+    ( exists_file(TmpFile) -> FileOk = true ; FileOk = false ),
+    check('Mermaid file output created', FileOk, true),
+    ( FileOk = true -> delete_file(TmpFile) ; true ).
+
 main :-
     format("=== Unified Simulator Test Suite ===~n"),
     % Parser tests (bridge)
@@ -1361,6 +1448,15 @@ main :-
     run_test(test_float_literal_exec),
     run_test(test_address_unique),
     run_test(test_memcopy_noop),
+    % Mermaid sequence diagrams
+    run_test(test_mermaid_simple_call),
+    run_test(test_mermaid_call_arrow),
+    run_test(test_mermaid_if_alt),
+    run_test(test_mermaid_loop),
+    run_test(test_mermaid_case),
+    run_test(test_mermaid_real_project),
+    run_test(test_mermaid_sensorlib),
+    run_test(test_mermaid_file_output),
     % Summary
     test_count(Total),
     pass_count(Pass),

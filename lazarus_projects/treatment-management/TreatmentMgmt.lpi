@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectOptions>
+    <Version Value="12"/>
+    <General>
+      <Flags>
+        <MainUnitHasUsesSectionForAllUnits Value="False"/>
+      </Flags>
+      <SessionStorage Value="InProjectDir"/>
+      <Title Value="Treatment Management System"/>
+      <Scaled Value="True"/>
+      <ResourceType Value="res"/>
+      <UseXPManifest Value="True"/>
+      <XPManifest>
+        <DpiAware Value="True"/>
+      </XPManifest>
+      <Icon Value="0"/>
+    </General>
+    <BuildModes>
+      <Item Name="Default" Default="True"/>
+    </BuildModes>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+    <RunParams>
+      <FormatVersion Value="2"/>
+    </RunParams>
+    <RequiredPackages>
+      <Item>
+        <PackageName Value="SQLDBLaz"/>
+      </Item>
+      <Item>
+        <PackageName Value="LCL"/>
+      </Item>
+    </RequiredPackages>
+    <Units>
+      <Unit>
+        <Filename Value="TreatmentMgmt.lpr"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src/uAppConfig.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="uAppConfig"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src/uDataModule.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dmMain"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="DataModule"/>
+        <UnitName Value="uDataModule"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src/forms/uMainForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmMain"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="uMainForm"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src/forms/uPatientForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmPatient"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="uPatientForm"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src/forms/uPlanForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmPlan"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="uPlanForm"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src/forms/uAppointmentForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmAppointment"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="uAppointmentForm"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src/forms/uSessionForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmSession"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="uSessionForm"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src/uClarionLoop.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="uClarionLoop"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src/forms/uAcceptDemoForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="frmAcceptDemo"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <UnitName Value="uAcceptDemoForm"/>
+      </Unit>
+    </Units>
+  </ProjectOptions>
+  <CompilerOptions>
+    <Version Value="11"/>
+    <Target>
+      <Filename Value="bin/TreatmentMgmt"/>
+    </Target>
+    <SearchPaths>
+      <IncludeFiles Value="$(ProjOutDir)"/>
+      <OtherUnitFiles Value="src;src/forms"/>
+      <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+    </SearchPaths>
+    <Parsing>
+      <SyntaxOptions>
+        <SyntaxMode Value="ObjFPC"/>
+        <CStyleOperator Value="False"/>
+        <AllowLabel Value="False"/>
+        <CPPInline Value="False"/>
+      </SyntaxOptions>
+    </Parsing>
+    <Linking>
+      <Options>
+        <Win32>
+          <GraphicApplication Value="True"/>
+        </Win32>
+      </Options>
+    </Linking>
+  </CompilerOptions>
+</CONFIG>

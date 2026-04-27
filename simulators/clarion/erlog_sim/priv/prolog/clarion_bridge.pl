@@ -1,0 +1,400 @@
+%============================================================
+% clarion_bridge.pl - AST Translation Layer for Erlog Simulator
+%
+% Translates ASTs from the DCG parser (clarion_parser.pl)
+% into the execution engine's format (clarion_simulator.pl).
+%
+% Simple parser AST:
+%   program(Files, Groups, Globals, MapEntries, Procedures)
+%
+% Simulator AST:
+%   program(map(MapDecls), GlobalDecls, code(MainBody), Procedures)
+%
+% Erlog-compatible: no modules, no dicts, ISO-standard.
+%============================================================
+
+%------------------------------------------------------------
+% Top-level program translation
+%------------------------------------------------------------
+
+bridge_ast(program(Files, Groups, Globals, MapEntries, Procedures),
+           program(map(MapDecls), GlobalDecls, code(MainBody), ModProcs)) :-
+    bridge_map_entries(MapEntries, MapDecls),
+    bridge_files(Files, FileDecs, NestedGroups),
+    bridge_groups(Groups, GroupDecs),
+    bridge_groups(NestedGroups, NestedGroupDecs),
+    bridge_globals(Globals, VarDecs, Windows, _MainBody0),
+    append(FileDecs, GroupDecs, FG),
+    append(FG, NestedGroupDecs, FGN),
+    append(FGN, VarDecs, FGNV),
+    append(FGNV, Windows, GlobalDecls),
+    bridge_procedures(Procedures, [], ModProcs, MainBody).
+
+%------------------------------------------------------------
+% MAP entries
+%------------------------------------------------------------
+
+bridge_map_entries([], []).
+bridge_map_entries([map_entry(Name, Params, RetType, Attrs)|Rest],
+                   [map_proto(Name, BParams, RetTypeAtom, BAttrs)|Decls]) :-
+    bridge_map_params(Params, BParams),
+    bridge_return_type(RetType, RetTypeAtom),
+    bridge_map_attrs(Attrs, BAttrs),
+    bridge_map_entries(Rest, Decls).
+bridge_map_entries([module_entry(ModName, Entries)|Rest], Decls) :-
+    bridge_module_entries(ModName, Entries, ModDecls),
+    bridge_map_entries(Rest, RestDecls),
+    append(ModDecls, RestDecls, Decls).
+
+bridge_module_entries(_, [], []).
+bridge_module_entries(ModName, [map_entry(Name, Params, RetType, Attrs)|Rest],
+                      [external_proc(Name, ModName, BParams, RetTypeAtom, BAttrs)|Decls]) :-
+    bridge_map_params(Params, BParams),
+    bridge_return_type(RetType, RetTypeAtom),
+    bridge_map_attrs(Attrs, BAttrs),
+    bridge_module_entries(ModName, Rest, Decls).
+bridge_module_entries(ModName, [_|Rest], Decls) :-
+    bridge_module_entries(ModName, Rest, Decls).
+
+bridge_map_params([], []).
+bridge_map_params([param(Name, Type)|Rest], [map_param(TypeAtom, Name)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_map_params(Rest, BRest).
+bridge_map_params([param(Name, Type, optional)|Rest],
+                  [map_param(TypeAtom, Name, optional)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_map_params(Rest, BRest).
+
+bridge_return_type(void, void).
+bridge_return_type(Type, TypeAtom) :- Type \= void, bridge_type_name(Type, TypeAtom).
+
+bridge_map_attrs([], []).
+bridge_map_attrs([name(N)|Rest], [name(N)|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([export|Rest], [export|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([c|Rest], [c|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([pascal|Rest], [pascal|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([private|Rest], [private|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([raw|Rest], [raw|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([virtual|Rest], [virtual|BRest]) :- bridge_map_attrs(Rest, BRest).
+bridge_map_attrs([_|Rest], BRest) :- bridge_map_attrs(Rest, BRest).
+
+%------------------------------------------------------------
+% FILE declarations
+%------------------------------------------------------------
+
+bridge_files([], [], []).
+bridge_files([file(Name, Prefix, Attrs, Fields)|Rest],
+             [file(Name, BridgedAttrs, [record(BridgedFields)])|RestDecs],
+             AllNestedGroups) :-
+    bridge_file_attrs(Prefix, Attrs, BridgedAttrs),
+    bridge_fields(Fields, BridgedFields),
+    extract_nested_groups(Fields, NestedGroups),
+    bridge_files(Rest, RestDecs, RestNestedGroups),
+    append(NestedGroups, RestNestedGroups, AllNestedGroups).
+
+bridge_file_attrs(Prefix, Attrs, [pre(Prefix)|BridgedAttrs]) :-
+    bridge_file_attr_list(Attrs, BridgedAttrs).
+
+bridge_file_attr_list([], []).
+bridge_file_attr_list([driver(D)|Rest], [driver(D)|BRest]) :- bridge_file_attr_list(Rest, BRest).
+bridge_file_attr_list([name(N)|Rest], [name(N)|BRest]) :- bridge_file_attr_list(Rest, BRest).
+bridge_file_attr_list([owner(O)|Rest], [owner(O)|BRest]) :- bridge_file_attr_list(Rest, BRest).
+bridge_file_attr_list([create|Rest], [create|BRest]) :- bridge_file_attr_list(Rest, BRest).
+bridge_file_attr_list([key(KN, KF, KA)|Rest], [key(KN, KF, KA)|BRest]) :- bridge_file_attr_list(Rest, BRest).
+bridge_file_attr_list([_|Rest], BRest) :- bridge_file_attr_list(Rest, BRest).
+
+%------------------------------------------------------------
+% GROUP declarations
+%------------------------------------------------------------
+
+bridge_groups([], []).
+bridge_groups([group(Name, Prefix, Fields)|Rest], AllDecs) :-
+    bridge_fields(Fields, BridgedFields),
+    extract_nested_groups(Fields, NestedGroups),
+    bridge_groups(NestedGroups, NestedDecs),
+    bridge_groups(Rest, RestDecs),
+    append([group(Name, Prefix, BridgedFields)], NestedDecs, ThisDecs),
+    append(ThisDecs, RestDecs, AllDecs).
+
+%------------------------------------------------------------
+% Field declarations
+%------------------------------------------------------------
+
+bridge_fields([], []).
+bridge_fields([field(Name, Type)|Rest], [field(Name, TypeAtom, none)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_fields(Rest, BRest).
+bridge_fields([field(Name, Type, Size)|Rest], [field(Name, TypeAtom, size(Size))|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_fields(Rest, BRest).
+bridge_fields([group(_Name, _Prefix, SubFields)|Rest], Result) :-
+    bridge_fields(SubFields, BridgedSub),
+    bridge_fields(Rest, BRest),
+    append(BridgedSub, BRest, Result).
+
+extract_nested_groups([], []).
+extract_nested_groups([group(Name, Prefix, SubFields)|Rest],
+                      [group(Name, Prefix, SubFields)|AllGroups]) :-
+    extract_nested_groups(SubFields, SubGroups),
+    extract_nested_groups(Rest, RestGroups),
+    append(SubGroups, RestGroups, AllGroups).
+extract_nested_groups([_|Rest], Groups) :-
+    extract_nested_groups(Rest, Groups).
+
+%------------------------------------------------------------
+% Type name bridging
+%------------------------------------------------------------
+
+bridge_type_name(long, 'LONG').
+bridge_type_name(short, 'SHORT').
+bridge_type_name(byte, 'BYTE').
+bridge_type_name(real, 'REAL').
+bridge_type_name(sreal, 'SREAL').
+bridge_type_name(date, 'DATE').
+bridge_type_name(time, 'TIME').
+bridge_type_name(decimal, 'DECIMAL').
+bridge_type_name(decimal(_), 'DECIMAL').
+bridge_type_name(decimal(_, _), 'DECIMAL').
+bridge_type_name(pdecimal, 'PDECIMAL').
+bridge_type_name(pdecimal(_), 'PDECIMAL').
+bridge_type_name(pdecimal(_, _), 'PDECIMAL').
+bridge_type_name(cstring, 'CSTRING').
+bridge_type_name(cstring(_), 'CSTRING').
+bridge_type_name(pstring, 'PSTRING').
+bridge_type_name(pstring(_), 'PSTRING').
+bridge_type_name(string, 'STRING').
+bridge_type_name(string(_), 'STRING').
+bridge_type_name(ref(T), TypeAtom) :- bridge_type_name(T, TypeAtom).
+bridge_type_name(void, void).
+bridge_type_name(T, T).
+
+%------------------------------------------------------------
+% Global variables and windows
+%------------------------------------------------------------
+
+bridge_globals([], [], [], []).
+bridge_globals([global(Name, Type, Init)|Rest],
+               [var(Name, TypeAtom, init(Init))|VRest], Wins, Main) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_globals(Rest, VRest, Wins, Main).
+bridge_globals([array(Name, Type, Size)|Rest],
+               [var(Name, TypeAtom, init(array(Zeros)))|VRest], Wins, Main) :-
+    bridge_type_name(Type, TypeAtom),
+    make_zeros(Size, Zeros),
+    bridge_globals(Rest, VRest, Wins, Main).
+bridge_globals([queue(Name, Fields)|Rest], [queue(Name, BridgedFields)|VRest], Wins, Main) :-
+    bridge_fields(Fields, BridgedFields),
+    bridge_globals(Rest, VRest, Wins, Main).
+bridge_globals([window(Name, Title, Attrs, Controls)|Rest], Vars,
+               [window(Name, Title, Attrs, Controls)|WRest], Main) :-
+    bridge_globals(Rest, Vars, WRest, Main).
+bridge_globals([equate(Name, Value)|Rest],
+               [var(Name, 'LONG', init(Value))|VRest], Wins, Main) :-
+    bridge_globals(Rest, VRest, Wins, Main).
+bridge_globals([class(Name, Parent, _Attrs, Members)|Rest],
+               [class(Name, Parent, [], BridgedMembers)|VRest], Wins, Main) :-
+    bridge_class_members(Members, BridgedMembers),
+    bridge_globals(Rest, VRest, Wins, Main).
+
+make_zeros(0, []) :- !.
+make_zeros(N, [0|Rest]) :- N > 0, N1 is N - 1, make_zeros(N1, Rest).
+
+%------------------------------------------------------------
+% CLASS member translation
+%------------------------------------------------------------
+
+bridge_class_members([], []).
+bridge_class_members([property(Name, Type, Size)|Rest],
+                     [property(Name, TypeAtom, Size)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_class_members(Rest, BRest).
+bridge_class_members([method(Name, Params, _RetType, _Attrs)|Rest],
+                     [method(Name, BParams)|BRest]) :-
+    bridge_params(Params, BParams),
+    bridge_class_members(Rest, BRest).
+
+%------------------------------------------------------------
+% Procedures
+%------------------------------------------------------------
+
+bridge_procedures(Procs, _MainBody0, ModProcs, MainBody) :-
+    ( select_main_proc(Procs, MainProc, OtherProcs) ->
+        MainProc = procedure('_main', _, _, _, Body),
+        bridge_stmts(Body, MainBody),
+        bridge_proc_list(OtherProcs, ModProcs)
+    ;   MainBody = [],
+        bridge_proc_list(Procs, ModProcs)
+    ).
+
+select_main_proc([procedure('_main', P, R, L, B)|Rest],
+                 procedure('_main', P, R, L, B), Rest).
+select_main_proc([Proc|Rest], Main, [Proc|Others]) :-
+    Proc \= procedure('_main', _, _, _, _),
+    select_main_proc(Rest, Main, Others).
+
+split_dotted_name(DottedName, ClassName, MethodName) :-
+    atom(DottedName),
+    atom_codes(DottedName, Codes),
+    append(ClassCodes, [46|MethodCodes], Codes),  % 46='.'
+    ClassCodes \= [],
+    MethodCodes \= [],
+    atom_codes(ClassName, ClassCodes),
+    atom_codes(MethodName, MethodCodes).
+
+bridge_proc_list([], []).
+bridge_proc_list([procedure(DottedName, Params, _RetType, Locals, Body)|Rest],
+                 [method_impl(ClassName, MethodName, BParams, BLocals, code(BBody))|BRest]) :-
+    split_dotted_name(DottedName, ClassName, MethodName), !,
+    bridge_params(Params, BParams),
+    bridge_locals(Locals, BLocals),
+    bridge_stmts(Body, BBody),
+    bridge_proc_list(Rest, BRest).
+bridge_proc_list([procedure(Name, Params, _RetType, Locals, Body)|Rest],
+                 [procedure(Name, BParams, BLocals, code(BBody))|BRest]) :-
+    bridge_params(Params, BParams),
+    bridge_locals(Locals, BLocals),
+    bridge_stmts(Body, BBody),
+    bridge_proc_list(Rest, BRest).
+bridge_proc_list([routine(Name, Body)|Rest], [routine(Name, BBody)|BRest]) :-
+    bridge_stmts(Body, BBody),
+    bridge_proc_list(Rest, BRest).
+
+bridge_params([], []).
+bridge_params([param(Name, Type, optional)|Rest],
+              [param(TypeAtom, Name, optional, none)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_params(Rest, BRest).
+bridge_params([param(Name, Type)|Rest], [param(TypeAtom, Name)|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_params(Rest, BRest).
+
+bridge_locals([], []).
+bridge_locals([instance_var(Name, ClassName)|Rest],
+              [local_var(Name, custom(ClassName), init(none))|BRest]) :-
+    bridge_locals(Rest, BRest).
+bridge_locals([array(Name, Type, Size)|Rest],
+              [local_var(Name, TypeAtom, init(array(Zeros)))|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    make_zeros(Size, Zeros),
+    bridge_locals(Rest, BRest).
+bridge_locals([local(Name, Type, Init)|Rest],
+              [local_var(Name, TypeAtom, init(Init))|BRest]) :-
+    bridge_type_name(Type, TypeAtom),
+    bridge_locals(Rest, BRest).
+
+%------------------------------------------------------------
+% Statement translation
+%------------------------------------------------------------
+
+bridge_stmts([], []).
+bridge_stmts([S|Ss], [BS|BSs]) :-
+    bridge_stmt(S, BS),
+    bridge_stmts(Ss, BSs).
+
+bridge_stmt(assign(array_ref(Name, Idx), Expr), array_assign(Name, BIdx, BExpr)) :- !,
+    bridge_expr(Idx, BIdx),
+    bridge_expr(Expr, BExpr).
+bridge_stmt(assign(Var, Expr), assign(Var, BExpr)) :- !,
+    bridge_expr(Expr, BExpr).
+bridge_stmt(call(Name, Args), call(Name, BArgs)) :- !,
+    bridge_exprs(Args, BArgs).
+bridge_stmt(return(Expr), return(BExpr)) :- !,
+    bridge_expr(Expr, BExpr).
+bridge_stmt(return, return) :- !.
+bridge_stmt(self_assign(Prop, Expr), self_assign(Prop, BExpr)) :- !,
+    bridge_expr(Expr, BExpr).
+bridge_stmt(parent_call(Method, Args), parent_call(Method, BArgs)) :- !,
+    bridge_exprs(Args, BArgs).
+bridge_stmt(method_call(Obj, Method, Args), method_call(Obj, Method, BArgs)) :- !,
+    bridge_exprs(Args, BArgs).
+bridge_stmt(break, break) :- !.
+bridge_stmt(cycle, cycle) :- !.
+bridge_stmt(display, display) :- !.
+bridge_stmt(exit, exit) :- !.
+bridge_stmt(if(Cond, Then, Else), if(BCond, BThen, [], BElse)) :- !,
+    bridge_expr(Cond, BCond),
+    bridge_stmts(Then, BThen),
+    bridge_stmts(Else, BElse).
+bridge_stmt(loop(Body), loop(BBody)) :- !,
+    bridge_stmts(Body, BBody).
+bridge_stmt(loop_for(Var, Start, End, Body), loop_to(Var, BStart, BEnd, BBody)) :- !,
+    bridge_expr(Start, BStart),
+    bridge_expr(End, BEnd),
+    bridge_stmts(Body, BBody).
+bridge_stmt(loop_while(Cond, Body), loop_while(BCond, BBody)) :- !,
+    bridge_expr(Cond, BCond),
+    bridge_stmts(Body, BBody).
+bridge_stmt(loop_until(Cond, Body), loop_until(BCond, BBody)) :- !,
+    bridge_expr(Cond, BCond),
+    bridge_stmts(Body, BBody).
+bridge_stmt(case(Expr, Ofs, Else), case(BExpr, BCases, BElse)) :- !,
+    bridge_expr(Expr, BExpr),
+    bridge_case_ofs(Ofs, BCases),
+    bridge_stmts(Else, BElse).
+bridge_stmt(accept(Body), accept(BBody)) :- !,
+    bridge_stmts(Body, BBody).
+bridge_stmt(do(Name), do(Name)) :- !.
+bridge_stmt(assign_array(Name, Index, Expr), array_assign(Name, BIndex, BExpr)) :- !,
+    bridge_expr(Index, BIndex),
+    bridge_expr(Expr, BExpr).
+bridge_stmt(S, S).
+
+%------------------------------------------------------------
+% CASE branch translation
+%------------------------------------------------------------
+
+bridge_case_ofs([], []).
+bridge_case_ofs([of(single(Val), Stmts)|Rest], [case_of(BVal, BStmts)|BRest]) :-
+    bridge_expr(Val, BVal),
+    bridge_stmts(Stmts, BStmts),
+    bridge_case_ofs(Rest, BRest).
+bridge_case_ofs([of(range(Start, End), Stmts)|Rest],
+                [case_of(range(BStart, BEnd), BStmts)|BRest]) :-
+    bridge_expr(Start, BStart),
+    bridge_expr(End, BEnd),
+    bridge_stmts(Stmts, BStmts),
+    bridge_case_ofs(Rest, BRest).
+
+%------------------------------------------------------------
+% Expression translation
+%------------------------------------------------------------
+
+bridge_exprs([], []).
+bridge_exprs([E|Es], [BE|BEs]) :-
+    bridge_expr(E, BE),
+    bridge_exprs(Es, BEs).
+
+bridge_expr(lit(N), number(N)) :- integer(N), !.
+bridge_expr(lit(N), number(N)) :- float(N), !.
+bridge_expr(lit(S), string(S)) :- atom(S), !.
+bridge_expr(var(Name), var(Name)) :- !.
+bridge_expr(equate(Name), control_ref(Name)) :- !.
+bridge_expr(add(A, B), binop('+', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(sub(A, B), binop('-', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(mul(A, B), binop('*', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(div(A, B), binop('/', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(modulo(A, B), binop('%', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(eq(A, B), binop('=', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(neq(A, B), binop('<>', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(lt(A, B), binop('<', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(lte(A, B), binop('<=', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(gt(A, B), binop('>', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(gte(A, B), binop('>=', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(and(A, B), binop(and, BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(or(A, B), binop(or, BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(concat(A, B), binop('&', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+bridge_expr(neg(A), neg(BA)) :- !, bridge_expr(A, BA).
+bridge_expr(not(A), not(BA)) :- !, bridge_expr(A, BA).
+bridge_expr(self_access(Prop), self_access(Prop)) :- !.
+bridge_expr(parent_call(Method, Args), parent_call(Method, BArgs)) :- !,
+    bridge_exprs(Args, BArgs).
+bridge_expr(method_call(Obj, Method, Args), method_call(Obj, Method, BArgs)) :- !,
+    bridge_exprs(Args, BArgs).
+bridge_expr(call(Name, Args), call(Name, BArgs)) :- !, bridge_exprs(Args, BArgs).
+bridge_expr(array_ref(Name, Index), array_access(Name, BIndex)) :- !,
+    bridge_expr(Index, BIndex).
+bridge_expr(number(N), number(N)) :- !.
+bridge_expr(string(S), string(S)) :- !.
+bridge_expr(binop(Op, A, B), binop(Op, A, B)) :- !.
+bridge_expr(control_ref(N), control_ref(N)) :- !.
+bridge_expr(E, E).

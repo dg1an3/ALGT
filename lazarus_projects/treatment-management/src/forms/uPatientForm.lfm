@@ -1,0 +1,402 @@
+object frmPatient: TfrmPatient
+  Left = 220
+  Height = 720
+  Top = 130
+  Width = 820
+  Caption = 'Patients'
+  ClientHeight = 720
+  ClientWidth = 820
+  OnClose = FormClose
+  OnCreate = FormCreate
+  Position = poScreenCenter
+  LCLVersion = '2.2.6.0'
+  object pnlTop: TPanel
+    Left = 0
+    Height = 240
+    Top = 0
+    Width = 820
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 240
+    ClientWidth = 820
+    TabOrder = 0
+    object DBGrid1: TDBGrid
+      Left = 8
+      Height = 224
+      Top = 8
+      Width = 804
+      Anchors = [akTop, akLeft, akRight, akBottom]
+      Color = clWindow
+      Columns = <
+        item
+          Title.Caption = 'MRN'
+          Width = 100
+          FieldName = 'MRN'
+        end
+        item
+          Title.Caption = 'Last Name'
+          Width = 140
+          FieldName = 'LastName'
+        end
+        item
+          Title.Caption = 'First Name'
+          Width = 120
+          FieldName = 'FirstName'
+        end
+        item
+          Title.Caption = 'DOB'
+          Width = 90
+          FieldName = 'DateOfBirth'
+        end
+        item
+          Title.Caption = 'Sex'
+          Width = 40
+          FieldName = 'Sex'
+        end
+        item
+          Title.Caption = 'Phone'
+          Width = 110
+          FieldName = 'PhoneHome'
+        end
+        item
+          Title.Caption = 'Active'
+          Width = 50
+          FieldName = 'Active'
+        end
+        item
+          Title.Caption = 'Ver'
+          Width = 40
+          FieldName = 'RowVersion'
+        end>
+      DataSource = nil
+      TabOrder = 0
+    end
+  end
+  object pnlEdit: TPanel
+    Left = 0
+    Height = 457
+    Top = 240
+    Width = 820
+    Align = alClient
+    BevelOuter = bvLowered
+    ClientHeight = 457
+    ClientWidth = 820
+    TabOrder = 1
+    object DBNavigator1: TDBNavigator
+      Left = 8
+      Height = 28
+      Top = 8
+      Width = 240
+      DataSource = nil
+      TabOrder = 0
+    end
+    object lblMRN: TLabel
+      Left = 16
+      Height = 16
+      Top = 50
+      Width = 32
+      Caption = 'MRN:'
+    end
+    object edtMRN: TDBEdit
+      Left = 80
+      Height = 24
+      Top = 46
+      Width = 140
+      DataField = 'MRN'
+      TabOrder = 1
+    end
+    object lblLast: TLabel
+      Left = 240
+      Height = 16
+      Top = 50
+      Width = 70
+      Caption = 'Last Name:'
+    end
+    object edtLast: TDBEdit
+      Left = 320
+      Height = 24
+      Top = 46
+      Width = 200
+      DataField = 'LastName'
+      TabOrder = 2
+    end
+    object lblFirst: TLabel
+      Left = 540
+      Height = 16
+      Top = 50
+      Width = 72
+      Caption = 'First Name:'
+    end
+    object edtFirst: TDBEdit
+      Left = 620
+      Height = 24
+      Top = 46
+      Width = 180
+      DataField = 'FirstName'
+      TabOrder = 3
+    end
+    object lblMiddle: TLabel
+      Left = 16
+      Height = 16
+      Top = 86
+      Width = 56
+      Caption = 'Middle:'
+    end
+    object edtMiddle: TDBEdit
+      Left = 80
+      Height = 24
+      Top = 82
+      Width = 140
+      DataField = 'MiddleName'
+      TabOrder = 4
+    end
+    object lblDOB: TLabel
+      Left = 240
+      Height = 16
+      Top = 86
+      Width = 30
+      Caption = 'DOB:'
+    end
+    object edtDOB: TDBEdit
+      Left = 320
+      Height = 24
+      Top = 82
+      Width = 100
+      DataField = 'DateOfBirth'
+      TabOrder = 5
+    end
+    object lblSex: TLabel
+      Left = 440
+      Height = 16
+      Top = 86
+      Width = 24
+      Caption = 'Sex:'
+    end
+    object cmbSex: TDBComboBox
+      Left = 480
+      Height = 24
+      Top = 82
+      Width = 60
+      DataField = 'Sex'
+      ItemHeight = 16
+      Items.Strings = (
+        'M'
+        'F'
+        'O'
+        'U'
+      )
+      Style = csDropDownList
+      TabOrder = 6
+    end
+    object lblPhoneHome: TLabel
+      Left = 16
+      Height = 16
+      Top = 122
+      Width = 70
+      Caption = 'Home Ph:'
+    end
+    object edtPhoneHome: TDBEdit
+      Left = 110
+      Height = 24
+      Top = 118
+      Width = 140
+      DataField = 'PhoneHome'
+      TabOrder = 7
+    end
+    object lblPhoneMobile: TLabel
+      Left = 270
+      Height = 16
+      Top = 122
+      Width = 60
+      Caption = 'Mobile:'
+    end
+    object edtPhoneMobile: TDBEdit
+      Left = 340
+      Height = 24
+      Top = 118
+      Width = 140
+      DataField = 'PhoneMobile'
+      TabOrder = 8
+    end
+    object lblEmail: TLabel
+      Left = 500
+      Height = 16
+      Top = 122
+      Width = 36
+      Caption = 'Email:'
+    end
+    object edtEmail: TDBEdit
+      Left = 540
+      Height = 24
+      Top = 118
+      Width = 260
+      DataField = 'Email'
+      TabOrder = 9
+    end
+    object chkActive: TDBCheckBox
+      Left = 80
+      Height = 22
+      Top = 158
+      Width = 80
+      Caption = 'Active'
+      DataField = 'Active'
+      TabOrder = 10
+      ValueChecked = 'True'
+      ValueUnchecked = 'False'
+    end
+    object grpAddedFields: TGroupBox
+      Left = 8
+      Height = 240
+      Top = 200
+      Width = 800
+      Anchors = [akTop, akLeft, akRight]
+      Caption = 'Additional info  (added 2001 - 2014)'
+      ClientHeight = 220
+      ClientWidth = 796
+      TabOrder = 11
+      object lblIsActive: TLabel
+        Left = 8
+        Height = 16
+        Top = 12
+        Width = 84
+        Caption = 'Status (rpts):'
+      end
+      object cmbIsActive: TDBComboBox
+        Left = 100
+        Height = 24
+        Top = 8
+        Width = 60
+        DataField = 'IsActive'
+        ItemHeight = 16
+        Items.Strings = (
+          'Y'
+          'N'
+          'X'
+        )
+        Style = csDropDownList
+        TabOrder = 0
+      end
+      object lblMarital: TLabel
+        Left = 180
+        Height = 16
+        Top = 12
+        Width = 56
+        Caption = 'Marital:'
+      end
+      object cmbMarital: TDBComboBox
+        Left = 240
+        Height = 24
+        Top = 8
+        Width = 60
+        DataField = 'MaritalStatus'
+        ItemHeight = 16
+        Items.Strings = (
+          'S'
+          'M'
+          'D'
+          'W'
+          'P'
+          'U'
+        )
+        Style = csDropDownList
+        TabOrder = 1
+      end
+      object lblSiteCode: TLabel
+        Left = 320
+        Height = 16
+        Top = 12
+        Width = 30
+        Caption = 'Site:'
+      end
+      object cmbSiteCode: TDBComboBox
+        Left = 360
+        Height = 24
+        Top = 8
+        Width = 80
+        DataField = 'SiteCode'
+        ItemHeight = 16
+        Items.Strings = (
+          'MAIN'
+          'WV'
+          'DT'
+          'NW'
+        )
+        TabOrder = 2
+      end
+      object lblInsurance: TLabel
+        Left = 8
+        Height = 16
+        Top = 50
+        Width = 130
+        Caption = 'Insurance / Policy:'
+      end
+      object edtInsCarrier: TDBEdit
+        Left = 140
+        Height = 24
+        Top = 46
+        Width = 200
+        DataField = 'InsuranceCarrier'
+        TabOrder = 3
+      end
+      object edtPolicyNumber: TDBEdit
+        Left = 350
+        Height = 24
+        Top = 46
+        Width = 160
+        DataField = 'PolicyNumber'
+        TabOrder = 4
+      end
+      object chkConsent1: TDBCheckBox
+        Left = 8
+        Height = 22
+        Top = 90
+        Width = 200
+        Caption = 'Consent rev 1 (2005)'
+        DataField = 'ConsentForm1Signed'
+        TabOrder = 5
+        ValueChecked = 'True'
+        ValueUnchecked = 'False'
+      end
+      object chkConsent2: TDBCheckBox
+        Left = 220
+        Height = 22
+        Top = 90
+        Width = 200
+        Caption = 'Consent rev 2 (2009)'
+        DataField = 'ConsentForm2Signed'
+        TabOrder = 6
+        ValueChecked = 'True'
+        ValueUnchecked = 'False'
+      end
+      object chkConsent3: TDBCheckBox
+        Left = 430
+        Height = 22
+        Top = 90
+        Width = 200
+        Caption = 'Consent rev 3 (2014)'
+        DataField = 'ConsentForm3Signed'
+        TabOrder = 7
+        ValueChecked = 'True'
+        ValueUnchecked = 'False'
+      end
+    end
+    object btnClose: TBitBtn
+      Left = 700
+      Height = 30
+      Top = 460
+      Width = 100
+      Anchors = [akRight, akBottom]
+      Caption = '&Close'
+      Kind = bkClose
+      OnClick = btnCloseClick
+      TabOrder = 12
+    end
+  end
+  object StatusBar1: TStatusBar
+    Left = 0
+    Height = 23
+    Top = 697
+    Width = 820
+    SimplePanel = True
+  end
+end

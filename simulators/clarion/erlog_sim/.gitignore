@@ -1,0 +1,6 @@
+/_build/
+/deps/
+/cover/
+*.beam
+*.ez
+.elixir_ls/

@@ -1,0 +1,22 @@
+; Treatment Management System - Connection Settings
+;
+; Copy this file to one of the following locations (searched in order):
+;   1. ./treatment_mgmt.ini                    (next to the EXE)
+;   2. %APPDATA%\TreatmentMgmt\treatment_mgmt.ini   (Windows)
+;   3. ~/.treatment_mgmt.ini                   (Unix)
+
+[Database]
+Host=localhost
+Port=5432
+Database=treatment_mgmt
+User=tm_app
+Password=tm_app_dev_password
+; Optional: extra libpq parameters appended to the connection string
+Params=
+
+[Application]
+; Operator name written into CreatedBy/UpdatedBy audit columns when no
+; database role is in scope. Defaults to the OS user when blank.
+Operator=
+; Number of rows fetched per browse-grid page
+PageSize=200

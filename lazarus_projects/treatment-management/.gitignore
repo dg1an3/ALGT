@@ -1,0 +1,21 @@
+# Build artifacts
+bin/
+lib/
+backup/
+*.compiled
+*.o
+*.ppu
+*.lps
+*.dbg
+*.exe
+
+# Local config (not the .sample file)
+treatment_mgmt.ini
+
+# IDE
+*.bak
+*~
+
+# Captured WAL streams from local runs (committed fixtures live in db/traces/)
+my_run.wal.jsonl
+*.wal.local.jsonl

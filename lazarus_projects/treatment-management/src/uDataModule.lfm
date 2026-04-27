@@ -1,0 +1,217 @@
+object dmMain: TdmMain
+  OldCreateOrder = False
+  OnCreate = DataModuleCreate
+  OnDestroy = DataModuleDestroy
+  Height = 240
+  HorizontalOffset = 481
+  VerticalOffset = 264
+  Width = 320
+  object Connection: TPQConnection
+    Connected = False
+    KeepConnection = True
+    LoginPrompt = False
+    Transaction = MainTrans
+    Left = 56
+    Top = 24
+  end
+  object MainTrans: TSQLTransaction
+    Action = caCommit
+    Database = Connection
+    Options = []
+    Left = 184
+    Top = 24
+  end
+  object qryPatients: TSQLQuery
+    FieldDefs = <>
+    Database = Connection
+    Transaction = MainTrans
+    SQL.Strings = (
+      '-- Patients query. Note: the schema has accumulated multiple parallel'
+      '-- columns over the years (Active vs IsActive, DateOfBirth vs DateOfBirth_Char,'
+      '-- CreatedBy vs entry_user vs who_created). This SELECT chooses one'
+      '-- column per concept; reports query whichever they were trained on.'
+      'SELECT'
+      '    "PatientID", "MRN", "LastName", "FirstName", "MiddleName",'
+      '    "DateOfBirth", "DateOfBirth_Char",  -- shadow may disagree (drift since 2003)'
+      '    "Sex", "PhoneHome", "PhoneMobile", "Email",'
+      '    "Active", "IsActive",                -- both flags coexist, may drift'
+      '    "MaritalStatus", "SpouseInfo",       -- pipe-delimited, see migration 003'
+      '    "InsuranceCarrier",  "PolicyNumber",  "GroupNumber",'
+      '    "InsuranceCarrier2", "PolicyNumber2", "GroupNumber2",'
+      '    "InsuranceCarrier3", "PolicyNumber3", "GroupNumber3",'
+      '    "ConsentForm1Signed", "ConsentForm2Signed", "ConsentForm3Signed",'
+      '    "SiteCode",                          -- NULL == MAIN by convention'
+      '    "Notes", "Notes2",                   -- two notes columns since HIPAA 2005'
+      '    "RowVersion"'
+      'FROM tm."Patients"'
+      'ORDER BY "LastName", "FirstName"'
+    )
+    Params = <>
+    UpdateMode = upWhereKeyOnly
+    UsePrimaryKeyAsKey = True
+    Left = 56
+    Top = 96
+  end
+  object dsPatients: TDataSource
+    DataSet = qryPatients
+    Left = 184
+    Top = 96
+  end
+  object qryPlans: TSQLQuery
+    FieldDefs = <>
+    Database = Connection
+    Transaction = MainTrans
+    SQL.Strings = (
+      '-- Plans browse query. Filters to current versions only (IsCurrent=TRUE).'
+      '-- The full version history is reachable via tm."TreatmentPlans" without'
+      '-- the filter, or by clicking [Show Versions] on the plan form.'
+      'SELECT'
+      '    p."PlanID", p."PlanSetID", p."PlanVersion",'
+      '    p."EffectiveAt", p."EndedAt", p."IsCurrent",'
+      '    p."PatientID", p."PlanCode", p."PlanName",'
+      '    p."Diagnosis", p."TreatmentSite", p."PrescribedDose",'
+      '    p."Fractions", p."DosePerFraction", p."PlanStatus",'
+      '    p."ApprovedBy", p."ApprovedAt", p."Notes", p."RowVersion",'
+      '    pa."MRN" || '' '' || pa."LastName" || '', '' || pa."FirstName" AS "PatientLabel"'
+      'FROM tm."TreatmentPlans" p'
+      'JOIN tm."Patients" pa ON pa."PatientID" = p."PatientID"'
+      'WHERE p."IsCurrent" = TRUE'
+      'ORDER BY pa."LastName", pa."FirstName", p."PlanCode"'
+    )
+    Params = <>
+    UpdateMode = upWhereKeyOnly
+    UsePrimaryKeyAsKey = True
+    Left = 56
+    Top = 168
+  end
+  object dsPlans: TDataSource
+    DataSet = qryPlans
+    Left = 184
+    Top = 168
+  end
+  object qryAppointments: TSQLQuery
+    FieldDefs = <>
+    Database = Connection
+    Transaction = MainTrans
+    SQL.Strings = (
+      'SELECT'
+      '    a."AppointmentID", a."PatientID", a."PlanID",'
+      '    a."ScheduledStart", a."ScheduledEnd", a."AppointmentType",'
+      '    a."Status", a."Resource", a."CheckedInAt", a."CompletedAt",'
+      '    a."CancelReason", a."Notes", a."RowVersion",'
+      '    pa."MRN" || '' '' || pa."LastName" || '', '' || pa."FirstName" AS "PatientLabel",'
+      '    pl."PlanCode" AS "PlanCode"'
+      'FROM tm."Appointments" a'
+      'JOIN tm."Patients" pa ON pa."PatientID" = a."PatientID"'
+      'LEFT JOIN tm."TreatmentPlans" pl ON pl."PlanID" = a."PlanID"'
+      'ORDER BY a."ScheduledStart" DESC'
+    )
+    Params = <>
+    UpdateMode = upWhereKeyOnly
+    UsePrimaryKeyAsKey = True
+    Left = 56
+    Top = 240
+  end
+  object dsAppointments: TDataSource
+    DataSet = qryAppointments
+    Left = 184
+    Top = 240
+  end
+  object qrySessions: TSQLQuery
+    FieldDefs = <>
+    Database = Connection
+    Transaction = MainTrans
+    SQL.Strings = (
+      'SELECT'
+      '    s."SessionID", s."AppointmentID", s."PlanID", s."FractionNumber",'
+      '    s."DeliveredDose", s."OffsetAnterior", s."OffsetSuperior",'
+      '    s."OffsetLateral", s."OffsetMagnitude", s."StartedAt", s."EndedAt",'
+      '    s."Status", s."Therapist", s."Notes", s."RowVersion",'
+      '    pl."PlanCode" AS "PlanCode",'
+      '    pa."MRN" || '' '' || pa."LastName" || '', '' || pa."FirstName" AS "PatientLabel"'
+      'FROM tm."TreatmentSessions" s'
+      'JOIN tm."TreatmentPlans" pl ON pl."PlanID" = s."PlanID"'
+      'JOIN tm."Patients" pa ON pa."PatientID" = pl."PatientID"'
+      'ORDER BY s."StartedAt" DESC NULLS LAST, pl."PlanCode", s."FractionNumber"'
+    )
+    Params = <>
+    UpdateMode = upWhereKeyOnly
+    UsePrimaryKeyAsKey = True
+    Left = 56
+    Top = 312
+  end
+  object dsSessions: TDataSource
+    DataSet = qrySessions
+    Left = 184
+    Top = 312
+  end
+  object qryLookupPatients: TSQLQuery
+    FieldDefs = <>
+    Database = Connection
+    Transaction = MainTrans
+    SQL.Strings = (
+      'SELECT "PatientID","MRN","LastName","FirstName",'
+      '       "MRN" || '' '' || "LastName" || '', '' || "FirstName" AS "Label"'
+      'FROM tm."Patients"'
+      'WHERE "Active" = TRUE'
+      'ORDER BY "LastName","FirstName"'
+    )
+    Params = <>
+    Left = 56
+    Top = 384
+  end
+  object dsLookupPatients: TDataSource
+    DataSet = qryLookupPatients
+    Left = 184
+    Top = 384
+  end
+  object qryLookupPlans: TSQLQuery
+    FieldDefs = <>
+    Database = Connection
+    Transaction = MainTrans
+    SQL.Strings = (
+      'SELECT p."PlanID", p."PatientID", p."PlanCode", p."PlanStatus",'
+      '       p."PlanSetID", p."PlanVersion",'
+      '       p."PlanCode" || '' v'' || p."PlanVersion" ||'
+      '       '' ['' || p."PlanStatus" || ''] '' ||'
+      '       pa."LastName" || '', '' || pa."FirstName" AS "Label"'
+      'FROM tm."TreatmentPlans" p'
+      'JOIN tm."Patients" pa ON pa."PatientID" = p."PatientID"'
+      'WHERE p."IsCurrent" = TRUE'
+      'ORDER BY pa."LastName", pa."FirstName", p."PlanCode"'
+    )
+    Params = <>
+    Left = 56
+    Top = 432
+  end
+  object dsLookupPlans: TDataSource
+    DataSet = qryLookupPlans
+    Left = 184
+    Top = 432
+  end
+  object qryLookupAppts: TSQLQuery
+    FieldDefs = <>
+    Database = Connection
+    Transaction = MainTrans
+    SQL.Strings = (
+      'SELECT a."AppointmentID", a."PatientID", a."PlanID",'
+      '       a."ScheduledStart", a."Status",'
+      '       to_char(a."ScheduledStart",''YYYY-MM-DD HH24:MI'') ||'
+      '       '' '' || pa."LastName" || '' ['' || COALESCE(pl."PlanCode",''-'') || ''] '''
+      '       || a."Status" AS "Label"'
+      'FROM tm."Appointments" a'
+      'JOIN tm."Patients" pa ON pa."PatientID" = a."PatientID"'
+      'LEFT JOIN tm."TreatmentPlans" pl ON pl."PlanID" = a."PlanID"'
+      'WHERE a."Status" IN (''CheckedIn'',''InProgress'',''Scheduled'')'
+      'ORDER BY a."ScheduledStart"'
+    )
+    Params = <>
+    Left = 56
+    Top = 480
+  end
+  object dsLookupAppts: TDataSource
+    DataSet = qryLookupAppts
+    Left = 184
+    Top = 480
+  end
+end

@@ -1,0 +1,328 @@
+object frmPlan: TfrmPlan
+  Left = 220
+  Height = 600
+  Top = 130
+  Width = 880
+  Caption = 'Treatment Plans'
+  ClientHeight = 600
+  ClientWidth = 880
+  OnClose = FormClose
+  OnCreate = FormCreate
+  Position = poScreenCenter
+  LCLVersion = '2.2.6.0'
+  object pnlTop: TPanel
+    Left = 0
+    Height = 240
+    Top = 0
+    Width = 880
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 240
+    ClientWidth = 880
+    TabOrder = 0
+    object DBGrid1: TDBGrid
+      Left = 8
+      Height = 224
+      Top = 8
+      Width = 864
+      Anchors = [akTop, akLeft, akRight, akBottom]
+      Color = clWindow
+      Columns = <
+        item
+          Title.Caption = 'Patient'
+          Width = 200
+          FieldName = 'PatientLabel'
+          ReadOnly = True
+        end
+        item
+          Title.Caption = 'Code'
+          Width = 90
+          FieldName = 'PlanCode'
+        end
+        item
+          Title.Caption = 'Plan Name'
+          Width = 180
+          FieldName = 'PlanName'
+        end
+        item
+          Title.Caption = 'Site'
+          Width = 110
+          FieldName = 'TreatmentSite'
+        end
+        item
+          Title.Caption = 'Dose (cGy)'
+          Width = 80
+          FieldName = 'PrescribedDose'
+        end
+        item
+          Title.Caption = 'Fx'
+          Width = 40
+          FieldName = 'Fractions'
+        end
+        item
+          Title.Caption = 'Status'
+          Width = 90
+          FieldName = 'PlanStatus'
+        end>
+      DataSource = nil
+      TabOrder = 0
+    end
+  end
+  object pnlEdit: TPanel
+    Left = 0
+    Height = 337
+    Top = 240
+    Width = 880
+    Align = alClient
+    BevelOuter = bvLowered
+    ClientHeight = 337
+    ClientWidth = 880
+    TabOrder = 1
+    object DBNavigator1: TDBNavigator
+      Left = 8
+      Height = 28
+      Top = 8
+      Width = 240
+      DataSource = nil
+      TabOrder = 0
+    end
+    object btnApprove: TBitBtn
+      Left = 256
+      Height = 28
+      Top = 8
+      Width = 120
+      Caption = '&Approve'
+      OnClick = btnApproveClick
+      TabOrder = 1
+    end
+    object btnAmend: TBitBtn
+      Left = 386
+      Height = 28
+      Top = 8
+      Width = 160
+      Caption = 'Amend / &New Version'
+      Hint = 'Mosaiq-style: closes current version, creates a new draft v+1.'
+      OnClick = btnAmendClick
+      ShowHint = True
+      TabOrder = 15
+    end
+    object lblVersion: TLabel
+      Left = 560
+      Height = 16
+      Top = 14
+      Width = 200
+      Caption = ''
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object lblPatient: TLabel
+      Left = 16
+      Height = 16
+      Top = 50
+      Width = 56
+      Caption = 'Patient:'
+    end
+    object cmbPatient: TDBLookupComboBox
+      Left = 110
+      Height = 24
+      Top = 46
+      Width = 320
+      KeyField = 'PatientID'
+      ListField = 'Label'
+      TabOrder = 2
+    end
+    object lblPlanCode: TLabel
+      Left = 450
+      Height = 16
+      Top = 50
+      Width = 70
+      Caption = 'Plan Code:'
+    end
+    object edtPlanCode: TDBEdit
+      Left = 540
+      Height = 24
+      Top = 46
+      Width = 120
+      DataField = 'PlanCode'
+      TabOrder = 3
+    end
+    object lblPlanName: TLabel
+      Left = 16
+      Height = 16
+      Top = 86
+      Width = 70
+      Caption = 'Plan Name:'
+    end
+    object edtPlanName: TDBEdit
+      Left = 110
+      Height = 24
+      Top = 82
+      Width = 320
+      DataField = 'PlanName'
+      TabOrder = 4
+    end
+    object lblSite: TLabel
+      Left = 450
+      Height = 16
+      Top = 86
+      Width = 24
+      Caption = 'Site:'
+    end
+    object edtSite: TDBEdit
+      Left = 540
+      Height = 24
+      Top = 82
+      Width = 200
+      DataField = 'TreatmentSite'
+      TabOrder = 5
+    end
+    object lblDiagnosis: TLabel
+      Left = 16
+      Height = 16
+      Top = 122
+      Width = 70
+      Caption = 'Diagnosis:'
+    end
+    object edtDiagnosis: TDBEdit
+      Left = 110
+      Height = 24
+      Top = 118
+      Width = 630
+      DataField = 'Diagnosis'
+      TabOrder = 6
+    end
+    object lblPrescribed: TLabel
+      Left = 16
+      Height = 16
+      Top = 158
+      Width = 90
+      Caption = 'Dose (cGy):'
+    end
+    object edtPrescribed: TDBEdit
+      Left = 110
+      Height = 24
+      Top = 154
+      Width = 100
+      DataField = 'PrescribedDose'
+      TabOrder = 7
+    end
+    object lblFractions: TLabel
+      Left = 230
+      Height = 16
+      Top = 158
+      Width = 64
+      Caption = 'Fractions:'
+    end
+    object edtFractions: TDBEdit
+      Left = 300
+      Height = 24
+      Top = 154
+      Width = 60
+      DataField = 'Fractions'
+      TabOrder = 8
+    end
+    object lblDosePerFx: TLabel
+      Left = 380
+      Height = 16
+      Top = 158
+      Width = 110
+      Caption = 'Dose/Fx (cGy):'
+    end
+    object edtDosePerFx: TDBEdit
+      Left = 500
+      Height = 24
+      Top = 154
+      Width = 100
+      DataField = 'DosePerFraction'
+      TabOrder = 9
+    end
+    object lblStatus: TLabel
+      Left = 16
+      Height = 16
+      Top = 194
+      Width = 50
+      Caption = 'Status:'
+    end
+    object cmbStatus: TDBComboBox
+      Left = 110
+      Height = 24
+      Top = 190
+      Width = 140
+      DataField = 'PlanStatus'
+      ItemHeight = 16
+      Items.Strings = (
+        'Draft'
+        'UnderReview'
+        'Approved'
+        'Active'
+        'Completed'
+        'Cancelled'
+      )
+      Style = csDropDownList
+      TabOrder = 10
+    end
+    object lblApprovedBy: TLabel
+      Left = 270
+      Height = 16
+      Top = 194
+      Width = 84
+      Caption = 'Approved By:'
+    end
+    object edtApprovedBy: TDBEdit
+      Left = 360
+      Height = 24
+      Top = 190
+      Width = 140
+      DataField = 'ApprovedBy'
+      TabOrder = 11
+    end
+    object lblApprovedAt: TLabel
+      Left = 510
+      Height = 16
+      Top = 194
+      Width = 84
+      Caption = 'Approved At:'
+    end
+    object edtApprovedAt: TDBEdit
+      Left = 600
+      Height = 24
+      Top = 190
+      Width = 160
+      DataField = 'ApprovedAt'
+      TabOrder = 12
+    end
+    object lblNotes: TLabel
+      Left = 16
+      Height = 16
+      Top = 230
+      Width = 40
+      Caption = 'Notes:'
+    end
+    object memNotes: TDBMemo
+      Left = 110
+      Height = 70
+      Top = 226
+      Width = 630
+      DataField = 'Notes'
+      TabOrder = 13
+    end
+    object btnClose: TBitBtn
+      Left = 760
+      Height = 30
+      Top = 290
+      Width = 100
+      Anchors = [akRight, akBottom]
+      Caption = '&Close'
+      Kind = bkClose
+      OnClick = btnCloseClick
+      TabOrder = 14
+    end
+  end
+  object StatusBar1: TStatusBar
+    Left = 0
+    Height = 23
+    Top = 577
+    Width = 880
+    SimplePanel = True
+  end
+end

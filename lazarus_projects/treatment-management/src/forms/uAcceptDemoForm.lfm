@@ -1,0 +1,103 @@
+object frmAcceptDemo: TfrmAcceptDemo
+  Left = 240
+  Height = 480
+  Top = 140
+  Width = 640
+  Caption = 'ACCEPT loop demo'
+  ClientHeight = 480
+  ClientWidth = 640
+  OnCloseQuery = FormCloseQuery
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  Position = poScreenCenter
+  LCLVersion = '2.2.6.0'
+  object pnlTop: TPanel
+    Left = 0
+    Height = 320
+    Top = 0
+    Width = 640
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 320
+    ClientWidth = 640
+    TabOrder = 0
+    object memLog: TMemo
+      Left = 8
+      Height = 304
+      Top = 8
+      Width = 624
+      Anchors = [akTop, akLeft, akRight, akBottom]
+      ReadOnly = True
+      ScrollBars = ssVertical
+      TabOrder = 0
+      WordWrap = False
+      Font.Name = 'Courier New'
+      Font.Height = -12
+    end
+  end
+  object pnlBottom: TPanel
+    Left = 0
+    Height = 137
+    Top = 320
+    Width = 640
+    Align = alClient
+    BevelOuter = bvLowered
+    ClientHeight = 137
+    ClientWidth = 640
+    TabOrder = 1
+    object lblValue: TLabel
+      Left = 16
+      Height = 16
+      Top = 18
+      Width = 40
+      Caption = 'Value:'
+    end
+    object edtValue: TEdit
+      Left = 80
+      Height = 24
+      Top = 14
+      Width = 300
+      OnChange = edtValueChange
+      OnEnter = edtValueEnter
+      TabOrder = 0
+    end
+    object btnPing: TBitBtn
+      Left = 80
+      Height = 30
+      Top = 60
+      Width = 100
+      Caption = '&Ping'
+      OnClick = btnPingClick
+      TabOrder = 1
+    end
+    object btnOK: TBitBtn
+      Left = 410
+      Height = 30
+      Top = 60
+      Width = 100
+      Caption = '&OK'
+      Default = True
+      Kind = bkOK
+      OnClick = btnOKClick
+      TabOrder = 2
+    end
+    object btnCancel: TBitBtn
+      Left = 520
+      Height = 30
+      Top = 60
+      Width = 100
+      Caption = '&Cancel'
+      Cancel = True
+      Kind = bkCancel
+      OnClick = btnCancelClick
+      TabOrder = 3
+    end
+  end
+  object StatusBar1: TStatusBar
+    Left = 0
+    Height = 23
+    Top = 457
+    Width = 640
+    SimplePanel = True
+  end
+end
