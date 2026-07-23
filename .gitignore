@@ -46,3 +46,11 @@ _build/
 deps/
 *.ez
 erl_crash.dump
+
+# Jekyll / GitHub Pages (docs site)
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata
+docs/Gemfile.lock
+docs/vendor/
+docs/.bundle/

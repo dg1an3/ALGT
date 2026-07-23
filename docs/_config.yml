@@ -1,0 +1,50 @@
+title: ALGT
+description: >-
+  Algorithm Logic Verification Tool, Clarion/Pascal simulators, and the MUZAQ
+  modernization demo — a research platform for formal analysis of legacy
+  medical device software.
+
+# Theme (installed via Gemfile / bundled at build time)
+theme: just-the-docs
+
+# The site is served from the repository's GitHub Pages URL.
+# `url` and `baseurl` are injected at build time by actions/configure-pages,
+# so they are intentionally left blank here.
+url: ""
+baseurl: ""
+
+# just-the-docs options
+search_enabled: true
+heading_anchors: true
+color_scheme: light
+
+aux_links:
+  "View on GitHub":
+    - "https://github.com/DLaneAtElekta/ALGT"
+
+aux_links_new_tab: true
+
+# Footer
+back_to_top: true
+back_to_top_text: "Back to top"
+
+footer_content: >-
+  Copyright &copy; 2015 dg1an3. Licensed under the BSD 2-Clause License.
+
+# Build settings
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+  - jekyll-relative-links
+
+markdown: kramdown
+kramdown:
+  syntax_highlighter_opts:
+    block:
+      line_numbers: false
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - .bundle

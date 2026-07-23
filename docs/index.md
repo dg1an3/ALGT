@@ -1,99 +1,133 @@
-# ALGT Documentation
+---
+title: Home
+layout: default
+nav_order: 1
+---
 
-This folder collects the design documents, regulatory narrative, and conceptual background for the ALGT platform. The repository code lives one level up — see the root [README.md](../README.md) for the full repository map and quick-start commands.
+# ALGT
 
-The three documents below build a single argument: that legacy medical device software can be modernized safely if the modernization preserves observable behavior in a formal, checkable sense, and that this approach is mature enough to be qualified as an FDA Medical Device Development Tool.
+**Algorithm Logic Verification Tool · Legacy-language simulators · MUZAQ modernization demo**
+{: .fs-5 .fw-300 }
+
+A research and engineering platform for the **formal analysis of legacy medical
+device software**. The repository braids together algorithm verification,
+executable semantic models of legacy languages, and a worked demonstration of
+modernizing a treatment-management system without changing its observable
+behavior.
+{: .fs-5 .fw-300 }
+
+[Get started](#quick-start){: .btn .btn-primary .mr-2 }
+[View on GitHub](https://github.com/DLaneAtElekta/ALGT){: .btn }
 
 ---
 
-## What this repository is
+## The three threads
 
-ALGT braids three threads:
+Everything in the repository serves one regulatory narrative: an
+[FDA Medical Device Development Tool (MDDT) qualification]({{ site.baseurl }}/design-docs/fda-mddt-proposal.html)
+for **ALGT-FMEA**, an automated software-FMEA toolset for legacy medical device
+code. Three threads support that argument, all sharing a foundation in
+SWI-Prolog and Logtalk.
 
-1. **Algorithm verification** — formal proofs that geometric routines used in radiation therapy treatment planning meet hazard-traceable specifications. The test suites in [../algt_tests/](../algt_tests/) descend directly from the 2003 Siemens COHERENCE *CRUTPr* procedure documented here in [ALGT_CRUTPr.md](ALGT_CRUTPr.md).
-2. **Legacy-language simulation** — DCG parsers and modular execution engines for Clarion 4GL ([../simulators/clarion/unified/](../simulators/clarion/unified/)), an LLVM IR target for Pascal ([../simulators/llvm/](../simulators/llvm/)), and an F# variant ([../simulators/fsharp/](../simulators/fsharp/)). Each simulator can be checked against the compiled binary by execution-trace comparison.
-3. **Modernization demonstration** — the **MUZAQ** treatment management system, written in FreePascal/Lazarus with C/C++ interop, modernized to a Prolog **labeled transition system** and then to an **Elixir actor system**. This thread is what gives the regulatory argument empirical teeth.
-
----
-
-## Documents in this folder
-
-### [FDA_MDDT_Proposal.md](FDA_MDDT_Proposal.md) — *the regulatory narrative*
-
-The qualification proposal for **ALGT-FMEA** as a Medical Device Development Tool supporting software FMEA on legacy medical device code. Defines the proposed Context of Use, the eight-layer architecture (formal verification → trace comparison → domain models → scenario validation → concurrent safety → probabilistic inference → anomaly detection → semantic fault injection), validation strategy, and the hazard-to-test traceability matrices. **Read this first** if you want to know why the rest of the repository is shaped the way it is.
-
-### [ALGT_CRUTPr.md](ALGT_CRUTPr.md) — *the historical provenance*
-
-The 2003 *Code Review / Unit Test Procedure* (TH 75.000020 Rev A1) for the Siemens COHERENCE Dosimetrist Workspace 2.0. Twelve safety-critical algorithms were verified using SWI-Prolog with DCG parsers over Nuages/VRML/DICOM data and predicate-logic verification conditions. This document is the existence proof that the methodology underlying ALGT-FMEA has 20+ years of production medical device track record — directly relevant to the MDDT qualification's "scientific validity" argument.
-
-### [compositional-semantics.md](compositional-semantics.md) — *the formal backbone of MUZAQ modernization*
-
-Establishes **bisimilarity** as the formal criterion for safe substitution between a legacy component and its modernized replacement. The central observation — that a shared SQL database is an *uncontrolled communication channel*, and that components communicating through it cannot be reasoned about independently unless their database interactions are themselves observable — is exactly what makes the MUZAQ event-stream approach work. If the SQL transaction log is the only communication channel and every entry is a labeled action, bisimilarity over those labels means observers cannot tell the original system from the modernized one.
-
-### [ontology/](ontology/) — *clinical & DICOM terminology*
-
-OWL/Turtle ontologies used to ground simulator types and verification predicates in standardized clinical terminology:
-
-- `basic-clinical-ontology.ttl` — patient, plan, prescription, dose, beam basics
-- `dicom-ontology.ttl` — DICOM-RT object model
-- `catalog-v001.xml` — OWL import catalog
-
-These are loaded by domain models in [../domain_models/](../domain_models/) and referenced by the verification test suites.
+| Thread | What it is | Where it lives |
+|---|---|---|
+| **1. Algorithm verification** | Formal proofs that geometric routines used in radiation-therapy planning meet hazard-traceable specifications. Descended from the 2003 Siemens COHERENCE *CRUTPr* procedure. | [ALGT verification]({{ site.baseurl }}/components/algt-verification.html) |
+| **2. Legacy-language simulation** | DCG parsers + modular execution engines for Clarion 4GL, Object Pascal/Lazarus, LLVM IR, and F#. Each simulator is checked against the compiled binary by execution-trace comparison. | [Simulators]({{ site.baseurl }}/components/simulators.html) · [Clarion projects]({{ site.baseurl }}/components/clarion-projects.html) |
+| **3. Modernization demonstration** | **MUZAQ** — a FreePascal/Lazarus treatment-management system modernized to a Prolog labeled transition system and then to an Elixir actor system, preserving observable behavior in a formal, checkable sense. | [Architecture]({{ site.baseurl }}/architecture.html) |
 
 ---
 
-## The MUZAQ modernization story (and how the docs support it)
+## What's in this site
 
-The MUZAQ demo is the connective tissue between every doc in this folder. It shows what the methodology looks like end-to-end on an open, non-proprietary stand-in for MOSAIQ:
+- **[Architecture]({{ site.baseurl }}/architecture.html)** — the eight-layer MDDT approach, the execution-trace comparison strategy (Levels 1–3), and the MUZAQ modernization story from Lazarus to Prolog to Elixir.
+- **[Components]({{ site.baseurl }}/components/)** — a page for every major part of the repository:
+  - [ALGT algorithm verification]({{ site.baseurl }}/components/algt-verification.html)
+  - [Language simulators]({{ site.baseurl }}/components/simulators.html) (Clarion, Pascal, LLVM, F#)
+  - [Clarion projects]({{ site.baseurl }}/components/clarion-projects.html) (real compiled DLL/EXE test cases)
+  - [Domain models]({{ site.baseurl }}/components/domain-models.html) (Logtalk)
+  - [Model checker]({{ site.baseurl }}/components/model-checker.html) (concurrent-interleaving verification)
+  - [MCP servers]({{ site.baseurl }}/components/mcp-servers.html) (Prolog, Erlang, Elixir, Python)
+  - [F# projects]({{ site.baseurl }}/components/fsharp-projects.html) and [Pascal samples]({{ site.baseurl }}/components/pascal-samples.html)
+- **[Design documents]({{ site.baseurl }}/design-docs/)** — the regulatory narrative, historical provenance, and the formal bisimilarity backbone.
 
+---
+
+## The MDDT approach in brief
+
+Legacy radiation-oncology systems (MOSAIQ in Clarion 4GL, Monaco in C++, and
+analogous FreePascal/Delphi systems) carry hundreds of thousands of lines of
+validated, regulated code that no commercial static analyzer understands.
+ALGT builds an **executable semantic model** of that source — a parser plus an
+interpreter — and uses it to:
+
+1. **Verify** safety-critical algorithms against formal predicates.
+2. **Compare** execution traces against the compiled binary at the procedure,
+   debugger-breakpoint, and variable level.
+3. **Explore** concurrent interleavings and probabilistic failure models that
+   no source-level static tool can reach.
+
+The technique is not theoretical — it descends from a production verification
+of the COHERENCE Dosimetrist Workspace 2.0 in 2003. See
+[Design documents]({{ site.baseurl }}/design-docs/) for the full story.
+
+---
+
+## Quick start
+
+The core Prolog and Logtalk components run anywhere SWI-Prolog is installed.
+
+**Verify the development environment (DSC v3):**
+
+```bash
+dsc config test --file algt-devenv.dsc.yaml
 ```
-   Lazarus / FreePascal MUZAQ                Prolog LTS                Elixir actor system
-   ╔════════════════════╗      Stage 1      ╔══════════════╗  Stage 2  ╔════════════════════╗
-   ║ TForm event handlers ║ ───────────────▶ ║ State + label ║ ────────▶ ║ GenServer per form  ║
-   ║ TDataSet operations  ║   parser + LTS   ║ transitions   ║  codegen  ║ NIF/Port C/C++ core ║
-   ║ C/C++ FFI calls      ║   extraction     ║ trace exports ║           ║ PubSub on log topic ║
-   ╚══════════╤═══════════╝                  ╚══════╤════════╝           ╚══════════╤═════════╝
-              │                                      │                                │
-              └──────────── shared SQL transaction log ─────────────────────────────┘
-                            (canonical event stream)
+
+**Run the Clarion simulator test suite:**
+
+```bash
+cd simulators/clarion/unified
+swipl -g "main,halt" -t "halt(1)" test_unified.pl
 ```
 
-### Forms become actors
+**Run an ALGT algorithm verification:**
 
-Every Lazarus `TForm` — patient setup, schedule editor, treatment console, billing — becomes a single actor (a Prolog process at Stage 1, an Elixir `:gen_statem` at Stage 2). The form's persistent state plus GUI state is the actor's state. Its event handlers are the transition function.
+```bash
+swipl -s algt_tests/ALGT_BEAM_VOLUME.pl
+```
 
-### The SQL transaction log is the event stream
+**Compare a Prolog trace against a compiled Clarion DLL:**
 
-This is the key insight, and it falls out of the [compositional-semantics](compositional-semantics.md) argument:
+```bash
+cd clarion_projects/sensor-data
+python compare_cdb_prolog.py
+```
 
-- Every `TDataSet.Post`, `TSQLQuery.Execute`, every commit produces a sequence of entries in the database's **logical transaction log**.
-- That log is the *only* channel through which one form can observe another's effects. Anything that doesn't go through the log is private to a single form's process.
-- Therefore, the log entries are exactly the labels whose interleavings need to be considered to model concurrent multi-form interaction.
-- GUI events (`OnClick`, `OnChange`, etc.) form a parallel label stream local to each form; they only become globally observable when they cause a log entry.
+See the [Requirements](#requirements) below for the optional, thread-specific
+toolchains.
 
-This gives a clean, finite, and *checkable* description of "what happens when several users work in several forms simultaneously" — precisely the scenario that traditional UI testing cannot enumerate.
+---
 
-### Why this matters for the MDDT proposal
+## Requirements
 
-Each thread in the proposal is exercised by the MUZAQ demo:
+**Core**
 
-| MDDT layer | What MUZAQ exercises |
+- **SWI-Prolog** 8.0+ — [swi-prolog.org](https://www.swi-prolog.org/)
+- **Logtalk** — [logtalk.org](https://logtalk.org/) — for the object-oriented domain models and storage/UI dispatchers
+- **DSC v3** — run `dsc config test --file algt-devenv.dsc.yaml` to verify tooling
+
+**Optional, by thread**
+
+| Thread | Tooling |
 |---|---|
-| Formal algorithm verification | C/C++ numerical kernels invoked from Lazarus forms (e.g., dose calc) get the same predicate-based verification as the [algt_tests/](../algt_tests/) suite. |
-| Execution-trace comparison | Lazarus binary, Prolog LTS, and Elixir actor system are all replayed against the same recorded trace and diffed — extending the technique already proven against compiled Clarion DLLs. |
-| Domain-model formalization | Clinical terms used by the forms are grounded in [ontology/](ontology/). |
-| Scenario validation | Multi-form workflows are described in the scenario DSL and replayed across all three implementations. |
-| Concurrent safety | Interleavings of the SQL transaction log entries across forms are explored by [../model_checker/](../model_checker/). |
-| Probabilistic inference | Trace exports drive PyMC/Stan models that estimate failure-mode likelihoods. |
-| Anomaly detection | GNN-VAE over execution traces flags out-of-distribution form behavior. |
-| Semantic fault injection | LLM-driven mutation of form handlers tests robustness without manual fault enumeration. |
+| Clarion DLL trace comparison | Clarion 11.1; 32-bit Python 3.11; CDB (x86) from Windows SDK Debugging Tools |
+| F# components | .NET SDK 8+ |
+| LLVM simulator (Pascal target) | LLVM toolchain |
+| MUZAQ modernization demo | FreePascal/Lazarus 3.x; Erlang/OTP 26+; Elixir 1.16+ |
 
 ---
 
-## Where to go next
+## License
 
-- **Run something:** see the *Quick Start* in the root [README.md](../README.md).
-- **Understand the regulatory frame:** read [FDA_MDDT_Proposal.md](FDA_MDDT_Proposal.md) §1–§3.
-- **Understand the formal frame:** read [compositional-semantics.md](compositional-semantics.md) — the bisimilarity argument is short and the appendix has the formal definitions.
-- **Understand the historical frame:** read [ALGT_CRUTPr.md](ALGT_CRUTPr.md) §1–§4 for the 2003 verification context.
-- **AI-assistant guidance:** [../CLAUDE.md](../CLAUDE.md) (this repo) and [../../CLAUDE.md](../../CLAUDE.md) (surrounding MOSAIQ/Equator/Monaco context).
+Copyright &copy; 2015, dg1an3. Licensed under the **BSD 2-Clause License**.
+Given the medical-device focus, all changes should preserve test coverage and
+avoid weakening assertions without an explicit safety rationale.

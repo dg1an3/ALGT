@@ -1,3 +1,11 @@
+---
+title: ALGT CRUTPr (2003)
+layout: default
+parent: Design Documents
+nav_order: 2
+permalink: /design-docs/algt-crutpr.html
+---
+
 # Dosimetrist Workspace 2.0 Algorithm Verification
 
 ## Code Review / Unit Test Procedure (CRUTPr)
