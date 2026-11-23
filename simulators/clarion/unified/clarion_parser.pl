@@ -1046,7 +1046,7 @@ is_keyword(Name) :-
                'TO','CASE','OF','DIM','AND','OR',
                'DELETE','KEY','PRIMARY','OWNER',
                'ACCEPT','DISPLAY','ACCEPTED',
-               'PROMPT','ENTRY','BUTTON','STRING','LIST','AT','USE','CHECK',
+               'PROMPT','ENTRY','BUTTON','STRING','LIST','AT','USE',
                'CENTER','DROP','FROM','CHOICE','SELECT',
                'WHILE','UNTIL','ELSIF','CYCLE','DO','ROUTINE','EXIT',
                'SHORT','REAL','SREAL','BYTE','DATE','TIME',
