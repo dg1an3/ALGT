@@ -13,7 +13,7 @@ concurrency argument concrete: given the labels produced by multiple forms, it
 explores their interleavings and flags orderings that violate safety
 properties.
 
-**Location:** [`model_checker/`](https://github.com/DLaneAtElekta/ALGT/tree/main/model_checker)
+**Location:** [`model_checker/`](https://github.com/dg1an3/ALGT/tree/main/model_checker)
 · **Language:** SWI-Prolog
 
 ## Files

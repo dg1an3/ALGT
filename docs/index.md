@@ -17,7 +17,7 @@ behavior.
 {: .fs-5 .fw-300 }
 
 [Get started](#quick-start){: .btn .btn-primary .mr-2 }
-[View on GitHub](https://github.com/DLaneAtElekta/ALGT){: .btn }
+[View on GitHub](https://github.com/dg1an3/ALGT){: .btn }
 
 ---
 

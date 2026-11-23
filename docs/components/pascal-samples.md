@@ -11,7 +11,7 @@ The Pascal/Lazarus corpus that feeds the Object Pascal simulator and the MUZAQ
 modernization demo — spanning a modern round-trip target and a large legacy
 archive.
 
-**Location:** [`pascal_samples/`](https://github.com/DLaneAtElekta/ALGT/tree/main/pascal_samples)
+**Location:** [`pascal_samples/`](https://github.com/dg1an3/ALGT/tree/main/pascal_samples)
 · **Language:** Object Pascal / Turbo Pascal / Modula-2
 
 | Directory | Contents |

@@ -11,7 +11,7 @@ Real Clarion 11.1 DLLs and EXEs that serve as the **ground-truth binaries** for
 execution-trace comparison. Clarion 11 produces 32-bit Windows binaries, so a
 32-bit Python (`3.11.9-win32`) hosts them via `ctypes`.
 
-**Location:** [`clarion_projects/`](https://github.com/DLaneAtElekta/ALGT/tree/main/clarion_projects)
+**Location:** [`clarion_projects/`](https://github.com/dg1an3/ALGT/tree/main/clarion_projects)
 · **Build:** MSBuild against `.cwproj` · **Host:** 32-bit Python + CDB (x86)
 
 ## Projects

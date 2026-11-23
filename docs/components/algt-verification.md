@@ -14,7 +14,7 @@ COHERENCE *CRUTPr* procedure (see
 one checks an algorithm against predicate-logic verification conditions rather
 than a handful of example inputs.
 
-**Location:** [`algt_tests/`](https://github.com/DLaneAtElekta/ALGT/tree/main/algt_tests)
+**Location:** [`algt_tests/`](https://github.com/dg1an3/ALGT/tree/main/algt_tests)
 · **Language:** SWI-Prolog
 
 ## The algorithms

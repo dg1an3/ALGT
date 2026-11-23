@@ -12,7 +12,7 @@ concepts the simulators and verification suites reason about. They ground
 simulator types and verification predicates in standardized clinical
 terminology.
 
-**Location:** [`domain_models/`](https://github.com/DLaneAtElekta/ALGT/tree/main/domain_models)
+**Location:** [`domain_models/`](https://github.com/dg1an3/ALGT/tree/main/domain_models)
 · **Language:** Logtalk
 
 ## Models
@@ -29,7 +29,7 @@ terminology.
 
 - Logtalk **protocols** are prefixed with `i` (e.g. `iimage_import_manager`).
 - Domain models load the OWL/Turtle ontologies under
-  [`docs/ontology/`](https://github.com/DLaneAtElekta/ALGT/tree/main/docs/ontology)
+  [`docs/ontology/`](https://github.com/dg1an3/ALGT/tree/main/docs/ontology)
   (`basic-clinical-ontology.ttl`, `dicom-ontology.ttl`) so that types used in
   the models correspond to standardized clinical/DICOM terms.
 

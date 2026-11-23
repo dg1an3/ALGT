@@ -11,7 +11,7 @@ F# verification and domain demonstrations — a second implementation language f
 parts of the platform, useful for cross-checking the Prolog/Logtalk results and
 exploring statically typed realizations of the domain models.
 
-**Location:** [`fsharp_projects/`](https://github.com/DLaneAtElekta/ALGT/tree/main/fsharp_projects)
+**Location:** [`fsharp_projects/`](https://github.com/dg1an3/ALGT/tree/main/fsharp_projects)
 · **Tooling:** .NET SDK 8+
 
 | Project | Purpose |

@@ -12,7 +12,7 @@ pairs a **parser** (usually a DCG) with a **modular execution engine**, so a
 legacy program can be *run* — and its execution trace compared against the
 compiled binary.
 
-**Location:** [`simulators/`](https://github.com/DLaneAtElekta/ALGT/tree/main/simulators)
+**Location:** [`simulators/`](https://github.com/dg1an3/ALGT/tree/main/simulators)
 
 | Simulator | Target language | Notes |
 |---|---|---|
@@ -33,7 +33,7 @@ The most developed component. A DCG parser plus a modular execution engine with
 dispatch) and UI, a scenario DSL, and an execution tracer with ML exports (PGM,
 PyMC, Stan, GNN-VAE).
 
-**Location:** [`simulators/clarion/unified/`](https://github.com/DLaneAtElekta/ALGT/tree/main/simulators/clarion/unified)
+**Location:** [`simulators/clarion/unified/`](https://github.com/dg1an3/ALGT/tree/main/simulators/clarion/unified)
 
 **Key files**
 

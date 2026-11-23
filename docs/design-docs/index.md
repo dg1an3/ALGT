@@ -22,7 +22,7 @@ as an FDA Medical Device Development Tool.
 ## Ontologies
 
 The design docs are accompanied by OWL/Turtle ontologies under
-[`docs/ontology/`](https://github.com/DLaneAtElekta/ALGT/tree/main/docs/ontology)
+[`docs/ontology/`](https://github.com/dg1an3/ALGT/tree/main/docs/ontology)
 that ground simulator types and verification predicates in standardized clinical
 terminology:
 

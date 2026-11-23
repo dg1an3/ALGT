@@ -10,7 +10,7 @@ nav_order: 6
 Model Context Protocol server implementations that expose ALGT's capabilities as
 tools for AI-assistant integration (e.g. Claude Code).
 
-**Location:** [`mcp_servers/`](https://github.com/DLaneAtElekta/ALGT/tree/main/mcp_servers)
+**Location:** [`mcp_servers/`](https://github.com/dg1an3/ALGT/tree/main/mcp_servers)
 
 | Server | Language | Role |
 |---|---|---|
@@ -27,7 +27,7 @@ A Python MCP server that wraps a Clarion DLL and exposes its exported functions
 as MCP tools, using `ctypes` for interop and PE parsing for export discovery. No
 external dependencies beyond the Python standard library.
 
-**Location:** [`mcp_servers/python_dll/`](https://github.com/DLaneAtElekta/ALGT/tree/main/mcp_servers/python_dll)
+**Location:** [`mcp_servers/python_dll/`](https://github.com/dg1an3/ALGT/tree/main/mcp_servers/python_dll)
 
 **Key files**
 
