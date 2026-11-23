@@ -34,7 +34,8 @@ ui_simulation.lgt     ← Logtalk headless UI backend for testing
 ui_dispatcher.lgt     ← Logtalk UI dispatcher (routes by backend type)
 loader.lgt            ← Logtalk loader for all backend objects
 scenario_*.pl         ← From modular (unchanged)
-test_unified.pl       ← Test suite (189 tests passing)
+test_unified.pl       ← Test suite (224 checks passing)
+clarion_preproc.pl    ← COMPILE/OMIT conditional-compile pre-pass
 ```
 
 ## AST Bridge Translation Rules
@@ -143,6 +144,22 @@ Removed catch-all `kw([]) --> [].` that defeated the word-boundary check. This p
 - **Local DIM arrays**: `Name TYPE,DIM(Size)` in local variable declarations
 - **Keyword-as-identifier**: `SIZE`, `ADDRESS`, `POINTER` removed from keyword blacklist so they can be used as variable names (e.g., `Size EQUATE(640)`)
 
+### 7. Db parse gaps (2026-11-23)
+Found by a parse-coverage survey:
+- **COMPILE/OMIT**: new pre-pass module `clarion_preproc.pl` (`preprocess_codes/3`), called by `parse_clarion/2,3`. Conditions use `parse_clarion(Src, AST, [defines(['Name'=Val])])`; undefined names are 0. Dropped lines become blank lines, so line numbers are preserved.
+- **LIKE(Ref)** locals, globals and QUEUE/GROUP fields, with `,PRE()`/`,DIM()`/`,OVER()` attributes. AST `like(Name, Ref, Attrs)` / `field(Name, like(Ref, Attrs))`. The bridge emits type `like(Ref)`, so the value starts at 0 (the referenced declaration is not resolved).
+- **EQUATE('text')** string equates and `::` names (`NT::THIS_MODULE`). String equates bridge to `'STRING'` vars.
+- **STRING('text')** initialiser (length = text length) for locals, globals and fields.
+- **Omitted first argument** `f(, a)` produces `omitted`. The simulator binds the parameter's default value.
+- **OROF** in CASE produces `of(any([R1,R2,...]), Stmts)`. The bridge expands it into one `case_of` per alternative.
+- **`A[i].Field`** read/assign produces `array_field/3`, bridged to `array_field_access/3` and `array_field_assign/4`. It is evaluated only when the element is a `group_val`; otherwise the read gives 0 and the assign warns.
+- **Keywords added:** `OROF`, `LIKE`, `EQUATE`.
+- **Simulator:** a colon name whose prefix matches no file, group or instance (`Copy:Record`, `A::B`) is stored as a plain variable (`get_var`/`set_var` fall back when the prefixed lookup fails).
+- **Tests:** `test_unified.pl` paths fixed (`../../../clarion_projects`). 49 file-based checks had been silently skipped. `run_test/1` now counts a test that throws or fails as FAIL.
+- **Local QUEUE/GROUP:** `bridge_locals` emits `local_decl(queue(...))` / `local_decl(group(...))`; `init_locals` initialises them via `init_globals`. Caveat: a local QUEUE is stored as a file_state and is not discarded when the procedure returns.
+- **NOT / `~expr`:** `not(E)` is bridged recursively, and `eval_full_expr(not(E))` evaluates the operand with `eval_full_expr`, so calls inside `~` work.
+- **Result:** `Some_Db.clw` parses and bridges with no unhandled-node warnings. Executing it still needs the dependent declarations and stubs.
+
 ### 6. ADDRESS/MemCopy simulation
 - `ADDRESS(var)` returns a unique deterministic ID per variable name (hash-based)
 - `MemCopy` (via `MODULE('kernel32')`) is a no-op in the simulator since Clarion code uses direct GROUP field assignments for the actual data movement; MemCopy only matters for passing structs to external callers via pointer
@@ -165,7 +182,7 @@ call_procedure(Session, ProcName, Args, Result, Session2).
 exec_program(Source, Events, Result).
 ```
 
-## Test Coverage (198 tests)
+## Test Coverage (224 checks as of 2026-11-23)
 
 - **Parser + Bridge** (11): MEMBER parse, MathLib, SensorLib, DiagnosisStore, FormDemo, OdbcStore, control_flow.clw PROGRAM
 - **Arithmetic** (4): MathAdd, Multiply with various inputs

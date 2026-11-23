@@ -14,6 +14,7 @@ swipl -g "main,halt" -t "halt(1)" test_unified.pl
 
 | Module | Role |
 |--------|------|
+| `clarion_preproc.pl` | COMPILE/OMIT conditional-compile pre-pass (line-preserving) |
 | `clarion_parser.pl` | DCG parser — tokenizes and parses `.clw` files into a simple AST |
 | `ast_bridge.pl` | Translates simple parser AST into the modular engine's AST format |
 | `clarion.pl` | Unified API (`parse_clarion`, `exec_procedure`, `init_session`, `call_procedure`, `exec_program`) |
@@ -65,7 +66,7 @@ swipl -g "main,halt" -t "halt(1)" test_unified.pl
 
 | File | Role |
 |------|------|
-| `test_unified.pl` | Test suite (130 tests) |
+| `test_unified.pl` | Test suite (224 checks) |
 | `CLAUDE.md` | Detailed architecture notes, AST translation rules, fix history |
 
 ## API

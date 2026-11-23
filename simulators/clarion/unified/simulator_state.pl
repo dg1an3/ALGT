@@ -123,6 +123,8 @@ clear_continuation(StateIn, StateOut) :-
 
 % Get variable value from state
 % Handles both regular variables and prefixed file fields (Prefix:Field)
+% A colon name whose prefix matches no file, group or instance (e.g. the
+% label 'Copy:Record' or the equate 'NT::THIS_MODULE') is a plain variable.
 get_var(Name, State, Value) :-
     ( parse_prefixed_name(Name, Prefix, FieldName),
       get_prefixed_var(Prefix, FieldName, State, Value)

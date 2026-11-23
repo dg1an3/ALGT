@@ -9,6 +9,7 @@
 
 :- use_module(clarion).
 :- use_module(clarion_parser).
+:- use_module(clarion_preproc).
 :- use_module(ast_bridge).
 :- use_module(simulator_state).
 :- use_module(execution_tracer).
@@ -1212,14 +1213,133 @@ test_memcopy_noop :-
     exec_procedure(Src, 'TestMC', [], R),
     check('MemCopy module parsed + exec', R, 141).
 
+
+%------------------------------------------------------------
+% Parse gaps (COMPILE/OMIT, LIKE, string EQUATE,
+% STRING('x'), omitted first arg, OROF, A[i].Field)
+%------------------------------------------------------------
+
+compile_src("  MEMBER()\n  MAP\n    F(),LONG,C,NAME('F'),EXPORT\n  END\nF PROCEDURE()\nX LONG(1)\n  CODE\n  COMPILE('__ENDCOV__', HasCov = 1)\n  X = 99\n__ENDCOV__\n  OMIT('**OFF**', HasCov = 0)\n  X = X + 1000\n  !**OFF**\n  COMPILE('***')\n  X = X + 10\n  ! ***\n  RETURN(X)\n").
+
+test_compile_omit :-
+    format("~nCOMPILE/OMIT tests:~n"),
+    compile_src(Src),
+    exec_procedure(Src, 'F', [], R0),
+    check('COMPILE false / OMIT true / COMPILE no-expr (defines [])', R0, 11),
+    parse_clarion(Src, AST1, [defines(['HasCov'=1])]),
+    bridge_ast(AST1, Mod1),
+    Mod1 = program(_, _, _, [procedure('F', _, _, code(Body1))]),
+    ( Body1 = [assign('X', number(99)), assign('X', binop('+', var('X'), number(1000))),
+               assign('X', binop('+', var('X'), number(10))), return(_)]
+    -> B1 = ok ; B1 = Body1 ),
+    check('COMPILE true / OMIT false with defines([HasCov=1])', B1, ok),
+    string_codes(Src, Codes), clarion_preproc:preprocess_codes(Codes, [], Out),
+    include(==(0'\n), Codes, N1), include(==(0'\n), Out, N2),
+    length(N1, L1), length(N2, L2),
+    check('preprocessor preserves line count', L2, L1).
+
+test_like_decl :-
+    format("~nLIKE tests:~n"),
+    Src = "  MEMBER()\nRec GROUP,PRE(REC)\nId LONG\n  END\nCopy:Record LIKE(Rec),PRE(CPY)\n  MAP\n    F(),LONG,C,NAME('F'),EXPORT\n  END\nF PROCEDURE()\nA LONG\nB LIKE(A)\nR LIKE(REC:Id),PRE(RR)\n  CODE\n  B = 5\n  RETURN(B + 1)\n",
+    parse_clarion(Src, program(_, _, Globals, _, [procedure('F', _, _, Locals, _)])),
+    ( member(global('Copy:Record', like('Rec', [pre('CPY')]), 0), Globals) -> G = ok ; G = Globals ),
+    check('global LIKE(Rec),PRE(CPY) parsed', G, ok),
+    ( Locals = [local('A', long, 0), like('B', 'A', []), like('R', 'REC:Id', [pre('RR')])] -> L = ok ; L = Locals ),
+    check('local LIKE / LIKE,PRE parsed', L, ok),
+    exec_procedure(Src, 'F', [], R),
+    check('LIKE local exec B=5 -> 6', R, 6),
+    QSrc = "  MEMBER()\nQ QUEUE\nId LIKE(X:Id)\nName STRING('abc')\n  END\n",
+    parse_clarion(QSrc, program(_, _, QG, _, _)),
+    ( QG = [queue('Q', [field('Id', like('X:Id', [])), field('Name', string(3))])] -> QOk = ok ; QOk = QG ),
+    check('LIKE and STRING(init) fields in QUEUE', QOk, ok).
+
+test_string_equate :-
+    format("~nEQUATE string / :: tests:~n"),
+    Src = "  MEMBER('X.clw')\nNT::THIS_MODULE   Equate('Site_Db.clw(RTC.app)')\nA::B EQUATE(7)\n  MAP\n    F(),LONG,C,NAME('F'),EXPORT\n  END\nF PROCEDURE()\n  CODE\n  RETURN(A::B)\n",
+    parse_clarion(Src, program(_, _, Globals, _, _)),
+    ( Globals = [equate('NT::THIS_MODULE', 'Site_Db.clw(RTC.app)'), equate('A::B', 7)] -> G = ok ; G = Globals ),
+    check('EQUATE(string) and :: names parsed', G, ok),
+    exec_procedure(Src, 'F', [], R),
+    check('A::B EQUATE(7) exec', R, 7).
+
+test_string_init :-
+    format("~nSTRING('init') tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    F(),LONG,C,NAME('F'),EXPORT\n  END\nF PROCEDURE()\nS STRING('abcd')\n  CODE\n  RETURN(LEN(S))\n",
+    parse_clarion(Src, program(_, _, _, _, [procedure('F', _, _, Locals, _)])),
+    check('STRING(init) local parsed', Locals, [local('S', string(4), abcd)]),
+    exec_procedure(Src, 'F', [], R),
+    check('LEN(STRING(abcd)) = 4', R, 4).
+
+test_omitted_first_arg :-
+    format("~nOmitted argument tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    F(),LONG,C,NAME('F'),EXPORT\n  END\nG PROCEDURE(<LONG a>, LONG b)\n  CODE\n  RETURN(a + b)\nF PROCEDURE()\n  CODE\n  RETURN(G(, 5) + G(1, 2))\n",
+    parse_clarion(Src, program(_, _, _, _, Procs)),
+    ( member(procedure('F', _, _, _, [return(add(call('G', [omitted, lit(5)]), _))]), Procs) -> P = ok ; P = Procs ),
+    check('f(, a) parsed with omitted', P, ok),
+    exec_procedure(Src, 'F', [], R),
+    check('G(, 5) + G(1, 2) = 8', R, 8).
+
+test_orof :-
+    format("~nOROF tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    C(LONG x),LONG,C,NAME('C'),EXPORT\n  END\nC PROCEDURE(LONG x)\nR LONG(0)\n  CODE\n  case x\n  of 1\n  orof 2\n    R = 10\n  of 3\n    R = 30\n  else\n    R = -1\n  .\n  RETURN(R)\n",
+    parse_clarion(Src, program(_, _, _, _, [procedure('C', _, _, _, [case(_, Ofs, _)|_])])),
+    ( Ofs = [of(any([single(lit(1)), single(lit(2))]), _), of(single(lit(3)), _)] -> P = ok ; P = Ofs ),
+    check('OF 1 OROF 2 parsed as any/1', P, ok),
+    init_session(Src, S0),
+    call_procedure(S0, 'C', [1], R1, _), check('OROF: C(1) = 10', R1, 10),
+    call_procedure(S0, 'C', [2], R2, _), check('OROF: C(2) = 10', R2, 10),
+    call_procedure(S0, 'C', [3], R3, _), check('OROF: C(3) = 30', R3, 30),
+    call_procedure(S0, 'C', [4], R4, _), check('OROF: C(4) = -1', R4, -1).
+
+test_array_field :-
+    format("~nArray element field tests:~n"),
+    Src = "  MEMBER()\nF PROCEDURE()\nI LONG(1)\nX LONG\n  CODE\n  if SIT:Fx[I].WaveIdx > X\n    X = SIT:Fx[I].WaveIdx\n  .\n  SIT:Fx[I].WaveIdx = 3\n",
+    parse_clarion(Src, program(_, _, _, _, [procedure('F', _, _, _, Body)])),
+    ( Body = [if(gt(array_field('SIT:Fx', var('I'), 'WaveIdx'), var('X')),
+                 [assign('X', array_field('SIT:Fx', var('I'), 'WaveIdx'))], []),
+              assign(array_field('SIT:Fx', var('I'), 'WaveIdx'), lit(3))] -> P = ok ; P = Body ),
+    check('A[i].Field read and assign parsed', P, ok),
+    bridge_ast(program([], [], [], [], [procedure('F', [], void, [], Body)]),
+               program(_, _, _, [procedure('F', _, _, code(BB))])),
+    ( BB = [if(binop('>', array_field_access('SIT:Fx', var('I'), 'WaveIdx'), var('X')), _, [], []),
+            array_field_assign('SIT:Fx', var('I'), 'WaveIdx', number(3))] -> B = ok ; B = BB ),
+    check('A[i].Field bridged', B, ok).
+
+
+test_local_queue_group :-
+    format("~nLocal QUEUE/GROUP tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    F(),LONG,C,NAME('F'),EXPORT\n  END\nF PROCEDURE()\nMsgQ QUEUE\nText STRING(200)\n  .\nCur GROUP,PRE(CUR)\nId LONG\nName STRING(20)\n  .\nT LONG\n  CODE\n  CUR:Id = 41\n  MsgQ.Text = 'hello'\n  ADD(MsgQ)\n  T = CUR:Id + RECORDS(MsgQ)\n  RETURN(T)\n",
+    parse_clarion(Src, AST),
+    bridge_ast(AST, program(_, _, _, [procedure('F', _, Locals, _)])),
+    ( Locals = [local_decl(queue('MsgQ', _)), local_decl(group('Cur', 'CUR', _)), local_var('T', 'LONG', _)]
+    -> L = ok ; L = Locals ),
+    check('local QUEUE/GROUP bridged as local_decl', L, ok),
+    exec_procedure(Src, 'F', [], R),
+    check('local GROUP field + local QUEUE ADD/RECORDS = 42', R, 42).
+
+test_not_call :-
+    format("~nNOT with calls tests:~n"),
+    Src = "  MEMBER()\n  MAP\n    F(LONG x),LONG,C,NAME('F'),EXPORT\n  END\nIsBig PROCEDURE(LONG v)\n  CODE\n  RETURN(v > 10)\nF PROCEDURE(LONG x)\nR LONG(0)\n  CODE\n  if ~IsBig(x)\n    R = 1\n  .\n  if NOT IsBig(x) and ~(x = 3)\n    R = R + 10\n  .\n  RETURN(R)\n",
+    parse_clarion(Src, AST),
+    bridge_ast(AST, program(_, _, _, Procs)),
+    ( member(procedure('F', _, _, code([if(not(call('IsBig', [var(x)])), _, _, _)|_])), Procs)
+    -> B = ok ; B = Procs ),
+    check('~call bridged recursively', B, ok),
+    init_session(Src, S0),
+    call_procedure(S0, 'F', [5], R1, _), check('~IsBig(5) and NOT IsBig(5) and ~(5=3) -> 11', R1, 11),
+    call_procedure(S0, 'F', [3], R2, _), check('x=3 -> 1', R2, 1),
+    call_procedure(S0, 'F', [50], R3, _), check('~IsBig(50) false -> 0', R3, 0).
+
 %------------------------------------------------------------
 % Main
 %------------------------------------------------------------
 
+% A test that throws or fails outright is counted as a failure (previously
+% it was skipped silently, which hid the checks after the failing goal).
 run_test(Test) :-
-    ( catch(Test, E, (format(user_error, "Error in test: ~w~n", [E]), fail))
+    ( catch(Test, E, (format(user_error, "Error in test ~w: ~w~n", [Test, E]), fail))
     -> true
-    ;  true  % Continue even if test fails
+    ;  check(Test, aborted, completed)  % records a FAIL and continues
     ).
 
 %------------------------------------------------------------
@@ -1457,6 +1577,16 @@ main :-
     run_test(test_mermaid_real_project),
     run_test(test_mermaid_sensorlib),
     run_test(test_mermaid_file_output),
+    % Parse gaps
+    run_test(test_compile_omit),
+    run_test(test_like_decl),
+    run_test(test_string_equate),
+    run_test(test_string_init),
+    run_test(test_omitted_first_arg),
+    run_test(test_orof),
+    run_test(test_array_field),
+    run_test(test_local_queue_group),
+    run_test(test_not_call),
     % Summary
     test_count(Total),
     pass_count(Pass),
