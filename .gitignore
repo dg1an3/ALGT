@@ -40,3 +40,9 @@ __pycache__/
 *~
 .DS_Store
 .vs
+
+# Elixir / Mix build output
+_build/
+deps/
+*.ez
+erl_crash.dump
