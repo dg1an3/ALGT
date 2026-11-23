@@ -1280,7 +1280,7 @@ test_mermaid_case :-
     check('Mermaid has else for CASE OF 2', HasCase2, true).
 
 test_mermaid_real_project :-
-    read_file_to_string('../../clarion_projects/python-dll/MathLib.clw', Src, []),
+    read_file_to_string('../../../clarion_projects/python-dll/MathLib.clw', Src, []),
     parse_clarion(Src, AST),
     ast_to_mermaid(AST, Mermaid),
     atom_length(Mermaid, Len),
@@ -1290,7 +1290,7 @@ test_mermaid_real_project :-
     check('MathLib Mermaid is valid diagram', Ok, true).
 
 test_mermaid_sensorlib :-
-    read_file_to_string('../../clarion_projects/sensor-data/SensorLib.clw', Src, []),
+    read_file_to_string('../../../clarion_projects/sensor-data/SensorLib.clw', Src, []),
     parse_clarion(Src, AST),
     ast_to_mermaid(AST, Mermaid),
     % SensorLib has inter-procedure calls (e.g. SSCalculateWeightedAverage uses file ops)

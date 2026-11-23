@@ -77,28 +77,41 @@ stmts_to_lines(Caller, [Stmt|Rest], Lines) :-
     stmts_to_lines(Caller, Rest, RestLines),
     append(StmtLines, RestLines, Lines).
 
+% Deterministic wrapper: the first matching stmt_lines/3 clause wins, so the
+% catch-all at the end never yields an alternative on backtracking.
+stmt_to_lines(Caller, Stmt, Lines) :-
+    once(stmt_lines(Caller, Stmt, Lines)).
+
+% Assignment target: the parser emits a bare atom ('R'); var('R') is also
+% accepted for hand-built ASTs.
+assign_target(var(Var), Var) :- !.
+assign_target(Var, Var) :- atom(Var).
+
 % Procedure call (statement position)
-stmt_to_lines(Caller, call(Target, Args), Lines) :-
+stmt_lines(Caller, call(Target, Args), Lines) :-
     format_args(Args, ArgsStr),
     format(atom(Line), "    ~w->>~w: ~w(~w)", [Caller, Target, Target, ArgsStr]),
     Lines = [Line].
 
 % Assignment with a call on the RHS
-stmt_to_lines(Caller, assign(var(Var), call(Target, Args)), Lines) :-
+stmt_lines(Caller, assign(Target0, call(Target, Args)), Lines) :-
+    assign_target(Target0, Var),
     format_args(Args, ArgsStr),
     format(atom(CallLine), "    ~w->>~w: ~w(~w)", [Caller, Target, Target, ArgsStr]),
     format(atom(RetLine), "    ~w-->>~w: ~w", [Target, Caller, Var]),
     Lines = [CallLine, RetLine].
 
 % Assignment with a method call on the RHS
-stmt_to_lines(Caller, assign(var(Var), method_call(Obj, Method, Args)), Lines) :-
+stmt_lines(Caller, assign(Target0, method_call(Obj, Method, Args)), Lines) :-
+    assign_target(Target0, Var),
     format_args(Args, ArgsStr),
     format(atom(CallLine), "    ~w->>~w: ~w(~w)", [Caller, Obj, Method, ArgsStr]),
     format(atom(RetLine), "    ~w-->>~w: ~w", [Obj, Caller, Var]),
     Lines = [CallLine, RetLine].
 
 % Plain assignment (note on caller)
-stmt_to_lines(Caller, assign(var(Var), Expr), Lines) :-
+stmt_lines(Caller, assign(Target0, Expr), Lines) :-
+    assign_target(Target0, Var),
     Expr \= call(_, _),
     Expr \= method_call(_, _, _),
     format_expr(Expr, ExprStr),
@@ -106,15 +119,15 @@ stmt_to_lines(Caller, assign(var(Var), Expr), Lines) :-
     Lines = [Line].
 
 % Array assignment
-stmt_to_lines(Caller, assign(array_ref(Name, _Idx), _Expr), Lines) :-
+stmt_lines(Caller, assign(array_ref(Name, _Idx), _Expr), Lines) :-
     format(atom(Line), "    Note right of ~w: ~w[] = ...", [Caller, Name]),
     Lines = [Line].
-stmt_to_lines(Caller, assign_array(Name, _Idx, _Expr), Lines) :-
+stmt_lines(Caller, assign_array(Name, _Idx, _Expr), Lines) :-
     format(atom(Line), "    Note right of ~w: ~w[] = ...", [Caller, Name]),
     Lines = [Line].
 
 % IF statement -> alt fragment
-stmt_to_lines(Caller, if(Cond, Then, Else), Lines) :-
+stmt_lines(Caller, if(Cond, Then, Else), Lines) :-
     format_expr(Cond, CondStr),
     format(atom(AltStart), "    alt ~w", [CondStr]),
     stmts_to_lines(Caller, Then, ThenLines),
@@ -126,12 +139,12 @@ stmt_to_lines(Caller, if(Cond, Then, Else), Lines) :-
     ).
 
 % LOOP (infinite)
-stmt_to_lines(Caller, loop(Body), Lines) :-
+stmt_lines(Caller, loop(Body), Lines) :-
     stmts_to_lines(Caller, Body, BodyLines),
     append([["    loop"], BodyLines, ["    end"]], Lines).
 
 % LOOP FOR
-stmt_to_lines(Caller, loop_for(Var, Start, End, Body), Lines) :-
+stmt_lines(Caller, loop_for(Var, Start, End, Body), Lines) :-
     format_expr(Start, StartStr),
     format_expr(End, EndStr),
     format(atom(LoopHead), "    loop ~w = ~w TO ~w", [Var, StartStr, EndStr]),
@@ -139,21 +152,21 @@ stmt_to_lines(Caller, loop_for(Var, Start, End, Body), Lines) :-
     append([[LoopHead], BodyLines, ["    end"]], Lines).
 
 % LOOP WHILE
-stmt_to_lines(Caller, loop_while(Cond, Body), Lines) :-
+stmt_lines(Caller, loop_while(Cond, Body), Lines) :-
     format_expr(Cond, CondStr),
     format(atom(LoopHead), "    loop WHILE ~w", [CondStr]),
     stmts_to_lines(Caller, Body, BodyLines),
     append([[LoopHead], BodyLines, ["    end"]], Lines).
 
 % LOOP UNTIL
-stmt_to_lines(Caller, loop_until(Cond, Body), Lines) :-
+stmt_lines(Caller, loop_until(Cond, Body), Lines) :-
     format_expr(Cond, CondStr),
     format(atom(LoopHead), "    loop UNTIL ~w", [CondStr]),
     stmts_to_lines(Caller, Body, BodyLines),
     append([[LoopHead], BodyLines, ["    end"]], Lines).
 
 % CASE -> alt with multiple branches
-stmt_to_lines(Caller, case(Expr, Ofs, Else), Lines) :-
+stmt_lines(Caller, case(Expr, Ofs, Else), Lines) :-
     format_expr(Expr, ExprStr),
     ofs_to_lines(Caller, ExprStr, Ofs, first, OfLines),
     ( Else = [] ->
@@ -164,50 +177,50 @@ stmt_to_lines(Caller, case(Expr, Ofs, Else), Lines) :-
     ).
 
 % ACCEPT -> opt fragment
-stmt_to_lines(Caller, accept(Body), Lines) :-
+stmt_lines(Caller, accept(Body), Lines) :-
     stmts_to_lines(Caller, Body, BodyLines),
     append([["    critical ACCEPT loop"], BodyLines, ["    end"]], Lines).
 
 % RETURN with value
-stmt_to_lines(Caller, return(Expr), Lines) :-
+stmt_lines(Caller, return(Expr), Lines) :-
     format_expr(Expr, ExprStr),
     format(atom(Line), "    Note right of ~w: RETURN ~w", [Caller, ExprStr]),
     Lines = [Line].
 
 % RETURN bare
-stmt_to_lines(_, return, []).
+stmt_lines(_, return, []).
 
 % Method call (statement)
-stmt_to_lines(Caller, method_call(Obj, Method, Args), Lines) :-
+stmt_lines(Caller, method_call(Obj, Method, Args), Lines) :-
     format_args(Args, ArgsStr),
     format(atom(Line), "    ~w->>~w: ~w(~w)", [Caller, Obj, Method, ArgsStr]),
     Lines = [Line].
 
 % Self assign
-stmt_to_lines(Caller, self_assign(Prop, Expr), Lines) :-
+stmt_lines(Caller, self_assign(Prop, Expr), Lines) :-
     format_expr(Expr, ExprStr),
     format(atom(Line), "    Note right of ~w: SELF.~w = ~w", [Caller, Prop, ExprStr]),
     Lines = [Line].
 
 % Parent call
-stmt_to_lines(Caller, parent_call(Method, Args), Lines) :-
+stmt_lines(Caller, parent_call(Method, Args), Lines) :-
     format_args(Args, ArgsStr),
     format(atom(Line), "    Note right of ~w: PARENT.~w(~w)", [Caller, Method, ArgsStr]),
     Lines = [Line].
 
 % DO routine
-stmt_to_lines(Caller, do(Name), Lines) :-
+stmt_lines(Caller, do(Name), Lines) :-
     format(atom(Line), "    ~w->>~w: DO ~w", [Caller, Name, Name]),
     Lines = [Line].
 
 % Break, cycle, display, exit — skip (control flow noise)
-stmt_to_lines(_, break, []).
-stmt_to_lines(_, cycle, []).
-stmt_to_lines(_, display, []).
-stmt_to_lines(_, exit, []).
+stmt_lines(_, break, []).
+stmt_lines(_, cycle, []).
+stmt_lines(_, display, []).
+stmt_lines(_, exit, []).
 
 % Catch-all: ignore unrecognized statements
-stmt_to_lines(_, _, []).
+stmt_lines(_, _, []).
 
 %------------------------------------------------------------
 % CASE OF branches -> alt/else fragments
@@ -237,39 +250,43 @@ format_range(range(Start, End), Str) :-
 % Expression formatting (human-readable)
 %------------------------------------------------------------
 
-format_expr(lit(N), Str) :- format(atom(Str), "~w", [N]).
-format_expr(var(Name), Str) :- format(atom(Str), "~w", [Name]).
-format_expr(equate(Name), Str) :- format(atom(Str), "?~w", [Name]).
-format_expr(call(Name, Args), Str) :-
+% Deterministic wrapper: first matching fmt_expr/2 clause wins.
+format_expr(E, Str) :-
+    once(fmt_expr(E, Str)).
+
+fmt_expr(lit(N), Str) :- format(atom(Str), "~w", [N]).
+fmt_expr(var(Name), Str) :- format(atom(Str), "~w", [Name]).
+fmt_expr(equate(Name), Str) :- format(atom(Str), "?~w", [Name]).
+fmt_expr(call(Name, Args), Str) :-
     format_args(Args, ArgsStr),
     format(atom(Str), "~w(~w)", [Name, ArgsStr]).
-format_expr(method_call(Obj, Method, Args), Str) :-
+fmt_expr(method_call(Obj, Method, Args), Str) :-
     format_args(Args, ArgsStr),
     format(atom(Str), "~w.~w(~w)", [Obj, Method, ArgsStr]).
-format_expr(self_access(Prop), Str) :-
+fmt_expr(self_access(Prop), Str) :-
     format(atom(Str), "SELF.~w", [Prop]).
-format_expr(add(A, B), Str) :- format_binop('+', A, B, Str).
-format_expr(sub(A, B), Str) :- format_binop('-', A, B, Str).
-format_expr(mul(A, B), Str) :- format_binop('*', A, B, Str).
-format_expr(div(A, B), Str) :- format_binop('/', A, B, Str).
-format_expr(modulo(A, B), Str) :- format_binop('%', A, B, Str).
-format_expr(eq(A, B), Str) :- format_binop('=', A, B, Str).
-format_expr(neq(A, B), Str) :- format_binop('<>', A, B, Str).
-format_expr(lt(A, B), Str) :- format_binop('<', A, B, Str).
-format_expr(lte(A, B), Str) :- format_binop('<=', A, B, Str).
-format_expr(gt(A, B), Str) :- format_binop('>', A, B, Str).
-format_expr(gte(A, B), Str) :- format_binop('>=', A, B, Str).
-format_expr(and(A, B), Str) :- format_binop('AND', A, B, Str).
-format_expr(or(A, B), Str) :- format_binop('OR', A, B, Str).
-format_expr(concat(A, B), Str) :- format_binop('&', A, B, Str).
-format_expr(not(E), Str) :-
+fmt_expr(add(A, B), Str) :- format_binop('+', A, B, Str).
+fmt_expr(sub(A, B), Str) :- format_binop('-', A, B, Str).
+fmt_expr(mul(A, B), Str) :- format_binop('*', A, B, Str).
+fmt_expr(div(A, B), Str) :- format_binop('/', A, B, Str).
+fmt_expr(modulo(A, B), Str) :- format_binop('%', A, B, Str).
+fmt_expr(eq(A, B), Str) :- format_binop('=', A, B, Str).
+fmt_expr(neq(A, B), Str) :- format_binop('<>', A, B, Str).
+fmt_expr(lt(A, B), Str) :- format_binop('<', A, B, Str).
+fmt_expr(lte(A, B), Str) :- format_binop('<=', A, B, Str).
+fmt_expr(gt(A, B), Str) :- format_binop('>', A, B, Str).
+fmt_expr(gte(A, B), Str) :- format_binop('>=', A, B, Str).
+fmt_expr(and(A, B), Str) :- format_binop('AND', A, B, Str).
+fmt_expr(or(A, B), Str) :- format_binop('OR', A, B, Str).
+fmt_expr(concat(A, B), Str) :- format_binop('&', A, B, Str).
+fmt_expr(not(E), Str) :-
     format_expr(E, EStr),
     format(atom(Str), "NOT ~w", [EStr]).
-format_expr(array_ref(Name, Idx), Str) :-
+fmt_expr(array_ref(Name, Idx), Str) :-
     format_expr(Idx, IdxStr),
     format(atom(Str), "~w[~w]", [Name, IdxStr]).
 % Catch-all
-format_expr(E, Str) :- format(atom(Str), "~w", [E]).
+fmt_expr(E, Str) :- format(atom(Str), "~w", [E]).
 
 format_binop(Op, A, B, Str) :-
     format_expr(A, AStr),
