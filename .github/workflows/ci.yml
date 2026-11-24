@@ -9,7 +9,8 @@ on:
 jobs:
   prolog-simulator-tests:
     name: Clarion Simulator Tests (SWI-Prolog + Logtalk)
-    runs-on: ubuntu-latest
+    # Pinned, with the distribution's SWI-Prolog, so versions change only on purpose
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
 
     steps:
@@ -20,7 +21,6 @@ jobs:
         # swi-prolog-odbc provides library(odbc); libsqliteodbc registers the
         # "SQLite3" driver in odbcinst.ini. The ODBC storage tests need both.
         run: |
-          sudo apt-add-repository -y ppa:swi-prolog/stable
           sudo apt-get update -q
           sudo apt-get install -y -q swi-prolog swi-prolog-odbc libsqliteodbc
 
