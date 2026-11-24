@@ -29,6 +29,7 @@
 ]).
 
 :- use_module(library(logtalk)).
+:- use_module(clarion_dates, []).
 
 %% ensure_logtalk_backends is det.
 %  Loads the Logtalk storage/UI backend objects if not already loaded.

@@ -29,6 +29,7 @@ storage_memory.lgt    ← Logtalk in-memory storage backend
 storage_csv.lgt       ← Logtalk CSV file storage backend
 storage_odbc.lgt      ← Logtalk ODBC database storage backend
 storage_dispatcher.lgt ← Logtalk dispatcher (routes by DRIVER)
+clarion_dates.pl      ← Clarion standard dates/times and database column conversion
 ui_protocol.lgt       ← Logtalk protocol (interface) for UI backends
 ui_simulation.lgt     ← Logtalk headless UI backend for testing
 ui_dispatcher.lgt     ← Logtalk UI dispatcher (routes by backend type)
@@ -194,6 +195,8 @@ exec_program(Source, Events, Result).
 - **ODBC Store** (7): Open, add readings, count, delete all, close (in-memory simulation)
 - **ODBC Store, SQLite** (10): Round trip through the real ODBC backend; skipped if `library(odbc)` is missing or no `SQLite3` driver is registered in `odbcinst.ini` (macOS: `brew install unixodbc sqliteodbc`)
 - **ODBC data safety, SQLite** (24): Load/connect/insert failures reach `ERRORCODE()`, write-through, undeclared columns and other writers' rows preserved, conflicts refused; skipped as above
+- **Clarion dates** (12): Day-number and time conversion, endpoints, a full 400-year cycle round-trips
+- **ODBC dates, SQLite** (29): Database date/time/datetime columns to `LONG`/`DATE`/`TIME`/`STRING` fields and back; inexact values refused with error 90; skipped as above
 - **StatsLib** (3): CASE with range matching (OF 0 TO 10), Classify function
 - **Qualified Names / Nested Groups** (5): Nested GROUP in FILE, nested GROUP in GROUP, QualNames.clw end-to-end (FILE+GROUP with sub-GROUPs and colon-chain prefixes)
 

@@ -654,6 +654,136 @@ odbc_empty_table :-
     raw_odbc('SELECT ID FROM People', Rows),
     check('EMPTY: table emptied', Rows, []).
 
+% --- Date and time columns ---
+
+test_clarion_dates :-
+    format("~nClarion date conversion tests:~n"),
+    % Endpoints documented for Clarion standard dates
+    check('1801-01-01 is day 4', D1, 4, clarion_dates:date_days(date(1801,1,1), D1)),
+    check('9999-12-31 is day 2994626', D2, 2994626, clarion_dates:date_days(date(9999,12,31), D2)),
+    check('day 4 back', B1, date(1801,1,1), clarion_dates:days_date(4, B1)),
+    check('day 2994626 back', B2, date(9999,12,31), clarion_dates:days_date(2994626, B2)),
+    check('1 day across non-leap 1900-02-28', N1, 1,
+          ( clarion_dates:date_days(date(1900,2,28), X1), clarion_dates:date_days(date(1900,3,1), X2), N1 is X2-X1 )),
+    check('2 days across leap 2000-02-28', N2, 2,
+          ( clarion_dates:date_days(date(2000,2,28), X3), clarion_dates:date_days(date(2000,3,1), X4), N2 is X4-X3 )),
+    % One full 400-year Gregorian cycle (146097 days)
+    ( forall(between(4, 146100, Day),
+             ( clarion_dates:days_date(Day, Date), clarion_dates:date_days(Date, Day) ))
+    -> All = ok ; All = mismatch ),
+    check('every day of a 400-year cycle round-trips', All, ok),
+    ( clarion_dates:days_date(3, _) -> Low = accepted ; Low = refused ),
+    check('day 3 refused', Low, refused),
+    ( clarion_dates:days_date(2994627, _) -> High = accepted ; High = refused ),
+    check('day 2994627 refused', High, refused),
+    ( clarion_dates:date_days(date(2023,2,29), _) -> Bad = accepted ; Bad = refused ),
+    check('2023-02-29 refused', Bad, refused),
+    check('midnight is time 1', T1, 1, clarion_dates:time_centis(time(0,0,0), T1)),
+    check('23:59:59 time', T2, 8639901, clarion_dates:time_centis(time(23,59,59), T2)).
+
+check(Label, Got, Expected, Goal) :-
+    ( call(Goal) -> true ; Got = goal_failed ),
+    check(Label, Got, Expected).
+
+test_odbc_dates :-
+    format("~nODBC date/time column tests (SQLite):~n"),
+    with_sqlite(odbc_dates_read),
+    with_sqlite(odbc_dates_write),
+    with_sqlite(odbc_dates_nulls),
+    with_sqlite(odbc_dates_text),
+    with_sqlite(odbc_dates_refused),
+    with_sqlite(odbc_dates_inexact),
+    with_sqlite(odbc_dates_similar_table).
+
+% Visits(ID LONG, Day LONG, At TIME, Seen LONG); columns INTEGER, DATE, TIME, DATETIME
+visits_session(S0) :-
+    raw_odbc('CREATE TABLE Visits (ID INTEGER, Day DATE, At TIME, Seen DATETIME)', _),
+    visits_source("LONG", "TIME", "LONG", Src),
+    init_session(Src, S0).
+
+visits_source(DayType, AtType, SeenType, Src) :-
+    format(string(Src), "  MEMBER()\nVisits FILE,DRIVER('ODBC'),PRE(VV)\nRecord RECORD\nID LONG\nDay ~w\nAt ~w\nSeen ~w\n  END\n  END\n  MAP\n    VOpen(),LONG\n    VFirst(),LONG\n    VDay(),LONG\n    VAt(),LONG\n    VSeen(),LONG\n    VAdd(LONG id, LONG dy, LONG tm, LONG sn),LONG\n    VMove(LONG dy),LONG\n    VDelete(),LONG\n    VAddText(),LONG\n    VAddBadText(),LONG\n    VClose(),LONG\n  END\nVOpen PROCEDURE()\n  CODE\n  OPEN(Visits)\n  RETURN(ERRORCODE())\nVFirst PROCEDURE()\n  CODE\n  SET(Visits)\n  NEXT(Visits)\n  RETURN(ERRORCODE())\nVDay PROCEDURE()\n  CODE\n  RETURN(VV:Day)\nVAt PROCEDURE()\n  CODE\n  RETURN(VV:At)\nVSeen PROCEDURE()\n  CODE\n  RETURN(VV:Seen)\nVAdd PROCEDURE(LONG id, LONG dy, LONG tm, LONG sn)\n  CODE\n  VV:ID = id\n  VV:Day = dy\n  VV:At = tm\n  VV:Seen = sn\n  ADD(Visits)\n  RETURN(ERRORCODE())\nVMove PROCEDURE(LONG dy)\n  CODE\n  VV:Day = dy\n  PUT(Visits)\n  RETURN(ERRORCODE())\nVDelete PROCEDURE()\n  CODE\n  DELETE(Visits)\n  RETURN(ERRORCODE())\nVAddText PROCEDURE()\n  CODE\n  VV:ID = 2\n  VV:Day = '2024-02-29'\n  VV:At = '23:59:58'\n  VV:Seen = '2024-02-29 01:02:03.5'\n  ADD(Visits)\n  RETURN(ERRORCODE())\nVAddBadText PROCEDURE()\n  CODE\n  VV:ID = 3\n  VV:Day = '2023-02-29'\n  ADD(Visits)\n  RETURN(ERRORCODE())\nVClose PROCEDURE()\n  CODE\n  CLOSE(Visits)\n  RETURN(ERRORCODE())\n",
+           [DayType, AtType, SeenType]).
+
+odbc_dates_read :-
+    visits_session(S0),
+    raw_odbc('INSERT INTO Visits VALUES (1,''2024-01-02'',''01:02:03'',''2024-01-02 00:00:00.000'')', _),
+    call_procedure(S0, 'VOpen', [], R0, S1), check('dates read: OPEN', R0, 0),
+    call_procedure(S1, 'VFirst', [], R1, S2), check('dates read: NEXT', R1, 0),
+    % 2024-01-02 is 81454 days after 1800-12-28
+    call_procedure(S2, 'VDay', [], D, S3), check('dates read: DATE column', D, 81454),
+    call_procedure(S3, 'VAt', [], T, S4), check('dates read: TIME column', T, 372301),
+    call_procedure(S4, 'VSeen', [], N, _), check('dates read: midnight DATETIME column', N, 81454).
+
+odbc_dates_write :-
+    visits_session(S0),
+    call_procedure(S0, 'VOpen', [], _, S1),
+    call_procedure(S1, 'VAdd', [1, 81454, 372301, 81454], R1, S2),
+    check('dates write: ADD', R1, 0),
+    raw_odbc('SELECT CAST(Day AS TEXT), CAST(At AS TEXT), CAST(Seen AS TEXT) FROM Visits', Rows),
+    check('dates write: stored', Rows, [row('2024-01-02','01:02:03','2024-01-02 00:00:00.000')]),
+    call_procedure(S2, 'VFirst', [], _, S3),
+    call_procedure(S3, 'VMove', [81455], R2, S4),
+    check('dates write: PUT', R2, 0),
+    raw_odbc('SELECT CAST(Day AS TEXT) FROM Visits', Rows2),
+    check('dates write: PUT stored', Rows2, [row('2024-01-03')]),
+    call_procedure(S4, 'VFirst', [], _, S5),
+    call_procedure(S5, 'VDelete', [], R3, _),
+    check('dates write: DELETE', R3, 0),
+    raw_odbc('SELECT ID FROM Visits', Rows3),
+    check('dates write: DELETE stored', Rows3, []).
+
+odbc_dates_nulls :-
+    visits_session(S0),
+    raw_odbc('INSERT INTO Visits VALUES (1,NULL,NULL,NULL)', _),
+    call_procedure(S0, 'VOpen', [], _, S1),
+    call_procedure(S1, 'VFirst', [], _, S2),
+    call_procedure(S2, 'VDay', [], D, S3), check('dates null: reads as 0', D, 0),
+    call_procedure(S3, 'VMove', [81454], R, S4), check('dates null: PUT over NULL', R, 0),
+    call_procedure(S4, 'VAdd', [2, 0, 0, 0], R2, _), check('dates null: ADD of 0', R2, 0),
+    raw_odbc('SELECT ID, Day IS NULL, At IS NULL FROM Visits ORDER BY ID', Rows),
+    check('dates null: 0 stored as NULL', Rows, [row(1,0,1), row(2,1,1)]).
+
+odbc_dates_text :-
+    raw_odbc('CREATE TABLE Visits (ID INTEGER, Day DATE, At TIME, Seen DATETIME)', _),
+    raw_odbc('INSERT INTO Visits VALUES (1,''2024-01-02'',''01:02:03'',''2024-01-02 04:05:06.250'')', _),
+    visits_source("STRING(30)", "STRING(30)", "STRING(30)", Src),
+    init_session(Src, S0),
+    call_procedure(S0, 'VOpen', [], R0, S1), check('dates text: OPEN', R0, 0),
+    call_procedure(S1, 'VFirst', [], _, S2),
+    call_procedure(S2, 'VDay', [], D, S3), check('dates text: DATE', D, '2024-01-02'),
+    call_procedure(S3, 'VSeen', [], N, S4), check('dates text: DATETIME', N, '2024-01-02 04:05:06.25'),
+    call_procedure(S4, 'VDelete', [], R1, S5), check('dates text: DELETE matches', R1, 0),
+    call_procedure(S5, 'VAddText', [], R2, S6), check('dates text: ADD', R2, 0),
+    call_procedure(S6, 'VAddBadText', [], R3, _), check('dates text: 2023-02-29 refused', R3, 90),
+    raw_odbc('SELECT CAST(Day AS TEXT), CAST(At AS TEXT), CAST(Seen AS TEXT) FROM Visits', Rows),
+    check('dates text: stored', Rows, [row('2024-02-29','23:59:58','2024-02-29 01:02:03.500')]).
+
+odbc_dates_refused :-
+    visits_session(S0),
+    call_procedure(S0, 'VOpen', [], _, S1),
+    call_procedure(S1, 'VAdd', [1, 3, 0, 0], R1, S2), check('dates refused: day 3', R1, 90),
+    call_procedure(S2, 'VAdd', [1, 2994627, 0, 0], R2, S3), check('dates refused: day 2994627', R2, 90),
+    call_procedure(S3, 'VAdd', [1, 81454, 8640001, 0], R3, S4), check('dates refused: time past midnight', R3, 90),
+    call_procedure(S4, 'VAdd', [1, 81454, 150, 0], R4, _), check('dates refused: part-second time', R4, 90),
+    raw_odbc('SELECT ID FROM Visits', Rows), check('dates refused: nothing stored', Rows, []).
+
+% A LONG cannot hold the time of day, so reading it would lose data.
+odbc_dates_inexact :-
+    visits_session(S0),
+    raw_odbc('INSERT INTO Visits VALUES (1,''2024-01-02'',''01:02:03'',''2024-01-02 04:05:06.000'')', _),
+    call_procedure(S0, 'VOpen', [], R, _),
+    check('dates inexact: OPEN refused', R, 90).
+
+% SQLColumns treats _ as a wildcard: VisitXs must not supply the types for Visit_s.
+odbc_dates_similar_table :-
+    raw_odbc('CREATE TABLE VisitXs (ID INTEGER, Day INTEGER)', _),
+    raw_odbc('CREATE TABLE Visit_s (ID INTEGER, Day DATE)', _),
+    raw_odbc('INSERT INTO Visit_s VALUES (1,''2024-01-02'')', _),
+    Src = "  MEMBER()\nVisit_s FILE,DRIVER('ODBC'),PRE(VV)\nRecord RECORD\nID LONG\nDAY LONG\n  END\n  END\n  MAP\n    VDay(),LONG\n  END\nVDay PROCEDURE()\n  CODE\n  OPEN(Visit_s)\n  SET(Visit_s)\n  NEXT(Visit_s)\n  RETURN(VV:DAY)\n",
+    exec_procedure(Src, 'VDay', [], D),
+    check('dates similar table: own types, any case', D, 81454).
+
 %% raw_odbc(+SQL, -Rows): query on a private connection, bypassing storage_odbc.
 raw_odbc(SQL, Rows) :-
     setup_call_cleanup(
@@ -1709,6 +1839,8 @@ main :-
     run_test(test_odbcstore),
     run_test(test_odbcstore_sqlite),
     run_test(test_odbc_safety),
+    run_test(test_clarion_dates),
+    run_test(test_odbc_dates),
     % StatsLib
     run_test(test_statslib),
     run_test(test_statslib_exec),
