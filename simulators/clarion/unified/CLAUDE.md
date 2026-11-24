@@ -192,6 +192,7 @@ exec_program(Source, Events, Result).
 - **Builtins** (5): SIZE, LOOP WHILE, LOOP UNTIL, modulo, string concat with LEN
 - **GUI Form Simulation** (5): ACCEPT/CASE ACCEPTED(), equate mapping, event queue, FormDemo.clw end-to-end
 - **ODBC Store** (7): Open, add readings, count, delete all, close (in-memory simulation)
+- **ODBC Store, SQLite** (10): Round trip through the real ODBC backend; skipped if `library(odbc)` is missing or no `SQLite3` driver is registered in `odbcinst.ini` (macOS: `brew install unixodbc sqliteodbc`)
 - **StatsLib** (3): CASE with range matching (OF 0 TO 10), Classify function
 - **Qualified Names / Nested Groups** (5): Nested GROUP in FILE, nested GROUP in GROUP, QualNames.clw end-to-end (FILE+GROUP with sub-GROUPs and colon-chain prefixes)
 

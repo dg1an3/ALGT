@@ -5,6 +5,12 @@
 % adds ODBC database I/O with dirty-tracking.
 %============================================================
 
+% library(odbc) is optional (a separate package on some platforms). Calls below
+% are odbc:-qualified; unqualified they compile to local predicates of this object.
+:- initialization((
+    exists_source(library(odbc)) -> use_module(library(odbc), []) ; true
+)).
+
 :- object(storage_odbc,
     implements(istorage_backend)).
 
@@ -89,11 +95,11 @@
 
     % Public ODBC helpers
     connect_dsn(DSN, Connection) :-
-        catch(odbc_connect(DSN, Connection, []),
+        catch(odbc:odbc_connect(DSN, Connection, []),
               Error, (format(user_error, "ODBC error: ~w~n", [Error]), fail)).
 
     disconnect(Connection) :-
-        catch(odbc_disconnect(Connection), _, true).
+        catch(odbc:odbc_disconnect(Connection), _, true).
 
     % Private helpers
     :- private([
@@ -130,7 +136,7 @@
         atomic_list_concat(FieldNames, ', ', FieldList),
         format(atom(SQL), 'SELECT ~w FROM ~w', [FieldList, TableName]),
         catch(
-            (odbc_query(Connection, SQL, Rows, [findall(Row, Row)]),
+            (findall(Row, odbc:odbc_query(Connection, SQL, Row), Rows),
              convert_rows_to_buffers(Rows, Fields, Records)),
             Error,
             (format(user_error, "ODBC select error: ~w~n", [Error]), Records = [])
@@ -138,7 +144,7 @@
 
     sync_table_records(Connection, TableName, Fields, Records) :-
         format(atom(DelSQL), 'DELETE FROM ~w', [TableName]),
-        catch(odbc_query(Connection, DelSQL, _), _, true),
+        catch(odbc:odbc_query(Connection, DelSQL, _), _, true),
         insert_all_records(Connection, TableName, Fields, Records).
 
     insert_all_records(_, _, _, []).
@@ -147,7 +153,7 @@
         atomic_list_concat(FieldNames, ', ', FieldList),
         format_values(Record, Fields, ValueList),
         format(atom(SQL), 'INSERT INTO ~w (~w) VALUES (~w)', [TableName, FieldList, ValueList]),
-        catch(odbc_query(Connection, SQL, _), Error, format(user_error, "ODBC insert: ~w~n", [Error])),
+        catch(odbc:odbc_query(Connection, SQL, _), Error, format(user_error, "ODBC insert: ~w~n", [Error])),
         insert_all_records(Connection, TableName, Fields, Records).
 
     field_names([], []).

@@ -417,7 +417,11 @@ test_formdemo_exec :-
 % ODBC Store Tests (in-memory)
 %------------------------------------------------------------
 
+% ODBCDeleteAll would wipe a real table, so run this with no DSN configured.
 test_odbcstore :-
+    with_env('CLARION_ODBC_DSN', unset, test_odbcstore_in_memory).
+
+test_odbcstore_in_memory :-
     format("~nODBC store tests (in-memory):~n"),
     read_file_to_string('../../../clarion_projects/odbc-store/OdbcStore.clw', Src, []),
     init_session(Src, S0),
@@ -435,6 +439,94 @@ test_odbcstore :-
     check('ODBCCountReadings() after delete', Count2, 0),
     call_procedure(S6, 'ODBCClose', [], R4, _),
     check('ODBCClose()', R4, 0).
+
+%------------------------------------------------------------
+% ODBC Store Tests (SQLite round trip)
+%
+% Runs OdbcStore.clw against a throwaway SQLite database through
+% the real ODBC backend. Skipped when library(odbc), a driver
+% manager or the SQLite driver is missing. The probe and the row
+% checks use library(odbc) directly, never storage_odbc, so a
+% broken backend (which falls back to memory) fails, not skips.
+%------------------------------------------------------------
+
+:- if(exists_source(library(odbc))).
+:- use_module(library(odbc), []).
+:- endif.
+
+test_odbcstore_sqlite :-
+    format("~nODBC store tests (SQLite round trip):~n"),
+    setup_call_cleanup(
+        sqlite_fixture(Dir, Ini),
+        with_env('ODBCINI', Ini,
+            with_env('CLARION_ODBC_DSN', 'ClarionSqliteTest',
+                odbcstore_sqlite_or_skip)),
+        delete_directory_and_contents(Dir)).
+
+sqlite_fixture(Dir, Ini) :-
+    tmp_file(clarion_odbc, Dir),
+    make_directory(Dir),
+    directory_file_path(Dir, 'odbc.ini', Ini),
+    directory_file_path(Dir, 'test.db', Db),
+    setup_call_cleanup(
+        open(Ini, write, Out),
+        format(Out, "[ClarionSqliteTest]~nDriver=SQLite3~nDatabase=~w~n", [Db]),
+        close(Out)).
+
+odbcstore_sqlite_or_skip :-
+    ( catch(raw_odbc('SELECT 1', _), Error, true)
+    -> ( var(Error)
+       -> odbcstore_sqlite_round_trip
+       ;  format("  [SKIP] SQLite ODBC unavailable: ~p~n", [Error])
+       )
+    ;  format("  [SKIP] SQLite ODBC unavailable~n")
+    ).
+
+odbcstore_sqlite_round_trip :-
+    raw_odbc('CREATE TABLE SensorReadings (ReadingID INTEGER PRIMARY KEY, SensorID INTEGER, Value INTEGER, Weight INTEGER, Timestamp INTEGER)', _),
+    raw_odbc('INSERT INTO SensorReadings VALUES (7, 1, 100, 10, 5)', _),
+    read_file_to_string('../../../clarion_projects/odbc-store/OdbcStore.clw', Src, []),
+    % Session 1: sees the existing row, adds two more
+    init_session(Src, S0),
+    call_procedure(S0, 'ODBCOpen', [], R0, S1),
+    check('SQLite: ODBCOpen()', R0, 0),
+    call_procedure(S1, 'ODBCCountReadings', [], C1, S2),
+    check('SQLite: existing row loaded', C1, 1),
+    call_procedure(S2, 'ODBCAddReading', [2, 200, 20], R2, S3),
+    check('SQLite: NextID continues from table', R2, 8),
+    call_procedure(S3, 'ODBCAddReading', [3, 300, 30], R3, S4),
+    check('SQLite: second add', R3, 9),
+    call_procedure(S4, 'ODBCClose', [], R4, _),
+    check('SQLite: ODBCClose()', R4, 0),
+    raw_odbc('SELECT ReadingID, SensorID, Value, Weight FROM SensorReadings ORDER BY ReadingID', Rows1),
+    check('SQLite: rows persisted', Rows1,
+          [row(7,1,100,10), row(8,2,200,20), row(9,3,300,30)]),
+    % Session 2: fresh state reads them back, then deletes them
+    init_session(Src, T0),
+    call_procedure(T0, 'ODBCOpen', [], Q0, T1),
+    check('SQLite: reopen', Q0, 0),
+    call_procedure(T1, 'ODBCCountReadings', [], C2, T2),
+    check('SQLite: count after reopen', C2, 3),
+    call_procedure(T2, 'ODBCDeleteAll', [], Q2, T3),
+    check('SQLite: ODBCDeleteAll()', Q2, 0),
+    call_procedure(T3, 'ODBCClose', [], _, _),
+    raw_odbc('SELECT ReadingID FROM SensorReadings', Rows2),
+    check('SQLite: deletes persisted', Rows2, []).
+
+%% raw_odbc(+SQL, -Rows): query on a private connection, bypassing storage_odbc.
+raw_odbc(SQL, Rows) :-
+    setup_call_cleanup(
+        odbc:odbc_connect('ClarionSqliteTest', C, [open(multiple)]),
+        findall(Row, odbc:odbc_query(C, SQL, Row), Rows),
+        odbc:odbc_disconnect(C)).
+
+%% with_env(+Var, +Value, :Goal): run Goal with Var set (or `unset`), then restore.
+with_env(Var, Value, Goal) :-
+    ( getenv(Var, Old) -> true ; Old = unset ),
+    setup_call_cleanup(put_env(Var, Value), Goal, put_env(Var, Old)).
+
+put_env(Var, unset) :- !, unsetenv(Var).
+put_env(Var, Value) :- setenv(Var, Value).
 
 %------------------------------------------------------------
 % StatsLib Tests
@@ -1474,6 +1566,7 @@ main :-
     run_test(test_formdemo_exec),
     % ODBC store
     run_test(test_odbcstore),
+    run_test(test_odbcstore_sqlite),
     % StatsLib
     run_test(test_statslib),
     run_test(test_statslib_exec),
