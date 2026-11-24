@@ -456,31 +456,45 @@ test_odbcstore_in_memory :-
 
 test_odbcstore_sqlite :-
     format("~nODBC store tests (SQLite round trip):~n"),
-    setup_call_cleanup(
-        sqlite_fixture(Dir, Ini),
-        with_env('ODBCINI', Ini,
-            with_env('CLARION_ODBC_DSN', 'ClarionSqliteTest',
-                odbcstore_sqlite_or_skip)),
-        delete_directory_and_contents(Dir)).
+    with_sqlite(odbcstore_sqlite_round_trip).
 
-sqlite_fixture(Dir, Ini) :-
+%% with_sqlite(:Goal): run Goal against a fresh SQLite database, or skip.
+with_sqlite(Goal) :-
+    sqlite_fixture(Ini, Db),
+    ( exists_file(Db) -> delete_file(Db) ; true ),
+    with_env('ODBCINI', Ini,
+        with_env('CLARION_ODBC_DSN', 'ClarionSqliteTest',
+            sqlite_or_skip(Goal))).
+
+% One fixture per process: unixODBC caches the DSN, so its path cannot change.
+:- dynamic sqlite_fixture_files/2.
+sqlite_fixture(Ini, Db) :- sqlite_fixture_files(Ini, Db), !.
+sqlite_fixture(Ini, Db) :-
     tmp_file(clarion_odbc, Dir),
     make_directory(Dir),
+    at_halt(delete_directory_and_contents(Dir)),
     directory_file_path(Dir, 'odbc.ini', Ini),
     directory_file_path(Dir, 'test.db', Db),
     setup_call_cleanup(
         open(Ini, write, Out),
         format(Out, "[ClarionSqliteTest]~nDriver=SQLite3~nDatabase=~w~n", [Db]),
-        close(Out)).
+        close(Out)),
+    assertz(sqlite_fixture_files(Ini, Db)).
 
-odbcstore_sqlite_or_skip :-
-    ( catch(raw_odbc('SELECT 1', _), Error, true)
-    -> ( var(Error)
-       -> odbcstore_sqlite_round_trip
-       ;  format("  [SKIP] SQLite ODBC unavailable: ~p~n", [Error])
-       )
-    ;  format("  [SKIP] SQLite ODBC unavailable~n")
+% Skip only when ODBC is not installed; any other error is a test failure.
+sqlite_or_skip(Goal) :-
+    catch(raw_odbc('SELECT 1', _), Error, true),
+    ( var(Error)
+    -> call(Goal)
+    ; odbc_not_installed(Error)
+    -> format("  [SKIP] SQLite ODBC unavailable: ~p~n", [Error])
+    ;  throw(Error)
     ).
+
+odbc_not_installed(error(existence_error(procedure, odbc:_), _)).
+odbc_not_installed(error(odbc('IM002', _, _), _)).  % no such DSN or driver
+odbc_not_installed(error(odbc('IM003', _, _), _)).  % driver could not be loaded
+odbc_not_installed(error(odbc('01000', _, _), _)).  % unixODBC: can't open driver lib
 
 odbcstore_sqlite_round_trip :-
     raw_odbc('CREATE TABLE SensorReadings (ReadingID INTEGER PRIMARY KEY, SensorID INTEGER, Value INTEGER, Weight INTEGER, Timestamp INTEGER)', _),
@@ -512,6 +526,133 @@ odbcstore_sqlite_round_trip :-
     call_procedure(T3, 'ODBCClose', [], _, _),
     raw_odbc('SELECT ReadingID FROM SensorReadings', Rows2),
     check('SQLite: deletes persisted', Rows2, []).
+
+% --- Failures must be reported and must never cost existing rows ---
+
+test_odbc_safety :-
+    format("~nODBC data safety tests (SQLite):~n"),
+    with_sqlite(odbc_load_failure),
+    with_sqlite(odbc_connect_failure),
+    with_sqlite(odbc_insert_failure),
+    with_sqlite(odbc_write_through),
+    with_sqlite(odbc_put_preserves),
+    with_sqlite(odbc_put_conflict),
+    with_sqlite(odbc_delete_ambiguous),
+    with_sqlite(odbc_empty_table).
+
+odbcstore_session(S0) :-
+    read_file_to_string('../../../clarion_projects/odbc-store/OdbcStore.clw', Src, []),
+    init_session(Src, S0).
+
+sensor_table(Extra) :-
+    format(atom(SQL), 'CREATE TABLE SensorReadings (ReadingID INTEGER PRIMARY KEY, SensorID INTEGER, Value INTEGER, Weight INTEGER~w)', [Extra]),
+    raw_odbc(SQL, _).
+
+% Table lacks a declared column, so the rows cannot be loaded.
+odbc_load_failure :-
+    sensor_table(''),
+    raw_odbc('INSERT INTO SensorReadings VALUES (1,1,100,10),(2,2,200,20)', _),
+    odbcstore_session(S0),
+    call_procedure(S0, 'ODBCOpen', [], R0, S1),
+    check('load failure: ODBCOpen reports it', R0, -3),
+    call_procedure(S1, 'ODBCAddReading', [3, 300, 30], R1, S2),
+    check('load failure: add after failed open refused', R1, -2),
+    call_procedure(S2, 'ODBCDeleteAll', [], _, S3),
+    call_procedure(S3, 'ODBCClose', [], _, _),
+    raw_odbc('SELECT ReadingID FROM SensorReadings ORDER BY ReadingID', Rows),
+    check('load failure: existing rows intact', Rows, [row(1), row(2)]).
+
+odbc_connect_failure :-
+    odbcstore_session(S0),
+    with_env('CLARION_ODBC_DSN', 'ClarionNoSuchDsn',
+        ( call_procedure(S0, 'ODBCOpen', [], R0, S1),
+          call_procedure(S1, 'ODBCAddReading', [3, 300, 30], R1, _) )),
+    check('connect failure: ODBCOpen reports it', R0, -3),
+    check('connect failure: add refused', R1, -2).
+
+odbc_insert_failure :-
+    sensor_table(', Timestamp INTEGER, CHECK (Value < 1000)'),
+    raw_odbc('INSERT INTO SensorReadings VALUES (1,1,100,10,5)', _),
+    odbcstore_session(S0),
+    call_procedure(S0, 'ODBCOpen', [], _, S1),
+    call_procedure(S1, 'ODBCAddReading', [2, 5000, 20], R1, S2),
+    check('insert failure: reported by the ADD', R1, -2),
+    call_procedure(S2, 'ODBCCountReadings', [], C, S3),
+    check('insert failure: not counted', C, 1),
+    call_procedure(S3, 'ODBCAddReading', [2, 200, 20], _, S4),
+    call_procedure(S4, 'ODBCClose', [], _, _),
+    raw_odbc('SELECT Value FROM SensorReadings ORDER BY Value', Rows),
+    check('insert failure: other rows intact', Rows, [row(100), row(200)]).
+
+odbc_write_through :-
+    sensor_table(', Timestamp INTEGER, Note TEXT'),
+    raw_odbc('INSERT INTO SensorReadings VALUES (1,1,100,10,5,''keep'')', _),
+    odbcstore_session(S0),
+    call_procedure(S0, 'ODBCOpen', [], _, S1),
+    raw_odbc('INSERT INTO SensorReadings VALUES (50,9,900,90,5,''other'')', _),
+    call_procedure(S1, 'ODBCAddReading', [2, 3000000000, 20], _, S2),
+    raw_odbc('SELECT CAST(Value AS TEXT), typeof(Value) FROM SensorReadings WHERE ReadingID = 2', Big),
+    check('write-through: row stored before CLOSE, value exact', Big, [row('3000000000', integer)]),
+    call_procedure(S2, 'ODBCClose', [], _, _),
+    raw_odbc('SELECT ReadingID, Note FROM SensorReadings WHERE Note IS NOT NULL ORDER BY ReadingID', Notes),
+    check('write-through: undeclared column and other writer''s row kept', Notes,
+          [row(1,keep), row(50,other)]).
+
+person_session(S0) :-
+    raw_odbc('CREATE TABLE People (ID INTEGER, Name TEXT, Score REAL, Note TEXT)', _),
+    raw_odbc('INSERT INTO People VALUES (1,''Ann'',0.1,''keep'')', _),
+    Src = "  MEMBER()\nPeople FILE,DRIVER('ODBC'),PRE(PP)\nRecord RECORD\nID LONG\nName STRING(20)\nScore REAL\n  END\n  END\n  MAP\n    POpen(),LONG\n    PRename(),LONG\n    PDelete(),LONG\n    PEmpty(),LONG\n    PClose(),LONG\n  END\nPOpen PROCEDURE()\n  CODE\n  OPEN(People)\n  RETURN(ERRORCODE())\nPRename PROCEDURE()\n  CODE\n  SET(People)\n  NEXT(People)\n  PP:Name = 'O''Brien'\n  PUT(People)\n  RETURN(ERRORCODE())\nPDelete PROCEDURE()\n  CODE\n  SET(People)\n  NEXT(People)\n  DELETE(People)\n  RETURN(ERRORCODE())\nPEmpty PROCEDURE()\n  CODE\n  EMPTY(People)\n  RETURN(ERRORCODE())\nPClose PROCEDURE()\n  CODE\n  CLOSE(People)\n  RETURN(ERRORCODE())\n",
+    init_session(Src, S0).
+
+odbc_put_preserves :-
+    person_session(S0),
+    call_procedure(S0, 'POpen', [], R0, S1),
+    check('PUT: OPEN', R0, 0),
+    call_procedure(S1, 'POpen', [], R1, S2),
+    check('PUT: second OPEN is error 52', R1, 52),
+    call_procedure(S2, 'PRename', [], R2, S3),
+    check('PUT: succeeds', R2, 0),
+    call_procedure(S3, 'PRename', [], R3, S4),
+    check('PUT: again on the updated row', R3, 0),
+    call_procedure(S4, 'PClose', [], R4, _),
+    check('PUT: CLOSE', R4, 0),
+    raw_odbc('SELECT ID, Name, Score, Note FROM People', Rows),
+    check('PUT: quote stored, undeclared column kept', Rows,
+          [row(1,'O\'Brien',0.1,keep)]).
+
+odbc_put_conflict :-
+    person_session(S0),
+    call_procedure(S0, 'POpen', [], _, S1),
+    raw_odbc('UPDATE People SET Name = ''Changed''', _),
+    call_procedure(S1, 'PRename', [], R, S2),
+    check('conflict: PUT is error 89', R, 89),
+    call_procedure(S2, 'PDelete', [], RD, S3),
+    check('conflict: DELETE is error 89', RD, 89),
+    call_procedure(S3, 'PClose', [], _, _),
+    raw_odbc('SELECT Name FROM People', Rows),
+    check('conflict: other writer''s change kept', Rows, [row('Changed')]).
+
+% Two rows identical in every declared column: cannot tell which to delete.
+odbc_delete_ambiguous :-
+    person_session(S0),
+    raw_odbc('INSERT INTO People VALUES (1,''Ann'',0.1,''twin'')', _),
+    call_procedure(S0, 'POpen', [], _, S1),
+    call_procedure(S1, 'PDelete', [], R, S2),
+    check('ambiguous: DELETE refused', R, 89),
+    call_procedure(S2, 'PClose', [], _, _),
+    raw_odbc('SELECT Note FROM People ORDER BY Note', Rows),
+    check('ambiguous: both rows kept', Rows, [row(keep), row(twin)]).
+
+odbc_empty_table :-
+    person_session(S0),
+    call_procedure(S0, 'PEmpty', [], R0, S1),
+    check('EMPTY: refused before OPEN', R0, 37),
+    call_procedure(S1, 'POpen', [], _, S2),
+    call_procedure(S2, 'PEmpty', [], R1, S3),
+    check('EMPTY: succeeds when open', R1, 0),
+    call_procedure(S3, 'PClose', [], _, _),
+    raw_odbc('SELECT ID FROM People', Rows),
+    check('EMPTY: table emptied', Rows, []).
 
 %% raw_odbc(+SQL, -Rows): query on a private connection, bypassing storage_odbc.
 raw_odbc(SQL, Rows) :-
@@ -1567,6 +1708,7 @@ main :-
     % ODBC store
     run_test(test_odbcstore),
     run_test(test_odbcstore_sqlite),
+    run_test(test_odbc_safety),
     % StatsLib
     run_test(test_statslib),
     run_test(test_statslib_exec),
