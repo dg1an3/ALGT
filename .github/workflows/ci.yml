@@ -16,24 +16,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install SWI-Prolog
+      - name: Install SWI-Prolog + SQLite ODBC driver
+        # swi-prolog-odbc provides library(odbc); libsqliteodbc registers the
+        # "SQLite3" driver in odbcinst.ini. The ODBC storage tests need both.
         run: |
           sudo apt-add-repository -y ppa:swi-prolog/stable
           sudo apt-get update -q
-          sudo apt-get install -y -q swi-prolog
+          sudo apt-get install -y -q swi-prolog swi-prolog-odbc libsqliteodbc
 
       - name: Install Logtalk (SWI-Prolog pack)
         # storage_backend.pl / ui_backend.pl load library(logtalk), which is
         # provided by the SWI-Prolog "logtalk" pack (same as local dev setup).
         run: swipl -g "pack_install(logtalk,[interactive(false)]),halt" -t "halt(1)"
 
-      - name: Verify SWI-Prolog + Logtalk
+      - name: Verify SWI-Prolog + Logtalk + ODBC
         run: |
           swipl --version
           swipl -g "use_module(library(logtalk)),halt" -t "halt(1)"
+          swipl -g "use_module(library(odbc)),halt" -t "halt(1)"
+          odbcinst -q -d -n SQLite3
 
       - name: Run unified simulator tests
         working-directory: simulators/clarion/unified
+        # bash explicitly: adds pipefail, so a test failure survives the tee
+        shell: bash
         run: |
           # Run tests — exits 1 on any failure
-          swipl -g "main,halt" -t "halt(1)" test_unified.pl
+          swipl -g "main,halt" -t "halt(1)" test_unified.pl 2>&1 | tee "$RUNNER_TEMP/tests.log"
+          # ODBC is installed above, so a skipped test means it silently broke
+          if grep -F '[SKIP]' "$RUNNER_TEMP/tests.log"; then
+            echo "::error::ODBC tests were skipped"
+            exit 1
+          fi
