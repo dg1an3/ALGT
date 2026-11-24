@@ -5,12 +5,15 @@
 
 :- module(clarion_parser, [
     parse_clarion/2,
+    parse_clarion/3,
     program//1,
     is_keyword/1,
     is_builtin_type/1
 ]).
 
 :- set_prolog_flag(double_quotes, codes).
+:- use_module(library(option), [option/3]).
+:- use_module(clarion_preproc, [preprocess_codes/3]).
 :- discontiguous top_decl_item//1.
 :- discontiguous statement//1.
 
@@ -76,9 +79,17 @@ comma_attrs(_, []) --> [].
 %% ==========================================================================
 
 parse_clarion(Source, AST) :-
-    ( atom(Source) -> atom_codes(Source, Codes)
-    ; string_to_list(Source, Codes)
+    parse_clarion(Source, AST, []).
+
+% parse_clarion(+Source, -AST, +Options)
+%   Options: defines(Pairs) — Name=Value pairs for COMPILE/OMIT conditions
+%            (undefined names are 0).
+parse_clarion(Source, AST, Options) :-
+    ( atom(Source) -> atom_codes(Source, Codes0)
+    ; string_to_list(Source, Codes0)
     ),
+    option(defines(Defines), Options, []),
+    preprocess_codes(Codes0, Defines, Codes),
     phrase(program(AST), Codes).
 
 %% ==========================================================================
@@ -172,9 +183,22 @@ top_decl_item(array(Name, Type, Size)) -->
 % EQUATE declaration: Name EQUATE(Value)
 % Uses word/1 instead of ident/1 because EQUATE names may shadow keywords
 % (e.g., Size EQUATE(640) where SIZE is also a builtin function)
+% callable_name also accepts colon chains, including '::' (NT::THIS_MODULE).
+% Value may be numeric or a string constant (Name EQUATE('text')).
 top_decl_item(equate(Name, Value)) -->
-    word(Name), ws, kw("EQUATE"), ws, !,
-    "(", ws, number(Value), ws, ")".
+    callable_name(Name), ws, kw("EQUATE"), ws, !,
+    "(", ws, equate_value(Value), ws, ")".
+
+equate_value(Value) --> number(Value), !.
+equate_value(Value) --> "'", qchars(Cs), "'", { atom_codes(Value, Cs) }.
+
+% Global LIKE declaration: Name LIKE(Ref)[,PRE(p)][,DIM(n)]...
+top_decl_item(global(Name, like(Ref, Attrs), 0)) -->
+    ident(Name), ws, like_decl(Ref, Attrs).
+
+% Global string with initial value: Name STRING('text')
+top_decl_item(global(Name, string(Len), Init)) -->
+    ident(Name), ws, string_init(Len, Init).
 
 % Global variable: Name TYPE(Init)
 top_decl_item(global(Name, Type, Init)) -->
@@ -526,7 +550,27 @@ field_decl(group(Name, Prefix, SubFields)) -->
     field_list(SubFields), ws,
     end_or_dot.
 
+field_decl(field(Name, like(Ref, Attrs))) --> field_name(Name), ws, like_decl(Ref, Attrs), !.
+field_decl(field(Name, string(Len))) --> field_name(Name), ws, string_init(Len, _), !.
 field_decl(field(Name, Type)) --> field_name(Name), ws, type(Type).
+
+%% --- LIKE(Ref) and STRING('init') declarations ---
+
+% LIKE(Ref) followed by optional attributes (PRE, DIM, OVER, TYPE, ...)
+like_decl(Ref, Attrs) -->
+    kw("LIKE"), ws, "(", ws, callable_name(Ref), ws, ")",
+    comma_attrs(like_attr, Attrs).
+
+like_attr(pre(P)) --> kw("PRE"), ws, "(", ws, ( ident(P) ; { P = none } ), ws, ")".
+like_attr(dim(N)) --> kw("DIM"), ws, "(", ws, number(N), ws, ")".
+like_attr(over(N)) --> kw("OVER"), ws, "(", ws, ident(N), ws, ")".
+like_attr(name(N)) --> kw("NAME"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")", { atom_codes(N, Cs) }.
+like_attr(attr(A)) --> word(A).
+
+% STRING('text'): the declared length is the length of the initial value
+string_init(Len, Init) -->
+    kw("STRING"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")",
+    { atom_codes(Init, Cs), length(Cs, Len) }.
 
 % Field name: like ident but allows keywords (fields can be named Record, Date, etc.)
 % Supports colon-chains like Tag:Style, Dose_Ttl:Display:Style
@@ -676,6 +720,15 @@ local_var(group(Name, Prefix, Fields)) -->
     group_local_attrs(Prefix), ws,
     field_list(Fields), ws,
     end_or_dot.
+
+% Local LIKE declaration: Name LIKE(Ref)[,PRE(p)][,DIM(n)]...
+% Must precede instance_var, which would otherwise read LIKE as a class name.
+local_var(like(Name, Ref, Attrs)) -->
+    ident(Name), ws, like_decl(Ref, Attrs), !.
+
+% Local string with initial value: Name STRING('text')
+local_var(local(Name, string(Len), Init)) -->
+    ident(Name), ws, string_init(Len, Init), !.
 
 % Local array: Name TYPE,DIM(Size)
 local_var(array(Name, Type, Size)) -->
@@ -831,6 +884,9 @@ statement(prop_assign(File, Prop, Expr)) -->
 prop_target(equate(Name)) --> "?", callable_name(Name).
 prop_target(Name) --> word(Name).
 
+statement(assign(array_field(Name, Index, Field), Expr)) -->
+    ident(Name), ws, "[", ws, expr(Index), ws, "]", ".", word(Field), ws, "=", ws, expr(Expr).
+
 statement(assign(array_ref(Name, Index), Expr)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", ws, "=", ws, expr(Expr).
 
@@ -867,8 +923,15 @@ elsif_else([]) --> [].
 if_else(Stmts) --> kw("ELSE"), ws, statements(Stmts).
 if_else([]) --> [].
 
+% OF v1 [OROF v2 ...] stmts — with OROF the range is any([R1, R2, ...])
 of_block(of(Range, Stmts)) -->
-    kw("OF"), ws, range(Range), ws, statements(Stmts).
+    kw("OF"), ws, range(Range0), ws,
+    orof_ranges(More), ws,
+    statements(Stmts),
+    { More == [] -> Range = Range0 ; Range = any([Range0|More]) }.
+
+orof_ranges([R|Rs]) --> kw("OROF"), !, ws, range(R), ws, orof_ranges(Rs).
+orof_ranges([]) --> [].
 
 range(range(Start, End)) --> expr(Start), ws, kw("TO"), ws, expr(End).
 range(single(Val)) --> expr(Val).
@@ -944,6 +1007,9 @@ primary(method_call(Obj, Method, Args)) -->
 
 primary(call(Name, Args)) -->
     callable_name(Name), ws, "(", ws, expr_list(Args), ws, ")", !.
+% A[i].Field — field of an array element (array of GROUP)
+primary(array_field(Name, Index, Field)) -->
+    ident(Name), ws, "[", ws, expr(Index), ws, "]", ".", word(Field), !.
 primary(array_ref(Name, Index)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", !.
 primary(var(Name)) --> ident(Name), !.
@@ -951,7 +1017,10 @@ primary(E)         --> "(", ws, expr(E), ws, ")".
 
 % Hand-rolled expr_list: supports expr_or_omit for omitted args
 expr_list([E|Es]) --> expr(E), ws, expr_list_rest(Es).
+expr_list([omitted|Es]) --> at_comma, expr_list_rest(Es).   % f(, a, b)
 expr_list([]) --> [].
+
+at_comma(S, S) :- S = [0',|_].
 
 expr_list_rest([E|Es]) --> ",", ws, expr_or_omit(E), ws, expr_list_rest(Es).
 expr_list_rest([]) --> [].
@@ -1052,7 +1121,8 @@ is_keyword(Name) :-
                'SHORT','REAL','SREAL','BYTE','DATE','TIME',
                'DECIMAL','PDECIMAL','PSTRING','MESSAGE',
                'QUEUE','FREE','SORT','RECORDS','NOT',
-               'CLASS','TYPE','VIRTUAL','SELF','PARENT']).
+               'CLASS','TYPE','VIRTUAL','SELF','PARENT',
+               'OROF','LIKE','EQUATE']).
 
 % Numeric literal: integer (decimal/hex) or float (with decimal point)
 number(N) -->

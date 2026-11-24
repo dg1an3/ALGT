@@ -173,6 +173,7 @@ bridge_type_name(pstring(N), 'PSTRING') :- number(N).
 bridge_type_name(string, 'STRING').
 bridge_type_name(string(N), 'STRING') :- number(N).
 bridge_type_name(ref(T), TypeAtom) :- bridge_type_name(T, TypeAtom).
+bridge_type_name(like(Ref, _Attrs), like(Ref)) :- !.  % LIKE(Ref): type resolved at runtime (default 0)
 bridge_type_name(T, T).  % pass through unknown types
 
 %------------------------------------------------------------
@@ -194,7 +195,8 @@ bridge_globals([queue(Name, Fields)|Rest], [queue(Name, BridgedFields)|VRest], W
 bridge_globals([window(Name, Title, Attrs, Controls)|Rest], Vars,
                [window(Name, Title, Attrs, Controls)|WRest], Main) :-
     bridge_globals(Rest, Vars, WRest, Main).
-bridge_globals([equate(Name, Value)|Rest], [var(Name, 'LONG', init(Value))|VRest], Wins, Main) :-
+bridge_globals([equate(Name, Value)|Rest], [var(Name, Type, init(Value))|VRest], Wins, Main) :-
+    ( atom(Value) -> Type = 'STRING' ; Type = 'LONG' ),   % EQUATE('text') vs EQUATE(n)
     bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([class(Name, Parent, _Attrs, Members)|Rest],
                [class(Name, Parent, [], BridgedMembers)|VRest], Wins, Main) :-
@@ -283,6 +285,26 @@ bridge_locals([array(Name, Type, Size)|Rest],
     length(Zeros, Size),
     maplist(=(0), Zeros),
     bridge_locals(Rest, BRest).
+% LIKE(Ref) local: the referenced declaration is not resolved here, so the
+% variable starts at the simulator's default value (0).
+bridge_locals([like(Name, Ref, _Attrs)|Rest],
+              [local_var(Name, like(Ref), init(none))|BRest]) :-
+    bridge_locals(Rest, BRest).
+% Local QUEUE / GROUP: wrapped as local_decl/1 so the simulator initialises
+% them exactly like the matching global declarations. Nested GROUPs inside a
+% local GROUP are emitted as separate local_decls (for prefix registration).
+bridge_locals([queue(Name, Fields)|Rest], [local_decl(queue(Name, BFields))|BRest]) :- !,
+    bridge_fields(Fields, BFields),
+    bridge_locals(Rest, BRest).
+bridge_locals([group(Name, Prefix0, Fields)|Rest], Decls) :- !,
+    ( Prefix0 == none -> Prefix = '' ; Prefix = Prefix0 ),
+    bridge_groups([group(Name, Prefix, Fields)], GroupDecs),
+    findall(local_decl(G), member(G, GroupDecs), GDecls),
+    bridge_locals(Rest, BRest),
+    append(GDecls, BRest, Decls).
+% Local WINDOW (title only; body skipped by the parser): nothing to initialise
+bridge_locals([window(_, _)|Rest], BRest) :- !,
+    bridge_locals(Rest, BRest).
 bridge_locals([local(Name, Type, Init)|Rest],
               [local_var(Name, TypeAtom, init(Init))|BRest]) :-
     bridge_type_name(Type, TypeAtom),
@@ -298,6 +320,10 @@ bridge_stmts([S|Ss], [BS|BSs]) :-
     bridge_stmts(Ss, BSs).
 
 % Assignment to array element: assign(array_ref(Name, Idx), Expr) -> array_assign(Name, BIdx, BExpr)
+bridge_stmt(assign(array_field(Name, Idx, Field), Expr), array_field_assign(Name, BIdx, Field, BExpr)) :- !,
+    bridge_expr(Idx, BIdx),
+    bridge_expr(Expr, BExpr).
+
 bridge_stmt(assign(array_ref(Name, Idx), Expr), array_assign(Name, BIdx, BExpr)) :- !,
     bridge_expr(Idx, BIdx),
     bridge_expr(Expr, BExpr).
@@ -389,6 +415,12 @@ bridge_stmt(S, S) :-
 %------------------------------------------------------------
 
 bridge_case_ofs([], []).
+% OF a OROF b ... : expand to one case_of per alternative, sharing the statements.
+% Equivalent because CASE runs only the first matching branch.
+bridge_case_ofs([of(any(Ranges), Stmts)|Rest], BCases) :- !,
+    findall(of(R, Stmts), member(R, Ranges), Expanded),
+    append(Expanded, Rest, All),
+    bridge_case_ofs(All, BCases).
 bridge_case_ofs([of(single(Val), Stmts)|Rest], [case_of(BVal, BStmts)|BRest]) :-
     bridge_expr(Val, BVal),
     bridge_stmts(Stmts, BStmts),
@@ -461,6 +493,14 @@ bridge_expr(call(Name, Args), call(Name, BArgs)) :- !, bridge_exprs(Args, BArgs)
 
 % Array reference
 bridge_expr(array_ref(Name, Index), array_access(Name, BIndex)) :- !, bridge_expr(Index, BIndex).
+bridge_expr(array_field(Name, Index, Field), array_field_access(Name, BIndex, Field)) :- !,
+    bridge_expr(Index, BIndex).
+
+% Logical NOT / ~expr (operand may contain calls)
+bridge_expr(not(E), not(BE)) :- !, bridge_expr(E, BE).
+
+% Omitted argument in a call: f(, a)
+bridge_expr(omitted, omitted) :- !.
 
 % Pass through anything already in modular format or unrecognized
 bridge_expr(number(N), number(N)) :- !.

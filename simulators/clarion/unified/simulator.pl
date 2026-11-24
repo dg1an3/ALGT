@@ -298,6 +298,23 @@ exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, norm
     ;  set_var(ArrayName, Value, StateIn, StateOut)
     ).
 
+% A[i].Field = Expr — only when the element is a GROUP value; otherwise warn and skip
+exec_statement(array_field_assign(ArrayName, IndexExpr, Field, Expr), StateIn, StateOut, normal) :- !,
+    eval_full_expr(IndexExpr, StateIn, Index),
+    eval_full_expr(Expr, StateIn, Value),
+    Idx is Index - 1,
+    (   get_var(ArrayName, StateIn, array(Elements)),
+        simulator_eval:get_array_element(Idx, Elements, Elem),
+        ( Elem = group_val(P, Fields, Values) -> NewElem = group_val(P, Fields, NewValues)
+        ; Elem = group_val(Fields, Values) -> NewElem = group_val(Fields, NewValues) )
+    ->  set_group_field(Field, Value, Fields, Values, NewValues),
+        set_array_element(Idx, NewElem, Elements, NewElements),
+        set_var(ArrayName, array(NewElements), StateIn, StateOut)
+    ;   format(user_error, "Warning: ~w[~w] is not a GROUP element; ~w not assigned~n",
+               [ArrayName, Index, Field]),
+        StateOut = StateIn
+    ).
+
 exec_statement(assign_add(VarName, Expr), StateIn, StateOut, normal) :- !,
     eval_full_expr(Expr, StateIn, Val),
     get_var(VarName, StateIn, CurrentVal),
@@ -457,6 +474,22 @@ eval_full_expr(member_access(ObjName, PropName), State, Value) :- !,
     -> get_group_field(PropName, Fields, Values, Value)
     ;  format(user_error, "Error: ~w is not an object~n", [ObjName]),
        Value = 0
+    ).
+% NOT / ~expr: operand evaluated with eval_full_expr so it may contain calls
+eval_full_expr(not(Expr), State, Result) :- !,
+    eval_full_expr(Expr, State, Val),
+    ( is_truthy(Val) -> Result = 0 ; Result = 1 ).
+% Omitted call argument f(, a): passed through as the atom 'omitted'
+eval_full_expr(omitted, _, omitted) :- !.
+% A[i].Field — field of a GROUP array element (0 if the element is not a group)
+eval_full_expr(array_field_access(ArrayName, IndexExpr, Field), State, Value) :- !,
+    eval_full_expr(IndexExpr, State, Index),
+    ( get_var(ArrayName, State, array(Elements)),
+      Idx is Index - 1,
+      simulator_eval:get_array_element(Idx, Elements, Elem),
+      ( Elem = group_val(_, Fields, Values) ; Elem = group_val(Fields, Values) )
+    -> get_group_field(Field, Fields, Values, Value)
+    ;  Value = 0
     ).
 eval_full_expr(Expr, State, Value) :-
     eval_expr(Expr, State, Value).
@@ -762,6 +795,7 @@ param_names([param(_, Name, _, _)|Rest], [Name|Names]) :- param_names(Rest, Name
 
 local_names([], []).
 local_names([local_var(Name, _, _)|Rest], [Name|Names]) :- local_names(Rest, Names).
+local_names([local_decl(group(Name, _, _))|Rest], [Name|Names]) :- local_names(Rest, Names).
 local_names([var(Name, _, _)|Rest], [Name|Names]) :- local_names(Rest, Names).
 local_names([_|Rest], Names) :- local_names(Rest, Names).
 
@@ -771,6 +805,13 @@ eval_args([Arg|Args], State, [Val|Vals]) :-
     eval_args(Args, State, Vals).
 
 bind_params([], [], State, State).
+% Omitted argument (f(, a)): bind the parameter's default value
+bind_params([P|Params], [omitted|Vals], StateIn, StateOut) :- !,
+    ( P = param(Type, Name, optional, Default) -> true
+    ; P = param(Type, Name), Default = none ),
+    ( Default = none -> default_value(Type, none, Val) ; eval_full_expr(Default, StateIn, Val) ),
+    set_var(Name, Val, StateIn, State1),
+    bind_params(Params, Vals, State1, StateOut).
 % Required parameter with value provided
 bind_params([param(_, Name)|Params], [Val|Vals], StateIn, StateOut) :-
     set_var(Name, Val, StateIn, State1),
@@ -812,6 +853,10 @@ init_locals([local_var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
     Type \= custom(_),
     default_value(Type, SizeSpec, Default),
     set_var(Name, Default, StateIn, State1),
+    init_locals(Rest, State1, StateOut).
+% Local QUEUE / GROUP (from the bridge): same initialisation as globals
+init_locals([local_decl(Decl)|Rest], StateIn, StateOut) :- !,
+    init_globals([Decl], StateIn, State1),
     init_locals(Rest, State1, StateOut).
 init_locals([window(_, _, _)|Rest], StateIn, StateOut) :-
     init_locals(Rest, StateIn, StateOut).

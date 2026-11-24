@@ -22,38 +22,18 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q swi-prolog
 
-      - name: Install Logtalk
-        run: |
-          # Pin a known stable version to avoid API calls entirely
-          LOGTALK_VERSION="lgt3840stable"
-          echo "Installing Logtalk ${LOGTALK_VERSION}"
-          curl -sfL "https://github.com/LogtalkDotOrg/logtalk3/archive/refs/tags/${LOGTALK_VERSION}.tar.gz" -o logtalk.tar.gz
-          tar xzf logtalk.tar.gz
-          cd logtalk3-*/
-          sudo cp -r . /usr/local/share/logtalk
-          # Install SWI-Prolog integration
-          cd /usr/local/share/logtalk/integration
-          if [ -f swilgt.sh ]; then
-            sudo cp swilgt.sh /usr/local/bin/swilgt
-            sudo chmod +x /usr/local/bin/swilgt
-          fi
+      - name: Install Logtalk (SWI-Prolog pack)
+        # storage_backend.pl / ui_backend.pl load library(logtalk), which is
+        # provided by the SWI-Prolog "logtalk" pack (same as local dev setup).
+        run: swipl -g "pack_install(logtalk,[interactive(false)]),halt" -t "halt(1)"
 
-      - name: Verify SWI-Prolog
-        run: swipl --version
+      - name: Verify SWI-Prolog + Logtalk
+        run: |
+          swipl --version
+          swipl -g "use_module(library(logtalk)),halt" -t "halt(1)"
 
       - name: Run unified simulator tests
         working-directory: simulators/clarion/unified
-        env:
-          LOGTALKHOME: /usr/local/share/logtalk
-          LOGTALKUSER: ${{ github.workspace }}/logtalk_user
         run: |
-          # Set up Logtalk user directory
-          mkdir -p "$LOGTALKUSER"
-          cp -r "$LOGTALKHOME/adapters" "$LOGTALKUSER/"
-          cp -r "$LOGTALKHOME/core" "$LOGTALKUSER/"
-          cp -r "$LOGTALKHOME/paths" "$LOGTALKUSER/"
-          cp -r "$LOGTALKHOME/library" "$LOGTALKUSER/"
-          cp -r "$LOGTALKHOME/tools" "$LOGTALKUSER/"
-
           # Run tests — exits 1 on any failure
           swipl -g "main,halt" -t "halt(1)" test_unified.pl
