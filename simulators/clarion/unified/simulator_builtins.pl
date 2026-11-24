@@ -252,10 +252,9 @@ format_with_picture(Value, _, Result) :-
 builtin_call('CREATE', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
     -> get_file_driver(FileName, StateIn, Driver),
-       storage_create(Driver, FileState, NewFileState),
-       set_file_state(FileName, NewFileState, StateIn, State1),
-       set_error(0, State1, StateOut),
-       format("  [CREATE ~w]~n", [FileName])
+       storage_call(storage_create(Driver, FileState, NewFileState), Code),
+       finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
+       ( Code =:= 0 -> format("  [CREATE ~w]~n", [FileName]) ; true )
     ;  set_error(0, StateIn, StateOut),
        format("  [CREATE ~w]~n", [FileName])
     ).
@@ -264,10 +263,9 @@ builtin_call('CREATE', [var(FileName)], StateIn, StateOut, none) :-
 builtin_call('OPEN', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
     -> get_file_driver(FileName, StateIn, Driver),
-       storage_open(Driver, FileName, FileState, NewFileState),
-       set_file_state(FileName, NewFileState, StateIn, State1),
-       set_error(0, State1, StateOut),
-       format("  [OPEN ~w]~n", [FileName])
+       storage_call(storage_open(Driver, FileName, FileState, NewFileState), Code),
+       finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
+       ( Code =:= 0 -> format("  [OPEN ~w]~n", [FileName]) ; true )
     ;  set_error(2, StateIn, StateOut)
     ).
 
@@ -275,10 +273,9 @@ builtin_call('OPEN', [var(FileName)], StateIn, StateOut, none) :-
 builtin_call('CLOSE', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
     -> get_file_driver(FileName, StateIn, Driver),
-       storage_close(Driver, FileState, NewFileState),
-       set_file_state(FileName, NewFileState, StateIn, State1),
-       set_error(0, State1, StateOut),
-       format("  [CLOSE ~w]~n", [FileName])
+       storage_call(storage_close(Driver, FileState, NewFileState), Code),
+       finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
+       ( Code =:= 0 -> format("  [CLOSE ~w]~n", [FileName]) ; true )
     ;  set_error(2, StateIn, StateOut)
     ).
 
@@ -297,10 +294,9 @@ builtin_call('CLEAR', [var(RecordRef)], StateIn, StateOut, none) :-
 builtin_call('EMPTY', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
     -> get_file_driver(FileName, StateIn, Driver),
-       storage_empty(Driver, FileState, NewFileState),
-       set_file_state(FileName, NewFileState, StateIn, State1),
-       set_error(0, State1, StateOut),
-       format("  [EMPTY ~w]~n", [FileName])
+       storage_call(storage_empty(Driver, FileState, NewFileState), Code),
+       finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
+       ( Code =:= 0 -> format("  [EMPTY ~w]~n", [FileName]) ; true )
     ;  set_error(2, StateIn, StateOut)
     ).
 
@@ -308,10 +304,9 @@ builtin_call('EMPTY', [var(FileName)], StateIn, StateOut, none) :-
 builtin_call('ADD', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
     -> get_file_driver(FileName, StateIn, Driver),
-       storage_add(Driver, FileState, NewFileState),
-       set_file_state(FileName, NewFileState, StateIn, State1),
-       set_error(0, State1, StateOut),
-       format("  [ADD to ~w]~n", [FileName])
+       storage_call(storage_add(Driver, FileState, NewFileState), Code),
+       finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
+       ( Code =:= 0 -> format("  [ADD to ~w]~n", [FileName]) ; true )
     ;  set_error(2, StateIn, StateOut)
     ).
 
@@ -360,10 +355,9 @@ builtin_call('PUT', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
     -> FileState = file_state(_, _, _, _, _, _, Pos, _),
        get_file_driver(FileName, StateIn, Driver),
-       ( storage_put(Driver, FileState, NewFileState)
-       -> set_file_state(FileName, NewFileState, StateIn, State1),
-          set_error(0, State1, StateOut),
-          format("  [PUT to ~w at position ~w]~n", [FileName, Pos])
+       ( storage_call(storage_put(Driver, FileState, NewFileState), Code)
+       -> finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
+          ( Code =:= 0 -> format("  [PUT to ~w at position ~w]~n", [FileName, Pos]) ; true )
        ;  set_error(33, StateIn, StateOut)
        )
     ;  set_error(2, StateIn, StateOut)
@@ -375,10 +369,9 @@ builtin_call('DELETE', [var(FileName)], StateIn, StateOut, none) :-
     -> FileState = file_state(_, _, _, _, _, _, Pos, _),
        get_file_driver(FileName, StateIn, Driver),
        ( Pos >= 0
-       -> ( storage_delete(Driver, FileState, NewFileState)
-          -> set_file_state(FileName, NewFileState, StateIn, State1),
-             set_error(0, State1, StateOut),
-             format("  [DELETE from ~w at position ~w]~n", [FileName, Pos])
+       -> ( storage_call(storage_delete(Driver, FileState, NewFileState), Code)
+          -> finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
+             ( Code =:= 0 -> format("  [DELETE from ~w at position ~w]~n", [FileName, Pos]) ; true )
           ;  set_error(33, StateIn, StateOut)
           )
        ;  set_error(33, StateIn, StateOut)
@@ -564,12 +557,31 @@ get_event_phase(_, none).
 error_message(0, "").
 error_message(2, "File not found").
 error_message(33, "Record not found").
+error_message(37, "File not open").
 error_message(47, "Invalid key").
+error_message(52, "File already open").
+error_message(89, "Record changed by another station").
+error_message(90, "File system error").
 error_message(_, "Unknown error").
 
 %------------------------------------------------------------
 % File I/O Helpers
 %------------------------------------------------------------
+
+%% storage_call(:Goal, -Code)
+%  Code is 0 if Goal succeeds, or the code of a storage_error/1 it throws.
+%  Fails if Goal fails.
+storage_call(Goal, Code) :-
+    catch((call(Goal), Code0 = 0), storage_error(Code0), true),
+    Code = Code0.
+
+%% finish_storage(+Code, +FileName, +NewFileState, +StateIn, -StateOut)
+%  Keep the new file state only if the operation succeeded; set ERRORCODE().
+finish_storage(0, FileName, NewFileState, StateIn, StateOut) :- !,
+    set_file_state(FileName, NewFileState, StateIn, State1),
+    set_error(0, State1, StateOut).
+finish_storage(Code, _, _, StateIn, StateOut) :-
+    set_error(Code, StateIn, StateOut).
 
 get_key_values([], _, _, _, []).
 get_key_values([KeyFieldRef|Rest], Prefix, Fields, Buffer, [Value|Values]) :-

@@ -1,79 +1,83 @@
 %============================================================
 % storage_odbc.lgt - ODBC Database Storage Backend (Logtalk)
 %
-% Delegates core record operations to storage_memory,
-% adds ODBC database I/O with dirty-tracking.
+% Records are loaded on OPEN and kept in memory for reading
+% (delegated to storage_memory). Every ADD, PUT, DELETE and EMPTY
+% is written through to the database immediately, one statement
+% per transaction, so only rows the program touched are changed.
+% PUT and DELETE match the row by the values last read and are
+% refused unless exactly one row matches.
+%
+% Failures throw storage_error(Code), which becomes ERRORCODE():
+%   37 file not open         52 file already open
+%   89 record changed by another station (no single match)
+%   90 file system error     (database or driver error)
+%
+% With CLARION_ODBC_DSN unset, files are purely in-memory.
 %============================================================
+
+% library(odbc) is optional (a separate package on some platforms). Calls below
+% are odbc:-qualified; unqualified they compile to local predicates of this object.
+:- initialization((
+    exists_source(library(odbc)) -> use_module(library(odbc), []) ; true
+)).
 
 :- object(storage_odbc,
     implements(istorage_backend)).
 
-    :- use_module(library(lists), [nth0/3, append/3, length/2]).
+    :- use_module(library(lists), [nth0/3, append/3, member/2]).
 
     :- public([
         connect_dsn/2,
         disconnect/1
     ]).
 
-    % ODBC state tracked via assertz/retract
-    :- private(odbc_conn/3).  % odbc_conn(TableName, Connection, Dirty)
-    :- dynamic(odbc_conn/3).
+    :- private(odbc_conn/2).  % odbc_conn(TableName, Connection)
+    :- dynamic(odbc_conn/2).
 
-    open(FSIn, FSOut) :-
-        open('', FSIn, FSOut).
+    open(_, FSIn, FSOut) :-
+        open(FSIn, FSOut).
 
-    open(FileName, file_state(Name,Pre,K,Fields,_,B,_,_), file_state(Name,Pre,K,Fields,Records,B,-1,true)) :-
-        ( get_odbc_dsn(DSN)
-        -> ( connect_dsn(DSN, Connection)
-           -> get_table_name(FileName, Name, TableName),
-              load_table_records(Connection, TableName, Fields, Records),
-              length(Records, Count),
-              format("  [ODBC: Connected to ~w, loaded ~w records from ~w]~n", [DSN, Count, TableName]),
-              ::retractall(odbc_conn(TableName, _, _)),
-              ::assertz(odbc_conn(TableName, Connection, false))
-           ;  Records = [],
-              format("  [ODBC: Connection failed, using memory]~n", [])
-           )
-        ;  Records = [],
-           format("  [ODBC: No DSN configured, using memory]~n", [])
+    open(file_state(Name,_,_,_,_,_,_,true), _) :-
+        ::odbc_conn(Name, _),
+        throw(storage_error(52)).
+    open(file_state(Name,Pre,K,Fields,_,B,_,_), file_state(Name,Pre,K,Fields,Records,B,-1,true)) :-
+        drop_connection(Name),  % left over from a session that never closed
+        ( getenv('CLARION_ODBC_DSN', DSN)
+        -> open_table(DSN, Name, Fields, Records)
+        ;  format(user_error, "Warning: CLARION_ODBC_DSN not set~n", []),
+           format("  [ODBC: No DSN configured, using memory]~n", []),
+           Records = []
         ).
 
-    close(file_state(Name,Pre,K,Fields,Records,B,P,_), file_state(Name,Pre,K,Fields,Records,B,P,false)) :-
-        get_table_name(Name, Name, TableName),
-        ( ::odbc_conn(TableName, Connection, true)
-        -> sync_table_records(Connection, TableName, Fields, Records),
-           length(Records, Count),
-           format("  [ODBC: Synced ~w records to ~w]~n", [Count, TableName]),
-           disconnect(Connection),
-           format("  [ODBC: Disconnected]~n", [])
-        ; ::odbc_conn(TableName, Connection, false)
-        -> disconnect(Connection),
+    % Nothing is pending here: every change was committed when it was made.
+    close(file_state(Name,Pre,K,F,R,B,P,_), file_state(Name,Pre,K,F,R,B,P,false)) :-
+        ( ::odbc_conn(Name, _)
+        -> drop_connection(Name),
            format("  [ODBC: Disconnected]~n", [])
         ;  true
-        ),
-        ::retractall(odbc_conn(TableName, _, _)).
+        ).
 
     create(FS, FS).
 
     add(FSIn, FSOut) :-
         storage_memory::add(FSIn, FSOut),
-        FSIn = file_state(Name,_,_,_,_,_,_,_),
-        get_table_name(Name, Name, TableName),
-        mark_dirty(TableName).
+        FSIn = file_state(_,_,_,_,_,Buffer,_,_),
+        write_through(FSIn, insert(Buffer)).
 
     get(KeyInfo, FSIn, FSOut) :- storage_memory::get(KeyInfo, FSIn, FSOut).
 
     put(FSIn, FSOut) :-
         storage_memory::put(FSIn, FSOut),
-        FSIn = file_state(Name,_,_,_,_,_,_,_),
-        get_table_name(Name, Name, TableName),
-        mark_dirty(TableName).
+        FSIn = file_state(_,_,_,_,Records,Buffer,Pos,_),
+        nth0(Pos, Records, Old),
+        write_through(FSIn, update(Old, Buffer)).
 
     delete(FSIn, FSOut) :-
         storage_memory::delete(FSIn, FSOut),
-        FSIn = file_state(Name,_,_,_,_,_,_,_),
-        get_table_name(Name, Name, TableName),
-        mark_dirty(TableName).
+        FSIn = file_state(_,_,_,_,Records,_,Pos,_),
+        nth0(Pos, Records, Old),
+        write_through(FSIn, delete(Old)).
 
     next(FSIn, FSOut) :- storage_memory::next(FSIn, FSOut).
     set(FSIn, FSOut) :- storage_memory::set(FSIn, FSOut).
@@ -81,106 +85,160 @@
 
     empty(FSIn, FSOut) :-
         storage_memory::empty(FSIn, FSOut),
-        FSIn = file_state(Name,_,_,_,_,_,_,_),
-        get_table_name(Name, Name, TableName),
-        mark_dirty(TableName).
+        write_through(FSIn, empty).
 
     clear(FSIn, FSOut) :- storage_memory::clear(FSIn, FSOut).
 
     % Public ODBC helpers
     connect_dsn(DSN, Connection) :-
-        catch(odbc_connect(DSN, Connection, []),
+        catch(odbc:odbc_connect(DSN, Connection, [auto_commit(false)]),
               Error, (format(user_error, "ODBC error: ~w~n", [Error]), fail)).
 
     disconnect(Connection) :-
-        catch(odbc_disconnect(Connection), _, true).
+        catch(odbc:odbc_disconnect(Connection), _, true).
 
     % Private helpers
     :- private([
-        get_odbc_dsn/1,
-        get_table_name/3,
-        mark_dirty/1,
+        open_table/4,
+        drop_connection/1,
         load_table_records/4,
-        sync_table_records/4,
-        insert_all_records/4,
+        write_through/2,
+        statement/5,
+        execute/4,
+        check_affected/2,
+        transaction/2,
         field_names/2,
-        format_values/3,
-        format_single_value/3,
-        is_string_type/1,
-        convert_rows_to_buffers/3,
-        pad_or_trim_values/3,
-        get_default_padding/4
+        assignments/2,
+        placeholders/2,
+        match_conditions/4,
+        bind_params/3,
+        bind_param/3,
+        convert_rows_to_buffers/2
     ]).
 
-    get_odbc_dsn(DSN) :- getenv('CLARION_ODBC_DSN', DSN), !.
-    get_odbc_dsn(_) :-
-        format(user_error, "Warning: CLARION_ODBC_DSN not set~n", []), fail.
-
-    get_table_name(FileName, FallbackName, TableName) :-
-        ( atom(FileName), FileName \= FallbackName -> TableName = FileName ; TableName = FallbackName ).
-
-    mark_dirty(TableName) :-
-        ( ::retract(odbc_conn(TableName, Conn, _))
-        -> ::assertz(odbc_conn(TableName, Conn, true))
-        ;  true
-        ).
-
-    load_table_records(Connection, TableName, Fields, Records) :-
-        field_names(Fields, FieldNames),
-        atomic_list_concat(FieldNames, ', ', FieldList),
-        format(atom(SQL), 'SELECT ~w FROM ~w', [FieldList, TableName]),
+    open_table(DSN, Table, Fields, Records) :-
+        ( connect_dsn(DSN, Connection) -> true ; throw(storage_error(90)) ),
         catch(
-            (odbc_query(Connection, SQL, Rows, [findall(Row, Row)]),
-             convert_rows_to_buffers(Rows, Fields, Records)),
+            transaction(Connection, load_table_records(Connection, Table, Fields, Records)),
             Error,
-            (format(user_error, "ODBC select error: ~w~n", [Error]), Records = [])
+            ( disconnect(Connection), throw(Error) )
+        ),
+        length(Records, Count),
+        format("  [ODBC: Connected to ~w, loaded ~w records from ~w]~n", [DSN, Count, Table]),
+        ::assertz(odbc_conn(Table, Connection)).
+
+    drop_connection(Table) :-
+        forall(::retract(odbc_conn(Table, Connection)), disconnect(Connection)).
+
+    load_table_records(Connection, Table, Fields, Records) :-
+        field_names(Fields, Names),
+        atomic_list_concat(Names, ', ', Columns),
+        format(atom(SQL), 'SELECT ~w FROM ~w', [Columns, Table]),
+        findall(Row, odbc:odbc_query(Connection, SQL, Row), Rows),
+        convert_rows_to_buffers(Rows, Records).
+
+    write_through(file_state(Table,_,_,Fields,_,_,_,_), Change) :-
+        ( ::odbc_conn(Table, Connection)
+        -> field_names(Fields, Names),
+           statement(Change, Table, Names, SQL, Params),
+           transaction(Connection, (
+               execute(Connection, SQL, Params, Affected),
+               check_affected(Change, Affected)
+           ))
+        ; getenv('CLARION_ODBC_DSN', _)
+        -> throw(storage_error(37))
+        ;  true  % in-memory mode
         ).
 
-    sync_table_records(Connection, TableName, Fields, Records) :-
-        format(atom(DelSQL), 'DELETE FROM ~w', [TableName]),
-        catch(odbc_query(Connection, DelSQL, _), _, true),
-        insert_all_records(Connection, TableName, Fields, Records).
+    statement(insert(Values), Table, Names, SQL, Values) :-
+        atomic_list_concat(Names, ', ', Columns),
+        placeholders(Values, Marks),
+        format(atom(SQL), 'INSERT INTO ~w (~w) VALUES (~w)', [Table, Columns, Marks]).
+    statement(update(Old, New), Table, Names, SQL, Params) :-
+        assignments(Names, Assignments),
+        match_conditions(Names, Old, Where, OldParams),
+        append(New, OldParams, Params),
+        format(atom(SQL), 'UPDATE ~w SET ~w WHERE ~w', [Table, Assignments, Where]).
+    statement(delete(Old), Table, Names, SQL, Params) :-
+        match_conditions(Names, Old, Where, Params),
+        format(atom(SQL), 'DELETE FROM ~w WHERE ~w', [Table, Where]).
+    statement(empty, Table, _, SQL, []) :-
+        format(atom(SQL), 'DELETE FROM ~w', [Table]).
 
-    insert_all_records(_, _, _, []).
-    insert_all_records(Connection, TableName, Fields, [Record|Records]) :-
-        field_names(Fields, FieldNames),
-        atomic_list_concat(FieldNames, ', ', FieldList),
-        format_values(Record, Fields, ValueList),
-        format(atom(SQL), 'INSERT INTO ~w (~w) VALUES (~w)', [TableName, FieldList, ValueList]),
-        catch(odbc_query(Connection, SQL, _), Error, format(user_error, "ODBC insert: ~w~n", [Error])),
-        insert_all_records(Connection, TableName, Fields, Records).
+    execute(Connection, SQL, Values, Affected) :-
+        bind_params(Values, Types, Params),
+        odbc:odbc_prepare(Connection, SQL, Types, Statement),
+        catch(
+            odbc:odbc_execute(Statement, Params, affected(Affected)),
+            Error,
+            ( odbc:odbc_free_statement(Statement), throw(Error) )
+        ),
+        odbc:odbc_free_statement(Statement).
+
+    check_affected(empty, _) :- !.
+    check_affected(_, 1) :- !.
+    check_affected(Change, Affected) :-
+        functor(Change, Op, _),
+        format(user_error, "ODBC ~w: matched ~w rows, expected 1~n", [Op, Affected]),
+        throw(storage_error(89)).
+
+    % Commit Goal, or roll back and throw storage_error/1 if it cannot complete.
+    :- meta_predicate(transaction(*, 0)).
+    transaction(Connection, Goal) :-
+        catch(
+            ( call(Goal) -> odbc:odbc_end_transaction(Connection, commit)
+            ; throw(storage_error(90))
+            ),
+            Error,
+            true
+        ),
+        ( var(Error)
+        -> true
+        ;  catch(odbc:odbc_end_transaction(Connection, rollback), _, true),
+           ( Error = error(odbc(_, _, _), _)
+           -> format(user_error, "ODBC error: ~w~n", [Error]),
+              throw(storage_error(90))
+           ;  throw(Error)  % storage_error/1, or a bug that must not be hidden
+           )
+        ).
 
     field_names([], []).
     field_names([field(Name, _, _)|Rest], [Name|Names]) :- field_names(Rest, Names).
 
-    format_values([], [], "").
-    format_values([V], [field(_, Type, _)], F) :- format_single_value(V, Type, F), !.
-    format_values([V|Vs], [field(_, Type, _)|Fs], Result) :-
-        format_single_value(V, Type, F),
-        format_values(Vs, Fs, Rest),
-        ( Rest = "" -> Result = F ; atomic_list_concat([F, ', ', Rest], Result) ).
+    placeholders(Values, Marks) :-
+        findall('?', member(_, Values), List),
+        atomic_list_concat(List, ', ', Marks).
 
-    format_single_value(V, Type, F) :-
-        ( is_string_type(Type) -> format(atom(F), "'~w'", [V]) ; format(atom(F), "~w", [V]) ).
+    assignments(Names, Assignments) :-
+        findall(A, (member(N, Names), atom_concat(N, ' = ?', A)), List),
+        atomic_list_concat(List, ', ', Assignments).
 
-    is_string_type('STRING'). is_string_type('CSTRING'). is_string_type('PSTRING').
+    % NULL never compares equal, so it needs IS NULL and takes no parameter.
+    match_conditions(Names, Values, Where, Params) :-
+        findall(C, ( nth0(I, Names, N), nth0(I, Values, V),
+                     ( V == '$null$' -> atom_concat(N, ' IS NULL', C)
+                     ; atom_concat(N, ' = ?', C) ) ), Conditions),
+        atomic_list_concat(Conditions, ' AND ', Where),
+        findall(V, (member(V, Values), V \== '$null$'), Params).
 
-    convert_rows_to_buffers([], _, []).
-    convert_rows_to_buffers([Row|Rows], Fields, [Buffer|Buffers]) :-
-        Row =.. [row|Values],
-        pad_or_trim_values(Values, Fields, Buffer),
-        convert_rows_to_buffers(Rows, Fields, Buffers).
+    bind_params([], [], []).
+    bind_params([V|Vs], [T|Ts], [P|Ps]) :- bind_param(V, T, P), bind_params(Vs, Ts, Ps).
 
-    pad_or_trim_values(Values, Fields, Buffer) :-
-        length(Fields, FC), length(Values, VC),
-        ( VC >= FC -> length(Buffer, FC), append(Buffer, _, Values)
-        ;  PC is FC - VC, get_default_padding(PC, Fields, VC, Padding), append(Values, Padding, Buffer)
-        ).
+    % Integers beyond 32 bits go as text: integer/bigint binding truncates them,
+    % and an integer bound to a varchar parameter is stored as a timestamp.
+    bind_param(V, integer, V) :- integer(V), V >= -2147483648, V =< 2147483647, !.
+    bind_param(V, double, V) :- float(V), !.
+    bind_param('$null$', varchar(1), '$null$') :- !.
+    bind_param(V, _, _) :- compound(V), !,  % date/time terms: no Clarion mapping yet
+        format(user_error, "ODBC error: cannot store ~w~n", [V]),
+        throw(storage_error(90)).
+    bind_param(V, varchar(Length), Text) :-
+        format(atom(Text), '~w', [V]),
+        atom_length(Text, L), Length is max(1, 4 * L).  % 4: UTF-8 bytes per character
 
-    get_default_padding(0, _, _, []) :- !.
-    get_default_padding(N, Fields, SI, [D|R]) :-
-        nth0(SI, Fields, field(_, Type, Size)),
-        {simulator_classes:default_value(Type, Size, D)},
-        N1 is N - 1, SI1 is SI + 1, get_default_padding(N1, Fields, SI1, R).
+    convert_rows_to_buffers([], []).
+    convert_rows_to_buffers([Row|Rows], [Buffer|Buffers]) :-
+        Row =.. [row|Buffer],
+        convert_rows_to_buffers(Rows, Buffers).
 
 :- end_object.
