@@ -8,6 +8,9 @@
 % PUT and DELETE match the row by the values last read and are
 % refused unless exactly one row matches.
 %
+% The database column type decides how dates are mapped (clarion_dates.pl).
+% A value that would not convert back exactly is refused with error 90.
+%
 % Failures throw storage_error(Code), which becomes ERRORCODE():
 %   37 file not open         52 file already open
 %   89 record changed by another station (no single match)
@@ -32,14 +35,14 @@
         disconnect/1
     ]).
 
-    :- private(odbc_conn/2).  % odbc_conn(TableName, Connection)
-    :- dynamic(odbc_conn/2).
+    :- private(odbc_conn/3).  % odbc_conn(TableName, Connection, ColumnKinds)
+    :- dynamic(odbc_conn/3).
 
     open(_, FSIn, FSOut) :-
         open(FSIn, FSOut).
 
     open(file_state(Name,_,_,_,_,_,_,true), _) :-
-        ::odbc_conn(Name, _),
+        ::odbc_conn(Name, _, _),
         throw(storage_error(52)).
     open(file_state(Name,Pre,K,Fields,_,B,_,_), file_state(Name,Pre,K,Fields,Records,B,-1,true)) :-
         drop_connection(Name),  % left over from a session that never closed
@@ -52,7 +55,7 @@
 
     % Nothing is pending here: every change was committed when it was made.
     close(file_state(Name,Pre,K,F,R,B,P,_), file_state(Name,Pre,K,F,R,B,P,false)) :-
-        ( ::odbc_conn(Name, _)
+        ( ::odbc_conn(Name, _, _)
         -> drop_connection(Name),
            format("  [ODBC: Disconnected]~n", [])
         ;  true
@@ -102,6 +105,14 @@
         open_table/4,
         drop_connection/1,
         load_table_records/4,
+        load_table/5,
+        column_kinds/4,
+        facet_kinds/4,
+        column_kind/2,
+        field_class/2,
+        convert_row/4,
+        convert_value/5,
+        convert_error/4,
         write_through/2,
         statement/5,
         execute/4,
@@ -119,16 +130,72 @@
     open_table(DSN, Table, Fields, Records) :-
         ( connect_dsn(DSN, Connection) -> true ; throw(storage_error(90)) ),
         catch(
-            transaction(Connection, load_table_records(Connection, Table, Fields, Records)),
+            transaction(Connection, load_table(Connection, Table, Fields, Kinds, Records)),
             Error,
             ( disconnect(Connection), throw(Error) )
         ),
         length(Records, Count),
         format("  [ODBC: Connected to ~w, loaded ~w records from ~w]~n", [DSN, Count, Table]),
-        ::assertz(odbc_conn(Table, Connection)).
+        ::assertz(odbc_conn(Table, Connection, Kinds)).
 
     drop_connection(Table) :-
-        forall(::retract(odbc_conn(Table, Connection)), disconnect(Connection)).
+        forall(::retract(odbc_conn(Table, Connection, _)), disconnect(Connection)).
+
+    load_table(Connection, Table, Fields, Kinds, Records) :-
+        column_kinds(Connection, Table, Fields, Kinds),
+        load_table_records(Connection, Table, Fields, Rows),
+        findall(Record, (member(Row, Rows), convert_row(from_column, Fields-Kinds, Row, Record)), Records).
+
+    % One kind per field: date, time, timestamp or other.
+    column_kinds(Connection, Table, Fields, Kinds) :-
+        findall(Column-Facet, odbc:odbc_table_column(Connection, Table, Column, Facet), Facets),
+        upcase_atom(Table, TableUp),
+        facet_kinds(Facets, TableUp, none, Columns),
+        findall(Kind,
+                ( member(field(Name, _, _), Fields),
+                  upcase_atom(Name, NameUp),
+                  ( member(NameUp-Type, Columns) -> column_kind(Type, Kind) ; Kind = other ) ),
+                Kinds).
+
+    % Facets arrive column by column, table_name before data_type. The table
+    % name is a pattern to ODBC (_ is a wildcard), so drop other tables' columns.
+    facet_kinds([], _, _, []).
+    facet_kinds([_-table_name(T)|Rest], TableUp, _, Columns) :- !,
+        upcase_atom(T, Current),
+        facet_kinds(Rest, TableUp, Current, Columns).
+    facet_kinds([Column-data_type(Type)|Rest], TableUp, TableUp, [ColumnUp-Type|Columns]) :- !,
+        upcase_atom(Column, ColumnUp),
+        facet_kinds(Rest, TableUp, TableUp, Columns).
+    facet_kinds([_|Rest], TableUp, Current, Columns) :-
+        facet_kinds(Rest, TableUp, Current, Columns).
+
+    column_kind(91, date) :- !.       % SQL_TYPE_DATE
+    column_kind(92, time) :- !.       % SQL_TYPE_TIME
+    column_kind(93, timestamp) :- !.  % SQL_TYPE_TIMESTAMP
+    column_kind(_, other).
+
+    field_class(Type, text) :- member(Type, ['STRING', 'CSTRING', 'PSTRING']), !.
+    field_class(_, number).
+
+    % Direction is from_column or to_column.
+    convert_row(Direction, Fields-Kinds, Values, Converted) :-
+        findall(C, ( nth0(I, Values, V),
+                     nth0(I, Fields, Field), nth0(I, Kinds, Kind),
+                     convert_value(Direction, Field, Kind, V, C) ), Converted).
+
+    convert_value(_, _, other, V, V) :- !.
+    convert_value(Direction, field(Name, Type, _), Kind, V, C) :-
+        field_class(Type, Class),
+        ( Direction == from_column
+        -> ( clarion_dates:from_column(Kind, Class, V, C0) -> C = C0 ; convert_error(Name, Class, Kind, V) )
+        ;  ( clarion_dates:to_column(Kind, Class, V, C0) -> C = C0 ; convert_error(Name, Class, Kind, V) )
+        ).
+
+    convert_error(Name, Class, Kind, Value) :-
+        ( Class == number -> Hint = ' (a STRING field may hold it)' ; Hint = '' ),
+        format(user_error, "ODBC error: ~w: cannot convert ~w exactly for a ~w column~w~n",
+               [Name, Value, Kind, Hint]),
+        throw(storage_error(90)).
 
     load_table_records(Connection, Table, Fields, Records) :-
         field_names(Fields, Names),
@@ -138,9 +205,12 @@
         convert_rows_to_buffers(Rows, Records).
 
     write_through(file_state(Table,_,_,Fields,_,_,_,_), Change) :-
-        ( ::odbc_conn(Table, Connection)
+        ( ::odbc_conn(Table, Connection, Kinds)
         -> field_names(Fields, Names),
-           statement(Change, Table, Names, SQL, Params),
+           Change =.. [Op|Rows],
+           findall(DbRow, (member(Row, Rows), convert_row(to_column, Fields-Kinds, Row, DbRow)), DbRows),
+           DbChange =.. [Op|DbRows],
+           statement(DbChange, Table, Names, SQL, Params),
            transaction(Connection, (
                execute(Connection, SQL, Params, Affected),
                check_affected(Change, Affected)
@@ -229,7 +299,8 @@
     bind_param(V, integer, V) :- integer(V), V >= -2147483648, V =< 2147483647, !.
     bind_param(V, double, V) :- float(V), !.
     bind_param('$null$', varchar(1), '$null$') :- !.
-    bind_param(V, _, _) :- compound(V), !,  % date/time terms: no Clarion mapping yet
+    bind_param(V, Type, V) :- compound(V), functor(V, Type, _), member(Type, [date, time, timestamp]), !.
+    bind_param(V, _, _) :- compound(V), !,
         format(user_error, "ODBC error: cannot store ~w~n", [V]),
         throw(storage_error(90)).
     bind_param(V, varchar(Length), Text) :-
