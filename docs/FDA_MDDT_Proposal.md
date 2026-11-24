@@ -1,3 +1,11 @@
+---
+title: FDA MDDT Proposal
+layout: default
+parent: Design Documents
+nav_order: 1
+permalink: /design-docs/fda-mddt-proposal.html
+---
+
 # FDA Medical Device Developer Tool (MDDT) Qualification Proposal
 
 ## Tool Name: ALGT-FMEA — Automated Software Failure Mode and Effects Analysis for Legacy Medical Device Software

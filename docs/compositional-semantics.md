@@ -1,3 +1,11 @@
+---
+title: Compositional Semantics
+layout: default
+parent: Design Documents
+nav_order: 3
+permalink: /design-docs/compositional-semantics.html
+---
+
 # Compositional Semantics and Independent Release
 
 ## TL;DR
