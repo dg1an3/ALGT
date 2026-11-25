@@ -1088,7 +1088,7 @@ test_sub :-
 test_left :-
     Src = "  MEMBER()\n  MAP\n    TestLeft(),LONG\n  END\nTestLeft PROCEDURE()\nS CSTRING(20)\n  CODE\n  S = LEFT('  hello')\n  RETURN(LEN(S))\n",
     exec_procedure(Src, 'TestLeft', [], R),
-    check('LEFT(  hello) len=5', R, 5).
+    check('LEFT(  hello) keeps the length', R, 7).
 
 %------------------------------------------------------------
 % Math Builtin Tests

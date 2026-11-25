@@ -82,12 +82,48 @@ pc('SQRT divides as a REAL', "", "", "  RETURN(SQRT(25) / 2)\n", 2.5).
 pc('REAL loop bounds', "", "I LONG\nT LONG\nR REAL(3)\n", "  LOOP I = 1 TO R\n    T += I\n  END\n  RETURN(T)\n", 6).
 pc('a REAL in CASE and as a record number', "F FILE,DRIVER('TOPSPEED'),PRE(FF),CREATE\nRecord RECORD\nA LONG\n  END\n  END\n", "R REAL(1)\n", "  CREATE(F)\n  OPEN(F)\n  FF:A = 8\n  ADD(F)\n  FF:A = 0\n  GET(F, R)\n  CASE R\n  OF 1\n    RETURN(FF:A)\n  END\n  RETURN(-1)\n", 8).
 
+% --- built-ins ---
+pc('CHOOSE by number', "", "X LONG(2)\n", "  RETURN(CHOOSE(X, 10, 20, 30))\n", 20).
+pc('CHOOSE out of range gives the last', "", "X LONG(9)\n", "  RETURN(CHOOSE(X, 10, 20, 30) * 100 + CHOOSE(0, 1, 2))\n", 3002).
+pc('CHOOSE by condition', "", "X LONG(5)\n", "  RETURN(CHOOSE(X <> 0, 1, 2) * 10 + CHOOSE(X = 0, 1, 2))\n", 12).
+pc('CHOOSE of a condition alone', "", "X LONG(5)\n", "  RETURN(CHOOSE(X = 5) * 10 + CHOOSE(X = 6))\n", 10).
+pc('CHOOSE returns text', "", "X LONG(1)\n", "  RETURN(CHOOSE(X = 1, 'yes', 'no') = 'yes')\n", 1).
+pc('SIN and COS in radians', "", "", "  RETURN(ROUND(SIN(0.5) * 1000000 + COS(0.5) * 1000))\n", 480303).
+pc('TAN ATAN ASIN ACOS', "", "", "  RETURN(ROUND((TAN(1) + ATAN(1) + ASIN(1) + ACOS(0)) * 10000))\n", 54844).
+pc('LOGE and LOG10', "", "", "  RETURN(LOG10(1000) * 10 + LOGE(1))\n", 30.0).
+pc('BSHIFT left and right', "", "", "  RETURN(BSHIFT(1, 4) * 100 + BSHIFT(256, -4))\n", 1616).
+pc('BSHIFT fills a right shift with zeros', "", "", "  RETURN(BSHIFT(-1, -28))\n", 15).
+pc('BSHIFT drops bits past 32', "", "L LONG\n", "  L = BSHIFT(1, 31)\n  RETURN((L < 0) * 10 + BSHIFT(1, 32))\n", 10).
+pc('LEFT(s, n)', "", "", "  RETURN('[' & LEFT('  ab', 5) & ']' = '[ab   ]')\n", 1).
+pc('LEFT(s) keeps the length', "", "S STRING('  ab')\n", "  RETURN('[' & LEFT(S) & ']' = '[ab  ]')\n", 1).
+pc('RIGHT(s) and RIGHT(s, n)', "", "S STRING('ab  ')\n", "  RETURN(('[' & RIGHT(S) & ']' = '[  ab]') * 10 + ('[' & RIGHT(S, 3) & ']' = '[ ab]'))\n", 11).
+pc('LEFT and RIGHT cut to n', "", "", "  RETURN((LEFT('abcd', 2) = 'ab') * 10 + (RIGHT('abcd', 2) = 'cd'))\n", 11).
+pc('CENTER', "", "", "  RETURN(('[' & CENTER('ab', 6) & ']' = '[  ab  ]') * 10 + (LEN(CENTER('ab', 5)) = 5))\n", 11).
+pc('ALL', "", "", "  RETURN((ALL('ab', 5) = 'ababa') * 1000 + LEN(ALL('-')))\n", 1255).
+pc('NUMERIC', "", "", "  RETURN(NUMERIC('12.5') * 1000 + NUMERIC('-3') * 100 + NUMERIC('12a') * 10 + NUMERIC(''))\n", 1100).
+pc('DEFORMAT with a numeric picture', "", "", "  RETURN(DEFORMAT('$1,234.50', @n$12.2) * 2)\n", 2469.0).
+
+% --- arrays ---
+pc('a new array holds its type''s empty value', "A LONG,DIM(3)\nS STRING(4),DIM(2)\n", "", "  RETURN(A[3] * 100 + LEN(S[2]))\n", 4).
+pc('every element of an array is separate', "A LONG,DIM(37)\n", "I LONG\nT LONG\n", "  LOOP I = 1 TO 37\n    A[I] = I\n  END\n  LOOP I = 37 TO 1 BY -1\n    IF A[I] <> I THEN RETURN(-I).\n    T += A[I]\n  END\n  RETURN(T)\n", 703).
+pc('setting one element leaves the rest', "A LONG,DIM(5)\n", "", "  A[2] = 7\n  A[2] = 8\n  RETURN(A[1] + A[2] + A[3] + A[4] + A[5])\n", 8).
+pc('SIZE of an array', "A SHORT,DIM(6)\n", "", "  RETURN(SIZE(A))\n", 12).
+pc('a one-element array', "A LONG,DIM(1)\n", "", "  A[1] = 4\n  RETURN(A[1])\n", 4).
+pc('writing past the end is an error', "A LONG,DIM(3)\n", "", "  A[4] = 1\n  RETURN(1)\n", error(index_out_of_range('A', 4, 3))).
+pc('writing element 0 is an error', "A LONG,DIM(3)\n", "", "  A[0] = 1\n  RETURN(1)\n", error(index_out_of_range('A', 0, 3))).
+pc('reading element 0 gives 0', "A LONG,DIM(3)\n", "", "  A[1] = 5\n  RETURN(A[0])\n", 0).
+pc('a big array is quick', "A REAL,DIM(270400)\n", "I LONG\n", "  LOOP I = 1 TO 20000\n    A[I * 13] = I\n  END\n  RETURN(A[260000] + A[13])\n", 20001.0).
+
 % pc_src(Label, Source, Procedure, Args, Expected)
 pc_src('MEMBER globals after MAP', "  MEMBER()\nA LONG(1)\n  MAP\n    Run(),LONG\n  END\nN EQUATE(2)\nB LONG(N)\nC LONG,DIM(N)\nRun PROCEDURE()\n  CODE\n  C[2] = 5\n  RETURN(A * 100 + B * 10 + C[2])\n", 'Run', [], 125).
 pc_src('PROGRAM globals before and after MAP', "  PROGRAM\nA LONG(1)\n  MAP\n    Run(),LONG\n  END\nB LONG(2)\n  CODE\n  Run()\nRun PROCEDURE()\n  CODE\n  RETURN(A * 10 + B)\n", 'Run', [], 12).
 pc_src('parameters and a procedure with non-reserved names', "  MEMBER()\n  MAP\n    Run PROCEDURE(),LONG\n    Add PROCEDURE(LONG name, LONG key),LONG\n  END\nAdd PROCEDURE(LONG name, LONG key)\n  CODE\n  RETURN(name * 10 + key)\nRun PROCEDURE()\nX LONG(3)\n  CODE\n  RETURN(Add(X, 4))\n", 'Run', [], 34).
 pc_src('a procedure named Add taking one variable', "  MEMBER()\n  MAP\n    Run(),LONG\n    Add(LONG a),LONG\n  END\nF FILE,DRIVER('TOPSPEED'),PRE(FF),CREATE\nRecord RECORD\nA LONG\n  END\n  END\nAdd PROCEDURE(LONG a)\n  CODE\n  RETURN(a + 1)\nRun PROCEDURE()\nX LONG(3)\n  CODE\n  CREATE(F)\n  OPEN(F)\n  ADD(F)\n  RETURN(Add(X) * 10 + RECORDS(F))\n", 'Run', [], 41).
 pc_src('a label alone on a line is not swallowed', "  MEMBER()\n  MAP\n    Run(),LONG\n    Other()\n  END\nRun PROCEDURE()\nX LONG\n  CODE\n  X = 1\n  DO R1\n  RETURN(X)\nR1 ROUTINE\n  X += 1\nOther PROCEDURE\n  CODE\n", 'Run', [], 2).
+
+pc_src('REMOVE and RENAME replace a file', "  MEMBER()\nOld FILE,DRIVER('DOS'),NAME('Old.dat'),PRE(OO),CREATE\nRecord RECORD\nA LONG\n  END\n  END\nTmp FILE,DRIVER('DOS'),NAME('Tmp.dat'),PRE(TT),CREATE\nRecord RECORD\nA LONG\n  END\n  END\n  MAP\n    Run(),LONG\n  END\nRun PROCEDURE()\n  CODE\n  CREATE(Old)\n  OPEN(Old)\n  OO:A = 1\n  ADD(Old)\n  OO:A = 2\n  ADD(Old)\n  CLOSE(Old)\n  CREATE(Tmp)\n  OPEN(Tmp)\n  TT:A = 7\n  ADD(Tmp)\n  CLOSE(Tmp)\n  REMOVE('old.dat')\n  IF ERRORCODE() THEN RETURN(-1).\n  RENAME('Tmp.dat', 'Old.dat')\n  IF ERRORCODE() THEN RETURN(-2).\n  OPEN(Old)\n  SET(Old)\n  NEXT(Old)\n  RETURN(OO:A * 10 + RECORDS(Old))\n", 'Run', [], 71).
+pc_src('REMOVE of an open file is refused', "  MEMBER()\nOld FILE,DRIVER('DOS'),NAME('Old.dat'),PRE(OO),CREATE\nRecord RECORD\nA LONG\n  END\n  END\n  MAP\n    Run(),LONG\n  END\nRun PROCEDURE()\n  CODE\n  CREATE(Old)\n  OPEN(Old)\n  OO:A = 1\n  ADD(Old)\n  REMOVE(Old)\n  RETURN(ERRORCODE() * 10 + RECORDS(Old))\n", 'Run', [], 51).
+pc_src('RENAME by label', "  MEMBER()\nOld FILE,DRIVER('DOS'),NAME('Old.dat'),PRE(OO),CREATE\nRecord RECORD\nA LONG\n  END\n  END\nTmp FILE,DRIVER('DOS'),NAME('Tmp.dat'),PRE(TT),CREATE\nRecord RECORD\nA LONG\n  END\n  END\n  MAP\n    Run(),LONG\n  END\nRun PROCEDURE()\n  CODE\n  CREATE(Tmp)\n  OPEN(Tmp)\n  TT:A = 7\n  ADD(Tmp)\n  CLOSE(Tmp)\n  REMOVE(Old)\n  RENAME(Tmp, 'Old.dat')\n  OPEN(Old)\n  OPEN(Tmp)\n  RETURN(RECORDS(Old) * 10 + RECORDS(Tmp))\n", 'Run', [], 10).
 
 pc_source(Globals, Locals, Code, Src) :-
     ( sub_string(Globals, _, _, _, "C LONG(") -> Inc = "  C += 1\n" ; Inc = "" ),

@@ -13,11 +13,13 @@
     to_string/2,
     text_slice/4,
     replace_slice/5,
+    array_read/4,
     is_clarion_constant/1
 ]).
 
 :- use_module(simulator_state).
 :- use_module(clarion_types).
+:- use_module(clarion_arrays).
 
 :- discontiguous eval_expr/3.
 
@@ -64,9 +66,8 @@ eval_expr(control_ref(Name), State, Value) :-
 eval_expr(array_access(ArrayName, IndexExpr), State, Value) :-
     eval_expr(IndexExpr, State, Index),
     get_var(ArrayName, State, ArrayVal),
-    ( ArrayVal = array(Elements)
-    -> Idx is truncate(Index) - 1,  % Clarion arrays are 1-based
-       get_array_element(Idx, Elements, Value)
+    ( ArrayVal = array(_, _, _)
+    -> array_read(ArrayName, ArrayVal, Index, Value)
     ; is_text(ArrayVal)                % S[i]: one character
     -> text_slice(ArrayVal, Index, Index, Value)
     ;  Value = 0
@@ -190,12 +191,15 @@ replace_slice(Text, From0, To0, New, Result) :-
 % Array Access Helper
 %------------------------------------------------------------
 
-get_array_element(0, [H|_], H) :- !.
-get_array_element(Idx, [_|T], Value) :-
-    Idx > 0, !,
-    Idx1 is Idx - 1,
-    get_array_element(Idx1, T, Value).
-get_array_element(_, [], 0).  % Out of bounds returns 0
+% Clarion programs may read out of range harmlessly (IF I > 0 AND A[I] = 1
+% reads A[0]), so it gives 0 with a warning. Writing out of range is an error.
+array_read(Name, Array, Index, Value) :-
+    ( array_element(Array, Index, Value0)
+    -> Value = Value0
+    ;  array_size(Array, Size),
+       format(user_error, "Warning: read of ~w[~w], which has ~w elements~n", [Name, Index, Size]),
+       Value = 0
+    ).
 
 %------------------------------------------------------------
 % Note: call, method_call, member_access, self_access expressions

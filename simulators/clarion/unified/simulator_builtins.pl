@@ -94,17 +94,78 @@ builtin_call('LOWER', [Expr], StateIn, StateIn, Result) :-
 builtin_call('TRIM', [Expr], StateIn, StateIn, Result) :-
     builtin_call('CLIP', [Expr], StateIn, StateIn, Result).
 
-% LEFT(string) - left-justify (remove leading spaces)
-builtin_call('LEFT', [Expr], StateIn, StateIn, Result) :-
-    eval_expr(Expr, StateIn, Str),
-    ( atom(Str) -> atom_string(Str, S) ; S = Str ),
+% LEFT/RIGHT/CENTER(string [, length]) - justify within the string's own length,
+% or within the given one
+builtin_call('LEFT', [Expr|Len], StateIn, StateIn, Result) :-
+    justify_args(Expr, Len, StateIn, S, Width),
     string_codes(S, Codes),
     drop_spaces(Codes, Trimmed),
-    string_codes(Result, Trimmed).
+    string_codes(T, Trimmed),
+    coerce('STRING', size(Width), T, Result).
+builtin_call('RIGHT', [Expr|Len], StateIn, StateIn, Result) :-
+    justify_args(Expr, Len, StateIn, S, Width),
+    clip_text(S, T),
+    string_length(T, L),
+    Pad is max(0, Width - L), Skip is max(0, L - Width),
+    sub_string(T, Skip, _, 0, Kept),
+    format(string(Result), "~*c~s", [Pad, 0' , Kept]).
+builtin_call('CENTER', [Expr|Len], StateIn, StateIn, Result) :-
+    justify_args(Expr, Len, StateIn, S, Width),
+    split_string(S, "", " ", [T]),
+    string_length(T, L),
+    Before is max(0, (Width - L) // 2),
+    format(string(Padded), "~*c~s", [Before, 0' , T]),
+    coerce('STRING', size(Width), Padded, Result).
 
-% RIGHT(string) - right-justify (remove trailing spaces)
-builtin_call('RIGHT', [Expr], StateIn, StateIn, Result) :-
-    builtin_call('CLIP', [Expr], StateIn, StateIn, Result).
+justify_args(Expr, Len, State, S, Width) :-
+    eval_expr(Expr, State, Value),
+    to_string(Value, S),
+    ( Len = [] -> string_length(S, Width)
+    ; Len = [LenExpr], eval_expr(LenExpr, State, N), Width is truncate(N), Width >= 0
+    ).
+
+% ALL(string [, length]) - repeat the string to fill length (255)
+builtin_call('ALL', [Expr|Len], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Value),
+    to_string(Value, S),
+    ( Len = [] -> Width = 255 ; Len = [LenExpr], eval_expr(LenExpr, StateIn, N), Width is truncate(N) ),
+    string_length(S, L), L > 0, Width >= 0,
+    Times is Width // L + 1,
+    findall(S, between(1, Times, _), Parts),
+    atomic_list_concat(Parts, Joined),
+    sub_atom(Joined, 0, Width, _, Cut),
+    atom_string(Cut, Result).
+
+% NUMERIC(string) - 1 if the string is a number
+builtin_call('NUMERIC', [Expr], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, Value),
+    ( number(Value) -> Result = 1
+    ; clip_text(Value, T), T \== "", text_number(Value, _) -> Result = 1
+    ; Result = 0
+    ).
+
+% DEFORMAT(string, @n picture) - the number behind the formatting. Other
+% pictures (dates, times, @p) are not handled.
+builtin_call('DEFORMAT', [Expr, PicExpr], StateIn, StateIn, Result) :-
+    eval_expr(PicExpr, StateIn, Pic),
+    to_string(Pic, P),
+    ( sub_string(P, 0, _, _, "@n") ; sub_string(P, 0, _, _, "@N") ), !,
+    eval_expr(Expr, StateIn, Value),
+    to_string(Value, S),
+    string_codes(S, Codes),
+    include([C]>>memberchk(C, `0123456789.-`), Codes, Kept),
+    string_codes(Result, Kept).
+
+% CHOOSE(n, v1, v2, ...) - the nth value, or the last when n is out of range.
+% A condition is 1 or 0, so CHOOSE(cond, yes, no) follows the same rule.
+builtin_call('CHOOSE', [Cond], StateIn, StateIn, Result) :-
+    eval_expr(Cond, StateIn, V),
+    ( is_truthy(V) -> Result = 1 ; Result = 0 ).
+builtin_call('CHOOSE', [Expr, V1|Vs], StateIn, StateIn, Result) :-
+    eval_expr(Expr, StateIn, N0),
+    to_number(N0, N1), N is truncate(N1),
+    ( nth1(N, [V1|Vs], Chosen) -> true ; last([V1|Vs], Chosen) ),
+    eval_expr(Chosen, StateIn, Result).
 
 % INSTRING(needle, haystack [, start]) - find substring, return position (1-based) or 0
 builtin_call('INSTRING', Args, StateIn, StateIn, Result) :-
@@ -189,6 +250,34 @@ builtin_call('ASSERT', [C|Msg], StateIn, StateIn, none) :-
       format("  [ASSERT failed: ~w]~n", [MV])
     ).
 
+% BSHIFT(value, count) - shift 32 bits left, or right when count is negative;
+% vacated bits are zero
+builtin_call('BSHIFT', [A, B], StateIn, StateIn, R) :-
+    eval_expr(A, StateIn, VA), to_number(VA, NA),
+    eval_expr(B, StateIn, VB), to_number(VB, NB),
+    Bits is truncate(NA) /\ 0xFFFFFFFF,
+    Count is truncate(NB),
+    ( Count >= 0 -> Shifted is (Bits << min(Count, 32)) /\ 0xFFFFFFFF
+    ; Right is min(-Count, 32), Shifted is Bits >> Right
+    ),
+    coerce('LONG', none, Shifted, R).
+
+% Trigonometry (radians) and logarithms
+builtin_call('SIN', [Expr], StateIn, StateIn, Result) :- real_function(sin, Expr, StateIn, Result).
+builtin_call('COS', [Expr], StateIn, StateIn, Result) :- real_function(cos, Expr, StateIn, Result).
+builtin_call('TAN', [Expr], StateIn, StateIn, Result) :- real_function(tan, Expr, StateIn, Result).
+builtin_call('ASIN', [Expr], StateIn, StateIn, Result) :- real_function(asin, Expr, StateIn, Result).
+builtin_call('ACOS', [Expr], StateIn, StateIn, Result) :- real_function(acos, Expr, StateIn, Result).
+builtin_call('ATAN', [Expr], StateIn, StateIn, Result) :- real_function(atan, Expr, StateIn, Result).
+builtin_call('LOGE', [Expr], StateIn, StateIn, Result) :- real_function(log, Expr, StateIn, Result).
+builtin_call('LOG10', [Expr], StateIn, StateIn, Result) :- real_function(log10, Expr, StateIn, Result).
+
+real_function(Function, Expr, State, Result) :-
+    eval_expr(Expr, State, V),
+    to_number(V, N),
+    Goal =.. [Function, N],
+    Result is float(Goal).
+
 % ABS(number) - absolute value
 builtin_call('ABS', [Expr], StateIn, StateIn, Result) :-
     eval_expr(Expr, StateIn, Val),
@@ -250,7 +339,7 @@ size_of(Name, State, Size) :-
     ; Value = group_val(Fields, _) -> fields_bytes(Fields, Size)
     ; declared_type(Name, State, Type, TypeSize),
       type_bytes(Type, TypeSize, Each),
-      ( Value = array(Elements) -> length(Elements, Count), Size is Each * Count ; Size = Each )
+      ( Value = array(Count, _, _) -> Size is Each * Count ; Size = Each )
     ).
 
 fields_bytes(Fields, Size) :-
@@ -332,6 +421,53 @@ format_with_picture(Value, _, Result) :-
 %------------------------------------------------------------
 % File I/O Functions
 %------------------------------------------------------------
+
+% REMOVE(file or name) / RENAME(file or name, new name). Files kept in memory
+% only. A name is matched against the NAME attribute of the declared files.
+builtin_call('REMOVE', [Arg], StateIn, StateOut, none) :-
+    named_file(Arg, StateIn, File),
+    ( file_is_open(File, StateIn)
+    -> set_error(5, StateIn, StateOut)
+    ;  set_records(File, [], StateIn, State1),
+       set_error(0, State1, StateOut),
+       format("  [REMOVE ~w]~n", [File])
+    ).
+builtin_call('RENAME', [Arg, NewArg], StateIn, StateOut, none) :-
+    named_file(Arg, StateIn, Old),
+    named_file(NewArg, StateIn, New),
+    get_file_state(Old, StateIn, file_state(_, _, _, OldFields, Records, _, _, _)),
+    get_file_state(New, StateIn, file_state(_, _, _, NewFields, NewRecords, _, _, _)),
+    maplist([field(_, T, S), field(_, T, S)]>>true, OldFields, NewFields),   % same layout
+    ( ( file_is_open(Old, StateIn) ; file_is_open(New, StateIn) ; Old \== New, NewRecords \== [] )
+    -> set_error(5, StateIn, StateOut)
+    ;  set_records(Old, [], StateIn, State1),
+       set_records(New, Records, State1, State2),
+       set_error(0, State2, StateOut),
+       format("  [RENAME ~w to ~w]~n", [Old, New])
+    ).
+
+named_file(var(File), State, File) :-
+    get_file_state(File, State, _), !,
+    memory_file(File, State).
+named_file(Expr, State, File) :-
+    eval_expr(Expr, State, Value),
+    clip_text(Value, Text),
+    string_upper(Text, Wanted),
+    get_vars(State, Vars),
+    member(var(file_name(File), Name), Vars),
+    string_upper(Name, Wanted), !,
+    memory_file(File, State).
+
+memory_file(File, State) :-
+    get_file_driver(File, State, Driver),
+    \+ ( upcase_atom(Driver, U), memberchk(U, ['ODBC', 'ADO', 'ASCII', 'BASIC']) ).
+
+file_is_open(File, State) :-
+    get_file_state(File, State, file_state(_, _, _, _, _, _, _, true)).
+
+set_records(File, Records, StateIn, StateOut) :-
+    get_file_state(File, StateIn, file_state(File, P, K, F, _, B, _, O)),
+    set_file_state(File, file_state(File, P, K, F, Records, B, -1, O), StateIn, StateOut).
 
 % CREATE(file) - Create a file (dispatches to storage backend)
 builtin_call('CREATE', [var(FileName)], StateIn, StateOut, none) :-
@@ -666,6 +802,7 @@ get_event_phase(_, none).
 
 error_message(0, "").
 error_message(2, "File not found").
+error_message(5, "Access denied").
 error_message(30, "Entry not found").
 error_message(33, "Record not available").
 error_message(35, "Record not found").

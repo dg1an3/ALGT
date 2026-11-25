@@ -16,6 +16,7 @@
 ]).
 
 :- use_module(clarion_types, []).
+:- use_module(clarion_arrays, []).
 
 %------------------------------------------------------------
 % Top-level program translation
@@ -197,12 +198,11 @@ sized_type(Type, Sized) :-
 initial_value(Type, 0, "") :- is_text_type(Type), !.
 initial_value(_, Init, Init).
 
-initial_array(Type, Size, array(Values)) :-
-    length(Values, Size),
+initial_array(Type, Size, Array) :-
     sized_type(Type, Sized),
     clarion_types:split_type(Sized, T, S),
     ( is_text_type(Type) -> clarion_types:type_default(T, S, V) ; V = 0 ),
-    maplist(=(V), Values).
+    clarion_arrays:new_array(Size, V, Array).
 
 is_text_type(string).
 is_text_type(string(_)).

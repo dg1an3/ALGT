@@ -35,6 +35,7 @@
 :- use_module(simulator_control).
 :- use_module(execution_tracer).
 :- use_module(clarion_types).
+:- use_module(clarion_arrays).
 :- use_module(library(assoc)).
 
 :- discontiguous exec_statement/4.
@@ -213,7 +214,8 @@ init_file(Name, Attrs, Contents, StateIn, StateOut) :-
     create_empty_buffer(Fields, Buffer),
     FileState = file_state(Name, Prefix, Keys, Fields, [], Buffer, -1, false),
     set_file_state(Name, FileState, StateIn, State1),
-    set_var(file_driver(Name), Driver, State1, StateOut).
+    ( member(name(FileName), Attrs) -> set_var(file_name(Name), FileName, State1, State2) ; State2 = State1 ),
+    set_var(file_driver(Name), Driver, State2, StateOut).
 
 extract_keys([], []).
 extract_keys([key(KeyName, KeyFields, Attrs)|Rest],
@@ -322,10 +324,9 @@ assign_element(ArrayName, Index, Value0, StateIn, StateOut) :-
     ;  Value = Value0
     ),
     get_var(ArrayName, StateIn, ArrayVal),
-    ( ArrayVal = array(Elements)
-    -> Idx is truncate(Index) - 1,
-       set_array_element(Idx, Value, Elements, NewElements),
-       set_var(ArrayName, array(NewElements), StateIn, StateOut)
+    ( ArrayVal = array(_, _, _)
+    -> array_write(ArrayName, ArrayVal, Index, Value, NewArray),
+       set_var(ArrayName, NewArray, StateIn, StateOut)
     ; is_text(ArrayVal)                  % S[i] = character
     -> assign_slice(ArrayName, Index, Index, Value0, StateIn, StateOut)
     ;  set_var(ArrayName, Value, StateIn, StateOut)
@@ -360,14 +361,13 @@ exec_statement(array_update(Name, IndexExpr, Field, Op, Expr), StateIn, StateOut
 exec_statement(array_field_assign(ArrayName, IndexExpr, Field, Expr), StateIn0, StateOut, normal) :- !,
     eval_full_expr(IndexExpr, StateIn0, StateIn1, Index),
     eval_full_expr(Expr, StateIn1, StateIn, Value),
-    Idx is truncate(Index) - 1,
-    (   get_var(ArrayName, StateIn, array(Elements)),
-        simulator_eval:get_array_element(Idx, Elements, Elem),
+    (   get_var(ArrayName, StateIn, Array),
+        array_element(Array, Index, Elem),
         ( Elem = group_val(P, Fields, Values) -> NewElem = group_val(P, Fields, NewValues)
         ; Elem = group_val(Fields, Values) -> NewElem = group_val(Fields, NewValues) )
     ->  set_group_field(Field, Value, Fields, Values, NewValues),
-        set_array_element(Idx, NewElem, Elements, NewElements),
-        set_var(ArrayName, array(NewElements), StateIn, StateOut)
+        set_array_element(Array, Index, NewElem, NewArray),
+        set_var(ArrayName, NewArray, StateIn, StateOut)
     ;   format(user_error, "Warning: ~w[~w] is not a GROUP element; ~w not assigned~n",
                [ArrayName, Index, Field]),
         StateOut = StateIn
@@ -565,9 +565,8 @@ eval_full_expr(array_access(ArrayName, IndexExpr), StateIn, StateOut, Value) :- 
 % A[i].Field — field of a GROUP array element (0 if the element is not a group)
 eval_full_expr(array_field_access(ArrayName, IndexExpr, Field), StateIn, State, Value) :- !,
     eval_full_expr(IndexExpr, StateIn, State, Index),
-    ( get_var(ArrayName, State, array(Elements)),
-      Idx is truncate(Index) - 1,
-      simulator_eval:get_array_element(Idx, Elements, Elem),
+    ( get_var(ArrayName, State, Array),
+      array_element(Array, Index, Elem),
       ( Elem = group_val(_, Fields, Values) ; Elem = group_val(Fields, Values) )
     -> get_group_field(Field, Fields, Values, Value)
     ;  Value = 0
@@ -919,14 +918,18 @@ leave_frame(CallState, Inner, StateOut) :-
     memberchk(var('$frame', frame(InnerKeys, Shadowed)), InnerVars),
     vars_assoc(InnerVars, InnerAssoc),
     vars_assoc(Shadowed, ShadowAssoc),
-    % Names the callee made up itself are dropped
-    findall(var(Key, Value),
-            ( member(var(Key, _), GlobalsBefore),
-              ( key_in(Key, InnerKeys)
+    % Names the callee made up itself are dropped. (Not findall/3: it would
+    % copy every array on every return.)
+    foldl([var(Key, _), G0, G]>>
+          (   ( key_in(Key, InnerKeys)
               -> get_assoc(Key, ShadowAssoc, Value)
               ;  get_assoc(Key, InnerAssoc, Value)
-              ) ),
-            Globals),
+              )
+          ->  G = [var(Key, Value)|G0]
+          ;   G = G0
+          ),
+          GlobalsBefore, [], GlobalsRev),
+    reverse(GlobalsRev, Globals),
     CallerFrame = frame(CallerKeys, Locals),
     ( CallerKeys == none
     -> Vars = Globals
@@ -1224,13 +1227,12 @@ leave_method(Params, LocalVars, Before, Inner, StateOut) :-
     get_vars(Before, VarsBefore),
     get_vars(Inner, VarsInner),
     vars_assoc(VarsInner, InnerAssoc),
-    findall(var(Key, Value),
-            ( member(var(Key, Value0), VarsBefore),
-              ( \+ key_in(Key, Keys), get_assoc(Key, InnerAssoc, Value1)
-              -> Value = Value1
-              ;  Value = Value0
-              ) ),
-            Vars),
+    maplist([var(Key, Value0), var(Key, Value)]>>
+            ( \+ key_in(Key, Keys), get_assoc(Key, InnerAssoc, Value1)
+            -> Value = Value1
+            ;  Value = Value0
+            ),
+            VarsBefore, Vars),
     get_self(Before, Self),
     replace_vars(Vars, Inner, State1),
     set_self(Self, State1, StateOut).
@@ -1274,16 +1276,12 @@ get_group_field(FieldName, _, _, 0) :-
 % Array Element Helpers
 %------------------------------------------------------------
 
-set_array_element(0, Value, [_|Rest], [Value|Rest]) :- !.
-set_array_element(Idx, Value, [H|T], [H|NewT]) :-
-    Idx > 0, !,
-    Idx1 is Idx - 1,
-    set_array_element(Idx1, Value, T, NewT).
-set_array_element(Idx, Value, [], NewList) :-
-    Idx >= 0,
-    length(Padding, Idx),
-    maplist(=(0), Padding),
-    append(Padding, [Value], NewList).
+array_write(Name, Array, Index, Value, NewArray) :-
+    ( set_array_element(Array, Index, Value, NewArray0)
+    -> NewArray = NewArray0
+    ;  array_size(Array, Size),
+       throw(error(index_out_of_range(Name, Index, Size), context(array_write/5, 'Write outside the array')))
+    ).
 
 %------------------------------------------------------------
 % Tracing Helpers
