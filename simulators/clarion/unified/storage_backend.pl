@@ -30,6 +30,7 @@
 
 :- use_module(library(logtalk)).
 :- use_module(clarion_dates, []).
+:- use_module(clarion_types, []).
 
 %% ensure_logtalk_backends is det.
 %  Loads the Logtalk storage/UI backend objects if not already loaded.
@@ -37,17 +38,18 @@
 
 ensure_logtalk_backends :-
     logtalk_backends_loaded, !.
+:- dynamic backend_directory/1.
+:- prolog_load_context(directory, Dir), assertz(backend_directory(Dir)).
+
 ensure_logtalk_backends :-
-    logtalk_load([
-        storage_protocol,
-        ui_protocol,
-        storage_memory,
-        storage_csv,
-        storage_odbc,
-        storage_dispatcher,
-        ui_simulation,
-        ui_dispatcher
-    ]),
+    backend_directory(Dir),
+    findall(Path,
+            ( member(Name, [storage_protocol, ui_protocol,
+                            storage_memory, storage_csv, storage_odbc, storage_dispatcher,
+                            ui_simulation, ui_dispatcher]),
+              directory_file_path(Dir, Name, Path) ),
+            Paths),
+    logtalk_load(Paths),
     assert(logtalk_backends_loaded).
 
 :- ensure_logtalk_backends.

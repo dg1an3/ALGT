@@ -27,12 +27,115 @@
     preprocess_codes/3        % preprocess_codes(+Codes, +Defines, -OutCodes)
 ]).
 
+:- use_module(library(assoc)).
+:- use_module(library(apply)).
+
 :- set_prolog_flag(double_quotes, codes).
 
 preprocess_codes(Codes, Defines, Out) :-
     split_lines(Codes, Lines),
     process_lines(Lines, Defines, [], OutLines),
-    join_lines(OutLines, Out).
+    join_lines(OutLines, Conditional),
+    canonical_case(Conditional, Out).
+
+%------------------------------------------------------------
+% Case folding
+%
+% Clarion labels ignore case, but everything after the parser compares
+% atoms. Respell each word one way, so 'ABC' and 'abc' become one name:
+% the spelling of its first label (Clarion labels start in column 1), else
+% its first use. String literals and comments are untouched.
+% A:B and A.B are respelled part by part.
+%------------------------------------------------------------
+
+canonical_case(Codes, Out) :-
+    empty_assoc(Empty),
+    findall(W, seed_word(W), Seeds),
+    foldl(seed_spelling, Seeds, Empty, Seeded),
+    column_labels(Codes, Labels),
+    foldl(label_spelling, Labels, Seeded, Spellings),
+    respell(Codes, Spellings, Out).
+
+% Spellings the simulator itself matches on
+seed_word('Record').
+seed_word('EVENT').
+seed_word('BUTTON').
+seed_word('ICON').
+seed_word('PROP').
+seed_word('Accepted').
+seed_word('NewSelection').
+seed_word('OpenWindow').
+seed_word('CloseWindow').
+seed_word('MemCopy').
+seed_word('Result').
+
+seed_spelling(Word, A0, A) :-
+    upcase_atom(Word, Key),
+    atom_codes(Word, Codes),
+    put_assoc(Key, A0, Codes, A).
+
+% Words of the label at the start of each line (both parts of A:B)
+column_labels(Codes, Words) :-
+    split_lines(Codes, Lines),
+    findall(Word,
+            ( member([C|Line], Lines), label_start(C),
+              label_word([C|Line], Word) ),
+            Words).
+
+label_word(Line, Word) :-
+    take_word(Line, W, Rest),
+    (   Word = W
+    ;   Rest = [0':, C|More], label_start(C), label_word([C|More], Word)
+    ).
+
+label_spelling(Word, A0, A) :-
+    atom_codes(Atom, Word),
+    upcase_atom(Atom, Key),
+    ( get_assoc(Key, A0, _) -> A = A0 ; put_assoc(Key, A0, Word, A) ).
+
+respell([], _, []).
+respell([0'\'|T], A, [0'\'|Out]) :- !,
+    copy_literal(T, Rest, Out, OutRest),
+    respell(Rest, A, OutRest).
+respell([0'!|T], A, [0'!|Out]) :- !,
+    copy_line(T, Rest, Out, OutRest),
+    respell(Rest, A, OutRest).
+respell([C|T], A, Out) :-
+    label_start(C), !,
+    take_word([C|T], Word, Rest),
+    atom_codes(Atom, Word),
+    upcase_atom(Atom, Key),
+    ( get_assoc(Key, A, Spelling)
+    -> A1 = A
+    ;  Spelling = Word, put_assoc(Key, A, Word, A1)
+    ),
+    append(Spelling, OutRest, Out),
+    respell(Rest, A1, OutRest).
+respell([C|T], A, Out) :-
+    code_type(C, digit), !,       % numbers, including 0FFh: copy whole
+    take_word([C|T], Word, Rest),
+    append(Word, OutRest, Out),
+    respell(Rest, A, OutRest).
+respell([C|T], A, [C|Out]) :-
+    respell(T, A, Out).
+
+label_start(0'_).
+label_start(C) :- code_type(C, alpha).
+
+take_word([C|T], [C|W], Rest) :-
+    ( C =:= 0'_ ; code_type(C, alnum) ), !,
+    take_word(T, W, Rest).
+take_word(Rest, [], Rest).
+
+% Inside '...': copy to the closing quote (a doubled quote reopens it), but
+% never past the end of the line.
+copy_literal([], [], Out, Out).
+copy_literal([C|T], T, [C|Out], Out) :- ( C =:= 0'\' ; C =:= 10 ), !.
+copy_literal([C|T], Rest, [C|Out], OutRest) :- copy_literal(T, Rest, Out, OutRest).
+
+copy_line([], [], Out, Out).
+copy_line([10|T], T, [10|Out], Out) :- !.
+copy_line([C|T], Rest, [C|Out], OutRest) :- copy_line(T, Rest, Out, OutRest).
 
 %------------------------------------------------------------
 % Line splitting (keeps \r so output is byte-identical where untouched)

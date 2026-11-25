@@ -5,6 +5,11 @@
 %============================================================
 
 :- module(simulator_state, [
+    declare_type/4,
+    declared_type/4,
+    get_cursor/3,
+    set_cursor/4,
+    is_queue/2,
     % State creation
     empty_state/1,
     empty_ui_state/1,
@@ -64,6 +69,8 @@
     % List utilities
     replace_nth0/4
 ]).
+
+:- use_module(clarion_types).
 
 %------------------------------------------------------------
 % State Structure
@@ -143,12 +150,29 @@ set_var(Name, Value, StateIn, StateOut) :-
       set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut)
     -> true
     ;  StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
-       ( select(var(Name, _), Vars, RestVars)
-       -> NewVars = [var(Name, Value)|RestVars]
-       ;  NewVars = [var(Name, Value)|Vars]
+       ( atom(Name), memberchk(var('$type'(Name), type(Type, Size)), Vars)
+       -> coerce(Type, Size, Value, Stored)
+       ;  Stored = Value
+       ),
+       ( selectchk(var(Name, _), Vars, RestVars)
+       -> NewVars = [var(Name, Stored)|RestVars]
+       ;  NewVars = [var(Name, Stored)|Vars]
        ),
        StateOut = state(NewVars, Procs, Out, Files, Err, Classes, Self, UI, Cont)
     ).
+
+%% declare_type(+Name, +TypeTerm, +StateIn, -StateOut)
+%  Values later assigned to Name are converted to this type.
+declare_type(Name, TypeTerm, StateIn, StateOut) :-
+    split_type(TypeTerm, Type, Size),
+    ( atom(Type)
+    -> set_var('$type'(Name), type(Type, Size), StateIn, StateOut)
+    ;  StateOut = StateIn          % LIKE(...) and classes: not resolved
+    ).
+
+declared_type(Name, State, Type, Size) :-
+    get_vars(State, Vars),
+    memberchk(var('$type'(Name), type(Type, Size)), Vars).
 
 % Parse a prefixed name like 'Cust:CustomerID' or 'Queue.Field' into prefix and field
 parse_prefixed_name(Name, Prefix, FieldName) :-
@@ -220,7 +244,9 @@ set_group_field_by_prefix(Prefix, FieldName, Value, StateIn, StateOut) :-
     member(var(group_prefix(Prefix), GroupName), Vars),
     member(var(GroupName, group_val(Prefix, Fields, Values)), Vars),
     nth1_field_index(FieldName, Fields, Idx),
-    replace_nth1(Idx, Values, Value, NewValues),
+    nth1(Idx, Fields, field(_, Type, Size)),
+    coerce(Type, Size, Value, Stored),
+    replace_nth1(Idx, Values, Stored, NewValues),
     set_var(GroupName, group_val(Prefix, Fields, NewValues), StateIn, StateOut).
 
 nth1_field_index(FieldName, Fields, Idx) :-
@@ -335,6 +361,23 @@ set_file_state(Name, NewFileState,
     ;  NewFiles = [NewFileState|Files]
     ).
 
+% Sequential position, kept with the files so it survives procedure return:
+% cursor(Key, At). Key is none (record order) or a key name. At is start,
+% from(KeyValues) or at(KeyValues, RecordIndex).
+get_cursor(File, State, Cursor) :-
+    get_files(State, Files),
+    ( memberchk(file_cursor(File, Cursor0), Files) -> Cursor = Cursor0 ; Cursor = cursor(none, start) ).
+
+set_cursor(File, Cursor,
+           state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
+           state(Vars, Procs, Out, NewFiles, Err, Classes, Self, UI, Cont)) :-
+    ( selectchk(file_cursor(File, _), Files, Rest) -> true ; Rest = Files ),
+    append(Rest, [file_cursor(File, Cursor)], NewFiles).
+
+is_queue(Name, State) :-
+    get_vars(State, Vars),
+    \+ memberchk(var(file_driver(Name), _), Vars).
+
 find_file_by_prefix(Prefix, State, FileState) :-
     get_files(State, Files),
     member(FileState, Files),
@@ -354,8 +397,9 @@ get_buffer_field(FieldName, _, _) :-
 set_buffer_field(FieldName, Value,
                  file_state(Name, Prefix, Keys, Fields, Records, Buffer, Pos, Open),
                  file_state(Name, Prefix, Keys, Fields, Records, NewBuffer, Pos, Open)) :-
-    nth0(Index, Fields, field(FieldName, _, _)),
-    replace_nth0(Index, Buffer, Value, NewBuffer), !.
+    nth0(Index, Fields, field(FieldName, Type, Size)),
+    coerce(Type, Size, Value, Stored),
+    replace_nth0(Index, Buffer, Stored, NewBuffer), !.
 
 create_empty_buffer([], []).
 create_empty_buffer([field(_, Type, Size)|Rest], [Value|Values]) :-
@@ -366,19 +410,7 @@ create_empty_buffer([field(_, Type, Size)|Rest], [Value|Values]) :-
 % Default Values
 %------------------------------------------------------------
 
-default_value('STRING', _, "").
-default_value('CSTRING', _, "").
-default_value('PSTRING', _, "").
-default_value('LONG', _, 0).
-default_value('SHORT', _, 0).
-default_value('BYTE', _, 0).
-default_value('DECIMAL', _, 0).
-default_value('PDECIMAL', _, 0).
-default_value('REAL', _, 0.0).
-default_value('SREAL', _, 0.0).
-default_value('DATE', _, 0).
-default_value('TIME', _, 0).
-default_value(_, _, 0).  % Default for unknown types
+default_value(Type, Size, Value) :- type_default(Type, Size, Value).
 
 %------------------------------------------------------------
 % List Utilities

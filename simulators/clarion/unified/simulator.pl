@@ -22,7 +22,8 @@
     exec_call/5,
     init_map_protos/3,      % init_map_protos(+MapDecls, +StateIn, -StateOut)
     init_procedures/3,      % init_procedures(+Procs, +StateIn, -StateOut)
-    init_globals/3           % init_globals(+GlobalDecls, +StateIn, -StateOut)
+    init_globals/3,          % init_globals(+GlobalDecls, +StateIn, -StateOut)
+    with_external_stubs/2    % with_external_stubs(+Stubs, :Goal)
 ]).
 
 % Note: parser is NOT imported here — the unified system uses
@@ -33,6 +34,8 @@
 :- use_module(simulator_classes).
 :- use_module(simulator_control).
 :- use_module(execution_tracer).
+:- use_module(clarion_types).
+:- use_module(library(assoc)).
 
 :- discontiguous exec_statement/4.
 
@@ -123,9 +126,10 @@ init_procedures([Proc|Procs], state(Vars, ExistingProcs, Out, Files, Err, Classe
     init_procedures(Procs, state(Vars, [Proc|ExistingProcs], Out, Files, Err, Classes, Self, UI, Cont), FinalState).
 
 init_globals([], State, State).
-init_globals([var(Name, _Type, init(InitVal))|Rest], StateIn, StateOut) :-
+init_globals([var(Name, Type, init(InitVal))|Rest], StateIn, StateOut) :-
     InitVal \= none, !,
-    set_var(Name, InitVal, StateIn, State1),
+    declare_type(Name, Type, StateIn, State0),
+    set_var(Name, InitVal, State0, State1),
     init_globals(Rest, State1, StateOut).
 init_globals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
     default_value(Type, SizeSpec, DefaultVal),
@@ -144,8 +148,10 @@ init_globals([group(Name, Fields)|Rest], StateIn, StateOut) :-
     init_group(Name, '', Fields, StateIn, State1),
     init_globals(Rest, State1, StateOut).
 init_globals([queue(Name, Fields)|Rest], StateIn, StateOut) :-
+    init_globals([queue(Name, '', Fields)|Rest], StateIn, StateOut).
+init_globals([queue(Name, Prefix, Fields)|Rest], StateIn, StateOut) :-
     create_empty_buffer(Fields, Buffer),
-    FileState = file_state(Name, '', [], Fields, [], Buffer, -1, true),
+    FileState = file_state(Name, Prefix, [], Fields, [], Buffer, -1, true),
     set_file_state(Name, FileState, StateIn, State1),
     init_globals(Rest, State1, StateOut).
 init_globals([window(_Name, _Title, _Attrs, Controls)|Rest], StateIn, StateOut) :-
@@ -202,7 +208,8 @@ init_file(Name, Attrs, Contents, StateIn, StateOut) :-
     set_var(file_driver(Name), Driver, State1, StateOut).
 
 extract_keys([], []).
-extract_keys([key(KeyName, KeyFields, _)|Rest], [key(KeyName, KeyFields)|Keys]) :-
+extract_keys([key(KeyName, KeyFields, Attrs)|Rest],
+             [key(KeyName, KeyFields), key_attrs(KeyName, Attrs)|Keys]) :- !,
     extract_keys(Rest, Keys).
 extract_keys([_|Rest], Keys) :-
     extract_keys(Rest, Keys).
@@ -233,8 +240,8 @@ exec_statement(call(Name, Args), StateIn, StateOut, normal) :- !,
     exec_call(Name, Args, StateIn, StateOut, _Result).
 
 % Assignment (with tracing)
-exec_statement(assign(VarName, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(Expr, StateIn, Value),
+exec_statement(assign(VarName, Expr), StateIn0, StateOut, normal) :- !,
+    eval_full_expr(Expr, StateIn0, StateIn, Value),
     % Trace: record the assignment
     ( is_tracing
     -> ( get_var(VarName, StateIn, OldValue) -> true ; OldValue = undefined ),
@@ -252,8 +259,8 @@ exec_statement(method_call(ObjName, MethodName, Args), StateIn, StateOut, normal
     exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, _Result).
 
 % SELF assignment
-exec_statement(self_assign(PropName, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(Expr, StateIn, Value),
+exec_statement(self_assign(PropName, Expr), StateIn0, StateOut, normal) :- !,
+    eval_full_expr(Expr, StateIn0, StateIn, Value),
     get_self(StateIn, self_context(VarName, _, _)),
     get_var(VarName, StateIn, Instance),
     set_instance_prop(PropName, Value, Instance, NewInstance),
@@ -264,13 +271,21 @@ exec_statement(parent_call(MethodName, Args), StateIn, StateOut, normal) :- !,
     exec_parent_call(MethodName, Args, StateIn, StateOut, _Result).
 
 % GROUP/instance member assignment
-exec_statement(member_assign(VarName, FieldName, Expr), StateIn, StateOut, normal) :- !,
+exec_statement(member_assign(VarName, FieldName, Expr), StateIn0, StateOut, normal) :- !,
+    eval_full_expr(Expr, StateIn0, StateIn, Value),
+    assign_member(VarName, FieldName, Value, StateIn, StateOut).
+
+% Array assignment
+exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, normal) :- !,
+    eval_full_expr(IndexExpr, StateIn, State1, Index),
+    eval_full_expr(Expr, State1, State2, Value),
+    assign_element(ArrayName, Index, Value, State2, StateOut).
+
+assign_member(VarName, FieldName, Value, StateIn, StateOut) :-
     ( get_file_state(VarName, StateIn, FileState) ->
-        eval_full_expr(Expr, StateIn, Value),
         set_buffer_field(FieldName, Value, FileState, NewFileState),
         set_file_state(VarName, NewFileState, StateIn, StateOut)
     ;
-        eval_full_expr(Expr, StateIn, Value),
         get_var(VarName, StateIn, GroupVal),
         ( GroupVal = group_val(Pfx, Fields, Values)
         -> set_group_field(FieldName, Value, Fields, Values, NewValues),
@@ -286,10 +301,11 @@ exec_statement(member_assign(VarName, FieldName, Expr), StateIn, StateOut, norma
         )
     ).
 
-% Array assignment
-exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(IndexExpr, StateIn, Index),
-    eval_full_expr(Expr, StateIn, Value),
+assign_element(ArrayName, Index, Value0, StateIn, StateOut) :-
+    ( declared_type(ArrayName, StateIn, Type, Size)
+    -> coerce(Type, Size, Value0, Value)
+    ;  Value = Value0
+    ),
     get_var(ArrayName, StateIn, ArrayVal),
     ( ArrayVal = array(Elements)
     -> Idx is Index - 1,
@@ -299,9 +315,9 @@ exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, norm
     ).
 
 % A[i].Field = Expr — only when the element is a GROUP value; otherwise warn and skip
-exec_statement(array_field_assign(ArrayName, IndexExpr, Field, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(IndexExpr, StateIn, Index),
-    eval_full_expr(Expr, StateIn, Value),
+exec_statement(array_field_assign(ArrayName, IndexExpr, Field, Expr), StateIn0, StateOut, normal) :- !,
+    eval_full_expr(IndexExpr, StateIn0, StateIn1, Index),
+    eval_full_expr(Expr, StateIn1, StateIn, Value),
     Idx is Index - 1,
     (   get_var(ArrayName, StateIn, array(Elements)),
         simulator_eval:get_array_element(Idx, Elements, Elem),
@@ -315,20 +331,20 @@ exec_statement(array_field_assign(ArrayName, IndexExpr, Field, Expr), StateIn, S
         StateOut = StateIn
     ).
 
-exec_statement(assign_add(VarName, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(Expr, StateIn, Val),
+exec_statement(assign_add(VarName, Expr), StateIn0, StateOut, normal) :- !,
+    eval_full_expr(Expr, StateIn0, StateIn, Val),
     get_var(VarName, StateIn, CurrentVal),
-    NewVal is CurrentVal + Val,
+    eval_binop('+', CurrentVal, Val, NewVal),
     set_var(VarName, NewVal, StateIn, StateOut).
 
 % Return statements
 exec_statement(return, State, State, return) :- !.
-exec_statement(return(Expr), StateIn, StateIn, return(Value)) :- !,
-    eval_full_expr(Expr, StateIn, Value).
+exec_statement(return(Expr), StateIn, StateOut, return(Value)) :- !,
+    eval_full_expr(Expr, StateIn, StateOut, Value).
 
 % IF statement (4-arg form with ELSIF) - with tracing
-exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn, StateOut, Control) :- !,
-    eval_full_expr(Cond, StateIn, CondVal),
+exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn0, StateOut, Control) :- !,
+    eval_full_expr(Cond, StateIn0, StateIn, CondVal),
     IsTruthy = is_truthy(CondVal),
     ( call(IsTruthy) -> BranchTaken = true ; BranchTaken = false ),
     % Trace: record the branch decision
@@ -344,9 +360,9 @@ exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn, StateOut, 
     ).
 
 % IF statement (3-arg legacy form) - with tracing
-exec_statement(if(Cond, ThenStmts, ElseStmts), StateIn, StateOut, Control) :- !,
+exec_statement(if(Cond, ThenStmts, ElseStmts), StateIn0, StateOut, Control) :- !,
     \+ is_list(ElseStmts),
-    eval_full_expr(Cond, StateIn, CondVal),
+    eval_full_expr(Cond, StateIn0, StateIn, CondVal),
     ( is_truthy(CondVal) -> BranchTaken = true ; BranchTaken = false ),
     % Trace: record the branch decision
     ( is_tracing
@@ -372,9 +388,9 @@ exec_statement(loop(Body), StateIn, StateOut, Control) :- !,
     ;  true
     ).
 
-exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn, StateOut, Control) :- !,
-    eval_full_expr(FromExpr, StateIn, From),
-    eval_full_expr(ToExpr, StateIn, To),
+exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn0, StateOut, Control) :- !,
+    eval_full_expr(FromExpr, StateIn0, StateIn1, From),
+    eval_full_expr(ToExpr, StateIn1, StateIn, To),
     ( is_tracing
     -> trace_loop_start(loop_to, info{var: Var, from: From, to: To}),
        add_graph_node(loop, loop{type: loop_to, var: Var, from: From, to: To}, _)
@@ -416,8 +432,8 @@ exec_statement(break, State, State, break) :- !.
 exec_statement(cycle, State, State, cycle) :- !.
 
 % CASE statement - with tracing
-exec_statement(case(Expr, Cases, ElseStmts), StateIn, StateOut, Control) :- !,
-    eval_full_expr(Expr, StateIn, Value),
+exec_statement(case(Expr, Cases, ElseStmts), StateIn0, StateOut, Control) :- !,
+    eval_full_expr(Expr, StateIn0, StateIn, Value),
     ( is_tracing
     -> add_graph_node(branch, branch{type: case, expr: Expr, value: Value}, NodeId),
        trace_expr_reads(Expr, StateIn, NodeId)
@@ -450,21 +466,21 @@ exec_statement(Stmt, State, State, normal) :-
 % Expression Evaluation (extended)
 %------------------------------------------------------------
 
-% Full expression evaluation that handles calls and method calls
-% Binop must use eval_full_expr for sub-expressions (they may contain calls)
-eval_full_expr(binop(Op, Left, Right), State, Result) :- !,
-    eval_full_expr(Left, State, LVal),
-    eval_full_expr(Right, State, RVal),
+%% eval_full_expr(+Expr, +StateIn, -StateOut, -Value)
+%  Calls inside an expression run left to right and keep their side effects.
+eval_full_expr(binop(Op, Left, Right), StateIn, StateOut, Result) :- !,
+    eval_full_expr(Left, StateIn, State1, LVal),
+    eval_full_expr(Right, State1, StateOut, RVal),
     eval_binop(Op, LVal, RVal, Result).
-eval_full_expr(call(Name, Args), StateIn, Result) :- !,
-    exec_call(Name, Args, StateIn, _, Result).
-eval_full_expr(method_call(ObjName, MethodName, Args), StateIn, Result) :- !,
-    exec_method_call(ObjName, MethodName, Args, StateIn, _, Result).
-eval_full_expr(self_access(PropName), State, Value) :- !,
+eval_full_expr(call(Name, Args), StateIn, StateOut, Result) :- !,
+    exec_call(Name, Args, StateIn, StateOut, Result).
+eval_full_expr(method_call(ObjName, MethodName, Args), StateIn, StateOut, Result) :- !,
+    exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, Result).
+eval_full_expr(self_access(PropName), State, State, Value) :- !,
     get_self(State, self_context(VarName, _, _)),
     get_var(VarName, State, Instance),
     get_instance_prop(PropName, Instance, Value).
-eval_full_expr(member_access(ObjName, PropName), State, Value) :- !,
+eval_full_expr(member_access(ObjName, PropName), State, State, Value) :- !,
     get_var(ObjName, State, Instance),
     ( Instance = instance(_, _)
     -> get_instance_prop(PropName, Instance, Value)
@@ -475,15 +491,17 @@ eval_full_expr(member_access(ObjName, PropName), State, Value) :- !,
     ;  format(user_error, "Error: ~w is not an object~n", [ObjName]),
        Value = 0
     ).
-% NOT / ~expr: operand evaluated with eval_full_expr so it may contain calls
-eval_full_expr(not(Expr), State, Result) :- !,
-    eval_full_expr(Expr, State, Val),
+eval_full_expr(not(Expr), StateIn, StateOut, Result) :- !,
+    eval_full_expr(Expr, StateIn, StateOut, Val),
     ( is_truthy(Val) -> Result = 0 ; Result = 1 ).
 % Omitted call argument f(, a): passed through as the atom 'omitted'
-eval_full_expr(omitted, _, omitted) :- !.
+eval_full_expr(omitted, State, State, omitted) :- !.
+eval_full_expr(array_access(ArrayName, IndexExpr), StateIn, StateOut, Value) :- !,
+    eval_full_expr(IndexExpr, StateIn, StateOut, Index),
+    eval_expr(array_access(ArrayName, number(Index)), StateOut, Value).
 % A[i].Field — field of a GROUP array element (0 if the element is not a group)
-eval_full_expr(array_field_access(ArrayName, IndexExpr, Field), State, Value) :- !,
-    eval_full_expr(IndexExpr, State, Index),
+eval_full_expr(array_field_access(ArrayName, IndexExpr, Field), StateIn, State, Value) :- !,
+    eval_full_expr(IndexExpr, StateIn, State, Index),
     ( get_var(ArrayName, State, array(Elements)),
       Idx is Index - 1,
       simulator_eval:get_array_element(Idx, Elements, Elem),
@@ -491,7 +509,7 @@ eval_full_expr(array_field_access(ArrayName, IndexExpr, Field), State, Value) :-
     -> get_group_field(Field, Fields, Values, Value)
     ;  Value = 0
     ).
-eval_full_expr(Expr, State, Value) :-
+eval_full_expr(Expr, State, State, Value) :-
     eval_expr(Expr, State, Value).
 
 %------------------------------------------------------------
@@ -500,8 +518,8 @@ eval_full_expr(Expr, State, Value) :-
 
 exec_elsifs([], ElseStmts, StateIn, StateOut, Control) :-
     exec_statements(ElseStmts, StateIn, StateOut, Control).
-exec_elsifs([elsif(Cond, Stmts)|Rest], ElseStmts, StateIn, StateOut, Control) :-
-    eval_full_expr(Cond, StateIn, CondVal),
+exec_elsifs([elsif(Cond, Stmts)|Rest], ElseStmts, StateIn0, StateOut, Control) :-
+    eval_full_expr(Cond, StateIn0, StateIn, CondVal),
     ( is_truthy(CondVal)
     -> exec_statements(Stmts, StateIn, StateOut, Control)
     ;  exec_elsifs(Rest, ElseStmts, StateIn, StateOut, Control)
@@ -514,6 +532,7 @@ exec_elsifs([elsif(Cond, Stmts)|Rest], ElseStmts, StateIn, StateOut, Control) :-
 exec_loop_infinite(Body, StateIn, StateOut, Control) :-
     exec_statements(Body, StateIn, State1, BodyControl),
     ( BodyControl = break -> StateOut = State1, Control = normal
+    ; BodyControl = exit -> StateOut = State1, Control = exit
     ; BodyControl = return -> StateOut = State1, Control = return
     ; BodyControl = return(V) -> StateOut = State1, Control = return(V)
     ; exec_loop_infinite(Body, State1, StateOut, Control)
@@ -525,7 +544,8 @@ exec_loop_to(Var, To, Body, StateIn, StateOut, Control) :-
     -> StateOut = StateIn, Control = normal
     ;  exec_statements(Body, StateIn, State1, BodyControl),
        ( BodyControl = break -> StateOut = State1, Control = normal
-       ; BodyControl = return -> StateOut = State1, Control = return
+       ; BodyControl = exit -> StateOut = State1, Control = exit
+    ; BodyControl = return -> StateOut = State1, Control = return
        ; BodyControl = return(V) -> StateOut = State1, Control = return(V)
        ; Next is Current + 1,
          set_var(Var, Next, State1, State2),
@@ -533,12 +553,13 @@ exec_loop_to(Var, To, Body, StateIn, StateOut, Control) :-
        )
     ).
 
-exec_loop_while(Cond, Body, StateIn, StateOut, Control) :-
-    eval_full_expr(Cond, StateIn, CondVal),
+exec_loop_while(Cond, Body, StateIn0, StateOut, Control) :-
+    eval_full_expr(Cond, StateIn0, StateIn, CondVal),
     ( is_truthy(CondVal)
     -> exec_statements(Body, StateIn, State1, BodyControl),
        ( BodyControl = break -> StateOut = State1, Control = normal
-       ; BodyControl = return -> StateOut = State1, Control = return
+       ; BodyControl = exit -> StateOut = State1, Control = exit
+    ; BodyControl = return -> StateOut = State1, Control = return
        ; BodyControl = return(V) -> StateOut = State1, Control = return(V)
        ; exec_loop_while(Cond, Body, State1, StateOut, Control)
        )
@@ -548,27 +569,19 @@ exec_loop_while(Cond, Body, StateIn, StateOut, Control) :-
 exec_loop_until(Cond, Body, StateIn, StateOut, Control) :-
     exec_statements(Body, StateIn, State1, BodyControl),
     ( BodyControl = break -> StateOut = State1, Control = normal
+    ; BodyControl = exit -> StateOut = State1, Control = exit
     ; BodyControl = return -> StateOut = State1, Control = return
     ; BodyControl = return(V) -> StateOut = State1, Control = return(V)
-    ; eval_full_expr(Cond, State1, CondVal),
+    ; eval_full_expr(Cond, State1, State2, CondVal),
       ( is_truthy(CondVal)
-      -> StateOut = State1, Control = normal
-      ;  exec_loop_until(Cond, Body, State1, StateOut, Control)
+      -> StateOut = State2, Control = normal
+      ;  exec_loop_until(Cond, Body, State2, StateOut, Control)
       )
     ).
 
 %------------------------------------------------------------
 % CASE Execution
 %------------------------------------------------------------
-
-exec_case(_, [], ElseStmts, StateIn, StateOut, Control) :-
-    exec_statements(ElseStmts, StateIn, StateOut, Control).
-exec_case(Value, [case_of(CaseVal, Stmts)|Rest], ElseStmts, StateIn, StateOut, Control) :-
-    eval_full_expr(CaseVal, StateIn, MatchVal),
-    ( Value = MatchVal
-    -> exec_statements(Stmts, StateIn, StateOut, Control)
-    ;  exec_case(Value, Rest, ElseStmts, StateIn, StateOut, Control)
-    ).
 
 % Traced version of exec_case that records which branch was taken
 exec_case_traced(_, [], ElseStmts, StateIn, StateOut, Control, Index) :-
@@ -578,9 +591,10 @@ exec_case_traced(_, [], ElseStmts, StateIn, StateOut, Control, Index) :-
     ),
     exec_statements(ElseStmts, StateIn, StateOut, Control).
 exec_case_traced(Value, [case_of(range(StartExpr, EndExpr), Stmts)|Rest], ElseStmts, StateIn, StateOut, Control, Index) :- !,
-    eval_full_expr(StartExpr, StateIn, StartVal),
-    eval_full_expr(EndExpr, StateIn, EndVal),
-    ( number(Value), Value >= StartVal, Value =< EndVal
+    eval_full_expr(StartExpr, StateIn, _, StartVal),
+    eval_full_expr(EndExpr, StateIn, _, EndVal),
+    ( compare_values(O1, Value, StartVal), O1 \== (<),
+      compare_values(O2, Value, EndVal), O2 \== (>)
     -> ( is_tracing
        -> trace_case_match(Value, range(StartVal, EndVal), Index)
        ;  true
@@ -590,8 +604,8 @@ exec_case_traced(Value, [case_of(range(StartExpr, EndExpr), Stmts)|Rest], ElseSt
        exec_case_traced(Value, Rest, ElseStmts, StateIn, StateOut, Control, NextIndex)
     ).
 exec_case_traced(Value, [case_of(CaseVal, Stmts)|Rest], ElseStmts, StateIn, StateOut, Control, Index) :-
-    eval_full_expr(CaseVal, StateIn, MatchVal),
-    ( Value = MatchVal
+    eval_full_expr(CaseVal, StateIn, _, MatchVal),
+    ( compare_values(=, Value, MatchVal)
     -> ( is_tracing
        -> trace_case_match(Value, MatchVal, Index)
        ;  true
@@ -691,41 +705,192 @@ exec_accept_loop(Body, StateIn, StateOut, Control, _Phase) :-
 exec_call(Name, Args, StateIn, StateOut, Result) :-
     % Clarion is case-insensitive; builtins are registered UPPERCASE
     upcase_atom(Name, UName),
-    ( builtin_call(UName, Args, StateIn, StateOut, Result)
+    ( \+ is_builtin(UName)
+    -> exec_user_call(Name, Args, StateIn, StateOut, Result)
+    ; builtin_args(Args, StateIn, State1, BuiltinArgs),
+      builtin_call(UName, BuiltinArgs, State1, StateOut, Result)
     -> true
-    ; is_external_proc(Name, StateIn)
-    -> % External MODULE procedure — execute as stub
-       exec_external_stub(Name, Args, StateIn, StateOut, Result)
-    ; ( get_proc(Name, StateIn, procedure(_, Params, LocalVars, code(Body)))
-      -> true
-      ; throw(error(undefined_procedure(Name), context(exec_call/5, 'Undefined procedure')))
-      ),
-      eval_args(Args, StateIn, ArgVals),
-      % Trace: procedure entry
-      ( is_tracing
-      -> trace_proc_enter(Name, ArgVals),
-         add_graph_node(call, call{name: Name, args: ArgVals}, _CallNodeId)
-      ;  true
-      ),
-      bind_params(Params, ArgVals, StateIn, State1),
-      init_locals(LocalVars, State1, State2),
-      exec_statements(Body, State2, State3, Control),
-      ( Control = return(V) -> Result = V ; Result = none ),
-      % Trace: procedure exit
-      ( is_tracing
-      -> trace_proc_exit(Name, Result),
-         add_graph_node(return, return{name: Name, value: Result}, _RetNodeId)
-      ;  true
-      ),
-      % Merge globals back: keep callee's values for vars that existed in caller,
-      % discard local-only vars (params and locals)
-      StateIn = state(OuterVars, Procs, _, _, _, _, _, UI, Cont),
-      State3 = state(InnerVars, _, NewOut, NewFiles, NewErr, NewClasses, _, _, _),
-      param_names(Params, ParamNames),
-      local_names(LocalVars, LocalNames),
-      merge_globals(OuterVars, InnerVars, ParamNames, LocalNames, MergedVars),
-      StateOut = state(MergedVars, Procs, NewOut, NewFiles, NewErr, NewClasses, none, UI, Cont)
+    ; find_proc(Name, StateIn, _)
+    -> exec_user_call(Name, Args, StateIn, StateOut, Result)
+    ; length(Args, Arity),
+      throw(error(builtin_failed(UName, Arity), context(exec_call/5, 'Built-in cannot handle these arguments')))
     ).
+
+is_builtin(UName) :-
+    clause(simulator_builtins:builtin_call(UName, _, _, _, _), _), !.
+
+% Built-ins read simple arguments themselves (some need the variable, not its
+% value). Anything that may contain a call is evaluated first.
+builtin_args([], State, State, []).
+builtin_args([Arg|Args], StateIn, StateOut, [Arg1|Args1]) :-
+    ( simple_arg(Arg)
+    -> Arg1 = Arg, State1 = StateIn
+    ;  eval_full_expr(Arg, StateIn, State1, Value),
+       ( number(Value) -> Arg1 = number(Value) ; Arg1 = string(Value) )
+    ),
+    builtin_args(Args, State1, StateOut, Args1).
+
+simple_arg(var(_)).
+simple_arg(control_ref(_)).
+simple_arg(picture(_)).
+simple_arg(number(_)).
+simple_arg(string(_)).
+simple_arg(omitted).
+
+exec_user_call(Name, Args, StateIn, StateOut, Result) :-
+    ( find_proc(Name, StateIn, Proc)
+    -> Proc = procedure(ProcName, Params, LocalVars, code(Body)),
+       exec_proc(Name, ProcName, Params, LocalVars, Body, Args, StateIn, StateOut, Result)
+    ; is_external_proc(Name, StateIn)
+    -> exec_external_stub(Name, Args, StateIn, StateOut, Result)
+    ;  throw(error(undefined_procedure(Name), context(exec_call/5, 'Undefined procedure')))
+    ).
+
+% get_proc/3 without the message when there is none
+find_proc(Name, State, Proc) :-
+    get_procs(State, Procs),
+    ( Proc = procedure(Name, _, _, _), memberchk(Proc, Procs)
+    -> true
+    ;  resolve_name_alias(Name, State, ClarionName),
+       Proc = procedure(ClarionName, _, _, _), memberchk(Proc, Procs)
+    ).
+
+exec_proc(Name, ProcName, Params, LocalVars, Body, Args, StateIn, StateOut, Result) :-
+    eval_args(Args, StateIn, CallState, ArgVals),
+    % Trace: procedure entry
+    ( is_tracing
+    -> trace_proc_enter(Name, ArgVals),
+       add_graph_node(call, call{name: Name, args: ArgVals}, _CallNodeId)
+    ;  true
+    ),
+    enter_frame(Params, LocalVars, CallState, State0),
+    bind_params(Params, ArgVals, State0, State1),
+    ref_values(Params, State1, BoundRefs),
+    init_locals(LocalVars, State1, State2),
+    exec_statements(Body, State2, State3, Control),
+    ( Control = return(V) -> Result0 = V ; Result0 = none ),
+    proc_result(ProcName, Result0, StateIn, Result),
+    % Trace: procedure exit
+    ( is_tracing
+    -> trace_proc_exit(Name, Result),
+       add_graph_node(return, return{name: Name, value: Result}, _RetNodeId)
+    ;  true
+    ),
+    ref_values(Params, State3, FinalRefs),
+    leave_frame(CallState, State3, State4),
+    copy_out(Params, Args, BoundRefs, FinalRefs, State4, StateOut).
+
+% Convert a result to the MAP return type. A typed function that returns
+% nothing gives that type's empty value.
+proc_result(ProcName, Result0, State, Result) :-
+    ( get_map_proto(ProcName, State, Proto),
+      ( Proto = map_proto(_, _, Type, _) ; Proto = external_proc(_, _, _, Type, _) ),
+      Type \== void
+    -> ( Result0 == none -> type_default(Type, none, Result) ; coerce(Type, none, Result0, Result) )
+    ;  Result = Result0
+    ).
+
+%------------------------------------------------------------
+% Procedure frames
+%------------------------------------------------------------
+% A procedure sees the globals and its own parameters and locals, never its
+% caller's. var('$frame', frame(Keys, Shadowed)) records the current
+% procedure's own names and the globals they hide.
+
+enter_frame(Params, LocalVars, StateIn, StateOut) :-
+    frame_globals(StateIn, _, Globals),
+    frame_keys(Params, LocalVars, Keys),
+    partition_vars(Globals, Keys, Shadowed, Visible),
+    replace_vars([var('$frame', frame(Keys, Shadowed))|Visible], StateIn, StateOut).
+
+% CallState is the caller's state, Inner the callee's at exit.
+leave_frame(CallState, Inner, StateOut) :-
+    frame_globals(CallState, CallerFrame, GlobalsBefore),
+    get_vars(Inner, InnerVars),
+    memberchk(var('$frame', frame(InnerKeys, Shadowed)), InnerVars),
+    vars_assoc(InnerVars, InnerAssoc),
+    vars_assoc(Shadowed, ShadowAssoc),
+    % Names the callee made up itself are dropped
+    findall(var(Key, Value),
+            ( member(var(Key, _), GlobalsBefore),
+              ( key_in(Key, InnerKeys)
+              -> get_assoc(Key, ShadowAssoc, Value)
+              ;  get_assoc(Key, InnerAssoc, Value)
+              ) ),
+            Globals),
+    CallerFrame = frame(CallerKeys, Locals),
+    ( CallerKeys == none
+    -> Vars = Globals
+    ;  partition_vars(Globals, CallerKeys, CallerShadowed, Visible),
+       append([var('$frame', frame(CallerKeys, CallerShadowed))|Locals], Visible, Vars)
+    ),
+    CallState = state(_, Procs, _, _, _, _, Self, UI, Cont),
+    Inner = state(_, _, Out, Files, Err, Classes, _, _, _),
+    StateOut = state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont).
+
+% frame_globals(+State, -frame(Keys, LocalVars), -Globals)
+frame_globals(State, frame(Keys, Locals), Globals) :-
+    get_vars(State, Vars),
+    ( selectchk(var('$frame', frame(Keys, Shadowed)), Vars, Rest)
+    -> partition_vars(Rest, Keys, Locals, Visible),
+       append(Shadowed, Visible, Globals)
+    ;  Keys = none, Locals = [], Globals = Vars
+    ).
+
+frame_keys(Params, LocalVars, Keys) :-
+    param_names(Params, ParamNames),
+    local_names(LocalVars, LocalNames),
+    append(ParamNames, LocalNames, Keys).
+
+partition_vars([], _, [], []).
+partition_vars([V|Vs], Keys, In, Out) :-
+    V = var(Key, _),
+    ( key_in(Key, Keys)
+    -> In = [V|In1], Out = Out1
+    ;  In = In1, Out = [V|Out1]
+    ),
+    partition_vars(Vs, Keys, In1, Out1).
+
+key_in('$type'(Name), Keys) :- !, memberchk(Name, Keys).
+key_in(Key, Keys) :- memberchk(Key, Keys).
+
+vars_assoc(Vars, Assoc) :-
+    empty_assoc(Empty),
+    foldl([var(K, V), A0, A]>>put_assoc(K, A0, V, A), Vars, Empty, Assoc).
+
+replace_vars(Vars, state(_, Procs, Out, Files, Err, Classes, Self, UI, Cont),
+                   state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont)).
+
+%------------------------------------------------------------
+% By-reference parameters: copied back if the procedure changed them
+%------------------------------------------------------------
+
+ref_values([], _, []).
+ref_values([Param|Params], State, [Value|Values]) :-
+    ( ref_param(Param, Name), get_vars(State, Vars), memberchk(var(Name, Value0), Vars)
+    -> Value = Value0
+    ;  Value = none
+    ),
+    ref_values(Params, State, Values).
+
+ref_param(param(ref(_), Name), Name).
+ref_param(param(ref(_), Name, _, _), Name).
+
+copy_out([Param|Params], [Arg|Args], [Before|Bs], [After|As], StateIn, StateOut) :- !,
+    ( ref_param(Param, _), Before \== After, assign_lvalue(Arg, After, StateIn, State1)
+    -> true
+    ;  State1 = StateIn
+    ),
+    copy_out(Params, Args, Bs, As, State1, StateOut).
+copy_out(_, _, _, _, State, State).
+
+assign_lvalue(var(Name), Value, StateIn, StateOut) :-
+    set_var(Name, Value, StateIn, StateOut).
+assign_lvalue(array_access(Name, IndexExpr), Value, StateIn, StateOut) :-
+    eval_full_expr(IndexExpr, StateIn, _, Index),
+    assign_element(Name, Index, Value, StateIn, StateOut).
+assign_lvalue(member_access(Name, Field), Value, StateIn, StateOut) :-
+    assign_member(Name, Field, Value, StateIn, StateOut).
 
 %------------------------------------------------------------
 % External Procedure Stubs (MODULE declarations)
@@ -733,26 +898,36 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
 
 %% exec_external_stub(+Name, +Args, +StateIn, -StateOut, -Result)
 %
-% External MODULE procedures are not implemented in the simulator.
-% Returns a default value based on the MAP return type and logs the call.
+% A MODULE procedure whose source is not loaded is an error, because a made-up
+% result (0 usually means success) would hide what it was meant to do. Supply a
+% result with with_external_stubs/2. MemCopy is the one built-in exception.
+
+:- meta_predicate with_external_stubs(+, 0).
+:- thread_local external_stub/2.
+
+%% with_external_stubs(+Stubs, :Goal)
+%  Run Goal with Name=Value results for external procedures (any case). The
+%  value 'default' means the empty value of the declared return type.
+with_external_stubs(Stubs, Goal) :-
+    setup_call_cleanup(
+        findall(Ref, ( member(Name=Value, Stubs), upcase_atom(Name, U),
+                       asserta(external_stub(U, Value), Ref) ), Refs),
+        Goal,
+        maplist(erase, Refs)).
 
 % MemCopy/RtlMoveMemory simulation: copy GROUP fields from src var to dest var
 % In compiled Clarion, MemCopy(ADDRESS(dest), ADDRESS(src), SIZE(src)) copies bytes.
 % In the simulator, we find which variables correspond to the addresses and copy
 % the group value. This is a best-effort simulation.
-exec_external_stub('MemCopy', [DestExpr, SrcExpr, _LenExpr], StateIn, StateIn, 0) :-
-    !,
-    % Evaluate the address expressions
-    eval_full_expr(DestExpr, StateIn, _DestAddr),
-    eval_full_expr(SrcExpr, StateIn, _SrcAddr),
-    % MemCopy in the simulator is a no-op since ADDRESS returns synthetic values.
-    % The actual field copying is done by the Clarion code via direct assignment
-    % (e.g., TB:Month = TR:Month). MemCopy only matters for passing structs to
-    % external callers via pointer, which the simulator doesn't model.
-    true.
+exec_external_stub('MemCopy', [DestExpr, SrcExpr, _LenExpr], StateIn, StateOut, 0) :- !,
+    % A no-op: ADDRESS returns synthetic values, and Clarion code copies the
+    % fields by assignment (e.g. TB:Month = TR:Month). Only external callers
+    % that take a pointer would see the difference.
+    eval_full_expr(DestExpr, StateIn, State1, _DestAddr),
+    eval_full_expr(SrcExpr, State1, StateOut, _SrcAddr).
 
 exec_external_stub(Name, Args, StateIn, StateOut, Result) :-
-    eval_args(Args, StateIn, ArgVals),
+    eval_args(Args, StateIn, StateOut, ArgVals),
     % Look up the MAP prototype for return type info
     ( get_map_proto(Name, StateIn, Proto)
     -> ( Proto = external_proc(_, ModName, _, RetType, _)
@@ -761,13 +936,14 @@ exec_external_stub(Name, Args, StateIn, StateOut, Result) :-
        )
     ;  RetType = void, ModName = unknown
     ),
-    % Default return value based on return type
-    ( RetType = void -> Result = none
-    ; member(RetType, ['LONG', 'SHORT', 'BYTE', 'DECIMAL', 'PDECIMAL', 'DATE', 'TIME'])
-      -> Result = 0
-    ; member(RetType, ['REAL', 'SREAL']) -> Result = 0.0
-    ; member(RetType, ['STRING', 'CSTRING', 'PSTRING']) -> Result = ""
-    ; Result = 0
+    upcase_atom(Name, UName),
+    ( external_stub(UName, Stub)
+    -> ( Stub \== default -> Result = Stub
+       ; RetType == void -> Result = none
+       ; type_default(RetType, none, Result)
+       )
+    ;  throw(error(unresolved_external(Name, ModName),
+                   context(exec_call/5, 'Procedure source not loaded; see with_external_stubs/2')))
     ),
     % Trace if enabled
     ( is_tracing
@@ -777,64 +953,36 @@ exec_external_stub(Name, Args, StateIn, StateOut, Result) :-
        add_graph_node(return, return{type: external, name: Name, value: Result}, _)
     ;  true
     ),
-    format("  [EXTERNAL ~w:~w(~w) -> ~w]~n", [ModName, Name, ArgVals, Result]),
-    StateOut = StateIn.
-
-%% merge_globals(+OuterVars, +InnerVars, +ParamNames, +LocalNames, -MergedVars)
-% For each outer var, pick its value from inner vars (if updated), otherwise keep outer value.
-merge_globals([], _, _, _, []).
-merge_globals([var(Name, _OldVal)|Rest], InnerVars, ParamNames, LocalNames, [var(Name, NewVal)|MergedRest]) :-
-    member(var(Name, NewVal), InnerVars), !,
-    merge_globals(Rest, InnerVars, ParamNames, LocalNames, MergedRest).
-merge_globals([Var|Rest], InnerVars, ParamNames, LocalNames, [Var|MergedRest]) :-
-    merge_globals(Rest, InnerVars, ParamNames, LocalNames, MergedRest).
+    format("  [EXTERNAL ~w:~w(~w) -> ~w]~n", [ModName, Name, ArgVals, Result]).
 
 param_names([], []).
 param_names([param(_, Name)|Rest], [Name|Names]) :- param_names(Rest, Names).
 param_names([param(_, Name, _, _)|Rest], [Name|Names]) :- param_names(Rest, Names).
 
 local_names([], []).
-local_names([local_var(Name, _, _)|Rest], [Name|Names]) :- local_names(Rest, Names).
-local_names([local_decl(group(Name, _, _))|Rest], [Name|Names]) :- local_names(Rest, Names).
-local_names([var(Name, _, _)|Rest], [Name|Names]) :- local_names(Rest, Names).
+local_names([local_var(Name, _, _)|Rest], [Name|Names]) :- !, local_names(Rest, Names).
+local_names([local_decl(group(Name, Prefix, _))|Rest], [Name, group_prefix(Prefix)|Names]) :- !,
+    local_names(Rest, Names).
+local_names([var(Name, _, _)|Rest], [Name|Names]) :- !, local_names(Rest, Names).
 local_names([_|Rest], Names) :- local_names(Rest, Names).
 
-eval_args([], _, []).
-eval_args([Arg|Args], State, [Val|Vals]) :-
-    eval_full_expr(Arg, State, Val),
-    eval_args(Args, State, Vals).
+eval_args([], State, State, []).
+eval_args([Arg|Args], StateIn, StateOut, [Val|Vals]) :-
+    eval_full_expr(Arg, StateIn, State1, Val),
+    eval_args(Args, State1, StateOut, Vals).
 
-bind_params([], [], State, State).
-% Omitted argument (f(, a)): bind the parameter's default value
-bind_params([P|Params], [omitted|Vals], StateIn, StateOut) :- !,
-    ( P = param(Type, Name, optional, Default) -> true
-    ; P = param(Type, Name), Default = none ),
-    ( Default = none -> default_value(Type, none, Val) ; eval_full_expr(Default, StateIn, Val) ),
-    set_var(Name, Val, StateIn, State1),
-    bind_params(Params, Vals, State1, StateOut).
-% Required parameter with value provided
-bind_params([param(_, Name)|Params], [Val|Vals], StateIn, StateOut) :-
-    set_var(Name, Val, StateIn, State1),
-    bind_params(Params, Vals, State1, StateOut).
-% Optional parameter with value provided
-bind_params([param(_, Name, optional, _)|Params], [Val|Vals], StateIn, StateOut) :-
-    set_var(Name, Val, StateIn, State1),
-    bind_params(Params, Vals, State1, StateOut).
-% Optional parameter without value - use default
-bind_params([param(Type, Name, optional, Default)|Params], [], StateIn, StateOut) :-
-    ( Default = none
-    -> default_value(Type, none, Val)
-    ;  eval_full_expr(Default, StateIn, Val)
+bind_params([], _, State, State).      % extra arguments are ignored
+bind_params([Param|Params], Vals0, StateIn, StateOut) :-
+    ( Param = param(Type, Name, optional, Default) -> true
+    ; Param = param(Type, Name), Default = none ),
+    ( Vals0 = [V|Vals] -> true ; V = omitted, Vals = [] ),
+    ( V \== omitted -> Val = V
+    ; Default == none -> split_type(Type, T, Size), default_value(T, Size, Val)
+    ; eval_full_expr(Default, StateIn, _, Val)
     ),
-    set_var(Name, Val, StateIn, State1),
-    bind_params(Params, [], State1, StateOut).
-% Extra args - ignore
-bind_params([], [_|_], State, State).
-% Missing required args - use type defaults
-bind_params([param(Type, Name)|Params], [], StateIn, StateOut) :-
-    default_value(Type, none, Val),
-    set_var(Name, Val, StateIn, State1),
-    bind_params(Params, [], State1, StateOut).
+    declare_type(Name, Type, StateIn, State1),
+    set_var(Name, Val, State1, State2),
+    bind_params(Params, Vals, State2, StateOut).
 
 init_locals([], State, State).
 init_locals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
@@ -847,7 +995,8 @@ init_locals([local_var(Name, custom(ClassName), _)|Rest], StateIn, StateOut) :-
     init_locals(Rest, State1, StateOut).
 init_locals([local_var(Name, Type, init(InitVal))|Rest], StateIn, StateOut) :-
     Type \= custom(_), InitVal \= none, !,
-    set_var(Name, InitVal, StateIn, State1),
+    declare_type(Name, Type, StateIn, State0),
+    set_var(Name, InitVal, State0, State1),
     init_locals(Rest, State1, StateOut).
 init_locals([local_var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
     Type \= custom(_),
@@ -870,7 +1019,7 @@ exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, Result) :-
     Instance = instance(ClassName, _),
     find_method_impl(ClassName, MethodName, StateIn, MethodImpl),
     MethodImpl = method_impl(ImplClass, MethodName, Params, LocalVars, code(Body)),
-    eval_args(Args, StateIn, ArgVals),
+    eval_args(Args, StateIn, ArgState, ArgVals),
     % Trace: method entry
     ( is_tracing
     -> trace_method_enter(ObjName, MethodName, ArgVals),
@@ -878,7 +1027,7 @@ exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, Result) :-
     ;  true
     ),
     get_class_def(ClassName, StateIn, class_def(ClassName, ParentClass, _, _)),
-    set_self(self_context(ObjName, ImplClass, ParentClass), StateIn, State1),
+    set_self(self_context(ObjName, ImplClass, ParentClass), ArgState, State1),
     bind_params(Params, ArgVals, State1, State2),
     init_locals(LocalVars, State2, State3),
     exec_statements(Body, State3, State4, Control),
@@ -889,11 +1038,25 @@ exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, Result) :-
        add_graph_node(return, return{type: method, object: ObjName, method: MethodName, value: Result}, _)
     ;  true
     ),
-    State4 = state(_, Procs, NewOut, NewFiles, NewErr, NewClasses, _, UI, Cont),
-    get_var(ObjName, State4, UpdatedInstance),
-    set_var(ObjName, UpdatedInstance, StateIn, State5),
-    State5 = state(Vars5, _, _, _, _, _, _, _, _),
-    StateOut = state(Vars5, Procs, NewOut, NewFiles, NewErr, NewClasses, none, UI, Cont).
+    leave_method(Params, LocalVars, ArgState, State4, StateOut).
+
+% A method works on its caller's variables (its instance may be one of them),
+% so on exit only its own parameters and locals are put back.
+leave_method(Params, LocalVars, Before, Inner, StateOut) :-
+    frame_keys(Params, LocalVars, Keys),
+    get_vars(Before, VarsBefore),
+    get_vars(Inner, VarsInner),
+    vars_assoc(VarsInner, InnerAssoc),
+    findall(var(Key, Value),
+            ( member(var(Key, Value0), VarsBefore),
+              ( \+ key_in(Key, Keys), get_assoc(Key, InnerAssoc, Value1)
+              -> Value = Value1
+              ;  Value = Value0
+              ) ),
+            Vars),
+    get_self(Before, Self),
+    replace_vars(Vars, Inner, State1),
+    set_self(Self, State1, StateOut).
 
 exec_parent_call(MethodName, Args, StateIn, StateOut, Result) :-
     get_self(StateIn, self_context(ObjName, CurrentClass, _)),
@@ -901,15 +1064,14 @@ exec_parent_call(MethodName, Args, StateIn, StateOut, Result) :-
     ( ParentClass \= none
     -> find_method_impl(ParentClass, MethodName, StateIn, MethodImpl),
        MethodImpl = method_impl(ImplClass, MethodName, Params, LocalVars, code(Body)),
-       eval_args(Args, StateIn, ArgVals),
+       eval_args(Args, StateIn, ArgState, ArgVals),
        get_class_def(ImplClass, StateIn, class_def(ImplClass, GrandParent, _, _)),
-       set_self(self_context(ObjName, ImplClass, GrandParent), StateIn, State1),
+       set_self(self_context(ObjName, ImplClass, GrandParent), ArgState, State1),
        bind_params(Params, ArgVals, State1, State2),
        init_locals(LocalVars, State2, State3),
        exec_statements(Body, State3, State4, Control),
        ( Control = return(V) -> Result = V ; Result = none ),
-       get_self(StateIn, OrigSelf),
-       set_self(OrigSelf, State4, StateOut)
+       leave_method(Params, LocalVars, ArgState, State4, StateOut)
     ;  format(user_error, "Error: No parent class for PARENT call~n", []),
        StateOut = StateIn, Result = none
     ).

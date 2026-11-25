@@ -125,10 +125,10 @@ top_decls(Files, Groups, Globals) -->
 top_decl_item(file(Name, Prefix, Attrs, Fields)) -->
     ident(Name), ws, kw("FILE"), ws, !,
     file_attrs(Attrs0, Prefix), ws,
-    key_decls(_Keys), ws,
+    key_decls(Keys), ws,
     record_block(Fields), ws,
     end_or_dot,
-    { exclude_pre(Attrs0, Attrs) }.
+    { exclude_pre(Attrs0, Attrs1), append(Attrs1, Keys, Attrs) }.
 
 % GROUP declaration
 top_decl_item(group(Name, Prefix, Fields)) -->
@@ -138,11 +138,16 @@ top_decl_item(group(Name, Prefix, Fields)) -->
     end_or_dot.
 
 % QUEUE declaration (with optional ,PRE(prefix) and END or . terminator)
-top_decl_item(queue(Name, Fields)) -->
+top_decl_item(Queue) -->
     ident(Name), ws, kw("QUEUE"), ws, !,
-    queue_attrs(_), ws,
+    queue_attrs(Prefix), ws,
     field_list(Fields), ws,
-    end_or_dot.
+    end_or_dot,
+    { queue_term(Name, Prefix, Fields, Queue) }.
+
+% queue(Name, Fields), or queue(Name, Prefix, Fields) when it has a PRE
+queue_term(Name, none, Fields, queue(Name, Fields)) :- !.
+queue_term(Name, Prefix, Fields, queue(Name, Prefix, Fields)).
 
 queue_attrs(Pre) --> ",", ws, kw("PRE"), ws, "(", ws,
     ( ident(Pre) ; { Pre = none } ), ws,
@@ -477,6 +482,8 @@ partition_decls([window(N,T)|Is], Fs, Gs, [window(N,T)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([queue(N,F)|Is], Fs, Gs, [queue(N,F)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
+partition_decls([queue(N,P,F)|Is], Fs, Gs, [queue(N,P,F)|Vs]) :-
+    partition_decls(Is, Fs, Gs, Vs).
 partition_decls([class(N,P,A,M)|Is], Fs, Gs, [class(N,P,A,M)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([equate(N,V)|Is], Fs, Gs, [equate(N,V)|Vs]) :-
@@ -698,12 +705,13 @@ local_vars([L|Ls]) --> local_var(L), !, ws, local_vars(Ls).
 local_vars([]) --> [].
 
 % Local QUEUE declaration: Name QUEUE[(BaseType)][,PRE(x)][,TYPE]
-local_var(queue(Name, Fields)) -->
+local_var(Queue) -->
     ident(Name), ws, kw("QUEUE"), ws, !,
     ( "(", ws, word(_), ws, ")" ; [] ), ws,
-    queue_attrs(_), ws,
+    queue_attrs(Prefix), ws,
     field_list(Fields), ws,
-    end_or_dot.
+    end_or_dot,
+    { queue_term(Name, Prefix, Fields, Queue) }.
 
 % Local WINDOW declaration — parse title then skip body
 % Use callable_name instead of ident because the variable name may match the WINDOW keyword

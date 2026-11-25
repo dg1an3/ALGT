@@ -15,6 +15,7 @@
 :- use_module(simulator_state).
 :- use_module(simulator_eval).
 :- use_module(storage_backend).
+:- use_module(clarion_types).
 
 :- discontiguous builtin_call/5.
 
@@ -184,16 +185,57 @@ builtin_call('POWER', [BaseExpr, ExpExpr], StateIn, StateIn, Result) :-
     eval_expr(ExpExpr, StateIn, Exp),
     Result is Base ** Exp.
 
-% SIZE(var) - returns byte size of a GROUP or FILE record
+% SIZE(x) - bytes in a record (PRE:Record or file), group, field or variable
 builtin_call('SIZE', [var(Name)], StateIn, StateIn, Size) :-
-    ( get_file_state(Name, StateIn, file_state(_, _, _, Fields, _, _, _, _))
-    -> length(Fields, NFields), Size is NFields * 4
-    ; get_var(Name, StateIn, group_val(_, Fields, _))
-    -> length(Fields, NFields), Size is NFields * 4
-    ; get_var(Name, StateIn, group_val(Fields, _))
-    -> length(Fields, NFields), Size is NFields * 4
-    ; Size = 0
+    ( size_of(Name, StateIn, Size0) -> Size = Size0
+    ; throw(error(unknown_size(Name), context('SIZE', 'Cannot tell how many bytes this is')))
     ).
+
+size_of(Name, State, Size) :-
+    get_file_state(Name, State, file_state(_, _, _, Fields, _, _, _, _)),
+    fields_bytes(Fields, Size).
+size_of(Name, State, Size) :-
+    parse_prefixed_name(Name, Prefix, Field),
+    ( find_file_by_prefix(Prefix, State, FileState) ; get_file_state(Prefix, State, FileState) ),
+    FileState = file_state(_, _, _, Fields, _, _, _, _), !,
+    ( Field == 'Record'
+    -> fields_bytes(Fields, Size)
+    ;  memberchk(field(Field, Type, FieldSize), Fields),
+       type_bytes(Type, FieldSize, Size)
+    ).
+size_of(Name, State, Size) :-
+    get_vars(State, Vars),
+    memberchk(var(Name, Value), Vars),
+    ( Value = group_val(_, Fields, _) -> fields_bytes(Fields, Size)
+    ; Value = group_val(Fields, _) -> fields_bytes(Fields, Size)
+    ; declared_type(Name, State, Type, TypeSize),
+      type_bytes(Type, TypeSize, Each),
+      ( Value = array(Elements) -> length(Elements, Count), Size is Each * Count ; Size = Each )
+    ).
+
+fields_bytes(Fields, Size) :-
+    findall(B, ( member(field(_, Type, FieldSize), Fields), type_bytes(Type, FieldSize, B) ), Bytes),
+    sum_list(Bytes, Size).
+
+% The DOS driver addresses records by byte position, others by record number
+record_pointer(FileName, State, Index, Pointer) :-
+    byte_addressed(FileName, State, RecordSize), !,
+    Pointer is Index * RecordSize + 1.
+record_pointer(_, _, Index, Pointer) :-
+    Pointer is Index + 1.
+
+pointer_record(FileName, State, Pointer, Index) :-
+    byte_addressed(FileName, State, RecordSize), !,
+    (Pointer - 1) mod RecordSize =:= 0,
+    Index is (Pointer - 1) // RecordSize.
+pointer_record(_, _, Pointer, Index) :-
+    Index is Pointer - 1.
+
+byte_addressed(FileName, State, RecordSize) :-
+    get_file_driver(FileName, State, 'DOS'),
+    get_file_state(FileName, State, file_state(_, _, _, Fields, _, _, _, _)),
+    fields_bytes(Fields, RecordSize),
+    RecordSize > 0.
 
 % ADDRESS(var) - returns a unique simulated address per variable name
 % Uses a deterministic hash: sum of char codes * 1000 + offset, ensuring
@@ -208,7 +250,7 @@ builtin_call('ADDRESS', [_], StateIn, StateIn, 65536).
 % POINTER(file) - returns current file pointer position
 builtin_call('POINTER', [var(FileName)], StateIn, StateIn, Pos) :-
     ( get_file_state(FileName, StateIn, file_state(_, _, _, _, _, _, P, _))
-    -> Pos is P + 1  % Clarion POINTER is 1-based
+    -> ( P >= 0 -> record_pointer(FileName, StateIn, P, Pos) ; Pos = 0 )
     ; Pos = 0
     ).
 
@@ -263,9 +305,16 @@ builtin_call('CREATE', [var(FileName)], StateIn, StateOut, none) :-
 builtin_call('OPEN', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
     -> get_file_driver(FileName, StateIn, Driver),
-       storage_call(storage_open(Driver, FileName, FileState, NewFileState), Code),
-       finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
-       ( Code =:= 0 -> format("  [OPEN ~w]~n", [FileName]) ; true )
+       ( FileState = file_state(_, _, _, _, _, _, _, true)
+       -> set_error(52, StateIn, StateOut)
+       ;  storage_call(storage_open(Driver, FileName, FileState, NewFileState), Code),
+          finish_storage(Code, FileName, NewFileState, StateIn, State1),
+          ( Code =:= 0
+          -> set_cursor(FileName, cursor(none, start), State1, StateOut),
+             format("  [OPEN ~w]~n", [FileName])
+          ;  StateOut = State1
+          )
+       )
     ;  set_error(2, StateIn, StateOut)
     ).
 
@@ -292,141 +341,159 @@ builtin_call('CLEAR', [var(RecordRef)], StateIn, StateOut, none) :-
 
 % EMPTY(file) - Delete all records from file (dispatches to storage backend)
 builtin_call('EMPTY', [var(FileName)], StateIn, StateOut, none) :-
-    ( get_file_state(FileName, StateIn, FileState)
+    open_file(FileName, StateIn, FileState, Code0),
+    ( Code0 =:= 0
     -> get_file_driver(FileName, StateIn, Driver),
        storage_call(storage_empty(Driver, FileState, NewFileState), Code),
-       finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
-       ( Code =:= 0 -> format("  [EMPTY ~w]~n", [FileName]) ; true )
-    ;  set_error(2, StateIn, StateOut)
+       finish_storage(Code, FileName, NewFileState, StateIn, State1),
+       ( Code =:= 0
+       -> set_cursor(FileName, cursor(none, start), State1, StateOut),
+          format("  [EMPTY ~w]~n", [FileName])
+       ;  StateOut = State1
+       )
+    ;  set_error(Code0, StateIn, StateOut)
     ).
 
-% ADD(file) - Add current buffer as new record (dispatches to storage backend)
+% ADD(file) - Add current buffer as new record (dispatches to storage backend).
+% The new record becomes the current one for PUT and DELETE.
 builtin_call('ADD', [var(FileName)], StateIn, StateOut, none) :-
-    ( get_file_state(FileName, StateIn, FileState)
-    -> get_file_driver(FileName, StateIn, Driver),
-       storage_call(storage_add(Driver, FileState, NewFileState), Code),
+    open_file(FileName, StateIn, FileState, Code0),
+    ( Code0 =\= 0
+    -> set_error(Code0, StateIn, StateOut)
+    ; duplicate_key(FileState, none)
+    -> set_error(40, StateIn, StateOut)
+    ;  get_file_driver(FileName, StateIn, Driver),
+       storage_call(storage_add(Driver, FileState, NewFileState0), Code),
+       ( Code =:= 0
+       -> NewFileState0 = file_state(N, P, K, F, Records, B, _, O),
+          length(Records, Count), Pos is Count - 1,
+          NewFileState = file_state(N, P, K, F, Records, B, Pos, O)
+       ;  true
+       ),
        finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
        ( Code =:= 0 -> format("  [ADD to ~w]~n", [FileName]) ; true )
-    ;  set_error(2, StateIn, StateOut)
-    ).
-
-% GET(file/queue, index) - Get record by 1-based position
-builtin_call('GET', [var(FileName), IndexExpr], StateIn, StateOut, none) :-
-    IndexExpr \= var(_),
-    eval_expr(IndexExpr, StateIn, Index),
-    integer(Index),
-    ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, _, _, Open),
-       Pos is Index - 1,  % Convert 1-based to 0-based
-       length(Records, NumRecords),
-       ( Pos >= 0, Pos < NumRecords
-       -> nth0(Pos, Records, NewBuffer),
-          NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, NewBuffer, Pos, Open),
-          set_file_state(FileName, NewFileState, StateIn, State1),
-          set_error(0, State1, StateOut)
-       ;  set_error(33, StateIn, StateOut)
-       )
-    ;  set_error(2, StateIn, StateOut)
     ).
 
 % GET(file, key) - Get record by key (dispatches to storage backend)
-builtin_call('GET', [var(FileName), var(KeyRef)], StateIn, StateOut, none) :-
-    ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, _Records, Buffer, _, _Open),
-       ( parse_prefixed_name(KeyRef, Prefix, KeyName)
-       -> true
-       ; KeyName = KeyRef
-       ),
-       ( member(key(KeyName, KeyFields), Keys)
-       -> get_key_values(KeyFields, Prefix, Fields, Buffer, SearchValues),
-          get_file_driver(FileName, StateIn, Driver),
-          ( storage_get(Driver, key_search(KeyName, KeyFields, SearchValues), FileState, NewFileState)
-          -> set_file_state(FileName, NewFileState, StateIn, State1),
-             set_error(0, State1, StateOut)
-          ;  set_error(33, StateIn, StateOut)
-          )
-       ;  set_error(47, StateIn, StateOut)
-       )
-    ;  set_error(2, StateIn, StateOut)
+% GET(queue, field) - Get queue entry matching a field
+% GET(file/queue, pointer) - Get record by 1-based position
+% GET does not affect SET/NEXT/PREVIOUS.
+builtin_call('GET', [var(FileName), Arg], StateIn, StateOut, none) :-
+    open_file(FileName, StateIn, FileState, Code0),
+    ( Code0 =\= 0
+    -> set_error(Code0, StateIn, StateOut)
+    ; get_target(Arg, FileName, FileState, StateIn, Target)
+    -> get_record(Target, FileName, FileState, StateIn, StateOut)
+    ;  set_error(47, StateIn, StateOut)
+    ).
+
+get_target(var(Ref), FileName, FileState, State, Target) :-
+    ( file_key(Ref, FileState, KeyName, KeyFields)
+    -> Target = key(KeyName, KeyFields)
+    ; is_queue(FileName, State), queue_field(Ref, FileName, FileState, Field)
+    -> Target = field(Field)
+    ; plain_variable(Ref, State)
+    -> get_var(Ref, State, Value), to_number(Value, N), Target = pointer(N)
+    ).
+get_target(Arg, _, _, State, pointer(N)) :-
+    Arg \= var(_),
+    eval_expr(Arg, State, Value),
+    to_number(Value, N).
+
+plain_variable(Name, State) :-
+    get_vars(State, Vars),
+    memberchk(var(Name, _), Vars).
+
+get_record(key(KeyName, KeyFields), FileName, FileState, StateIn, StateOut) :-
+    FileState = file_state(_, Prefix, _, Fields, _, Buffer, _, _),
+    get_key_values(KeyFields, Prefix, Fields, Buffer, SearchValues),
+    get_file_driver(FileName, StateIn, Driver),
+    ( storage_call(storage_get(Driver, key_search(KeyName, KeyFields, SearchValues),
+                               FileState, NewFileState), Code)
+    -> ( Code =:= 0 -> typed_buffer(NewFileState, Typed) ; Typed = NewFileState ),
+       finish_storage(Code, FileName, Typed, StateIn, StateOut)
+    ;  set_error(35, StateIn, StateOut)
+    ).
+get_record(field(Field), FileName, FileState, StateIn, StateOut) :-
+    FileState = file_state(_, _, _, Fields, Records, Buffer, _, _),
+    nth0(FieldIdx, Fields, field(Field, _, _)), !,
+    nth0(FieldIdx, Buffer, Wanted),
+    ( nth0(Pos, Records, Record), nth0(FieldIdx, Record, Value),
+      compare_values(=, Value, Wanted)
+    -> current_record(Pos, FileName, FileState, StateIn, StateOut)
+    ;  set_error(30, StateIn, StateOut)
+    ).
+get_record(pointer(Index), FileName, FileState, StateIn, StateOut) :-
+    FileState = file_state(_, _, _, _, Records, _, _, _),
+    Pointer is truncate(Index),
+    length(Records, Count),
+    ( pointer_record(FileName, StateIn, Pointer, Pos), Pos >= 0, Pos < Count
+    -> current_record(Pos, FileName, FileState, StateIn, StateOut)
+    ; is_queue(FileName, StateIn)
+    -> set_error(30, StateIn, StateOut)
+    ;  set_error(35, StateIn, StateOut)
     ).
 
 % PUT(file) - Update current record (dispatches to storage backend)
 builtin_call('PUT', [var(FileName)], StateIn, StateOut, none) :-
-    ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(_, _, _, _, _, _, Pos, _),
-       get_file_driver(FileName, StateIn, Driver),
-       ( storage_call(storage_put(Driver, FileState, NewFileState), Code)
-       -> finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
-          ( Code =:= 0 -> format("  [PUT to ~w at position ~w]~n", [FileName, Pos]) ; true )
-       ;  set_error(33, StateIn, StateOut)
+    open_file(FileName, StateIn, FileState, Code0),
+    ( Code0 =\= 0
+    -> set_error(Code0, StateIn, StateOut)
+    ;  FileState = file_state(_, _, _, _, _, _, Pos, _),
+       ( duplicate_key(FileState, Pos)
+       -> set_error(40, StateIn, StateOut)
+       ;  get_file_driver(FileName, StateIn, Driver),
+          ( storage_call(storage_put(Driver, FileState, NewFileState), Code)
+          -> finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
+             ( Code =:= 0 -> format("  [PUT to ~w at position ~w]~n", [FileName, Pos]) ; true )
+          ;  set_error(33, StateIn, StateOut)
+          )
        )
-    ;  set_error(2, StateIn, StateOut)
     ).
 
 % DELETE(file) - Delete current record (dispatches to storage backend)
 builtin_call('DELETE', [var(FileName)], StateIn, StateOut, none) :-
-    ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(_, _, _, _, _, _, Pos, _),
+    open_file(FileName, StateIn, FileState, Code0),
+    ( Code0 =\= 0
+    -> set_error(Code0, StateIn, StateOut)
+    ;  FileState = file_state(_, _, _, _, _, _, Pos, _),
        get_file_driver(FileName, StateIn, Driver),
-       ( Pos >= 0
-       -> ( storage_call(storage_delete(Driver, FileState, NewFileState), Code)
-          -> finish_storage(Code, FileName, NewFileState, StateIn, StateOut),
-             ( Code =:= 0 -> format("  [DELETE from ~w at position ~w]~n", [FileName, Pos]) ; true )
-          ;  set_error(33, StateIn, StateOut)
+       ( Pos >= 0, storage_call(storage_delete(Driver, FileState, NewFileState), Code)
+       -> finish_storage(Code, FileName, NewFileState, StateIn, State1),
+          ( Code =:= 0
+          -> cursor_after_delete(FileName, Pos, State1, StateOut),
+             format("  [DELETE from ~w at position ~w]~n", [FileName, Pos])
+          ;  StateOut = State1
           )
        ;  set_error(33, StateIn, StateOut)
        )
-    ;  set_error(2, StateIn, StateOut)
     ).
 
-% SET(file) or SET(key) - Set file position to beginning (dispatches to storage backend)
+% SET(file)     - record order, from the start
+% SET(key)      - key order, from the start
+% SET(key, key) - key order, from the key values now in the record buffer
 builtin_call('SET', [var(Ref)], StateIn, StateOut, none) :-
-    ( get_file_state(Ref, StateIn, FileState)
-    -> get_file_driver(Ref, StateIn, Driver),
-       storage_set(Driver, FileState, NewFileState),
-       set_file_state(Ref, NewFileState, StateIn, State1),
+    ( get_file_state(Ref, StateIn, _)
+    -> set_cursor(Ref, cursor(none, start), StateIn, State1),
        set_error(0, State1, StateOut)
-    ; parse_prefixed_name(Ref, Prefix, _KeyName)
-    -> find_file_by_prefix(Prefix, StateIn, FileState),
-       FileState = file_state(FileName, _, _, _, _, _, _, _),
-       get_file_driver(FileName, StateIn, Driver),
-       storage_set(Driver, FileState, NewFileState),
-       set_file_state(FileName, NewFileState, StateIn, State1),
+    ; find_key(Ref, StateIn, FileName, KeyName, _)
+    -> set_cursor(FileName, cursor(KeyName, start), StateIn, State1),
        set_error(0, State1, StateOut)
-    ;  set_error(2, StateIn, StateOut)
+    ;  set_error(47, StateIn, StateOut)
     ).
+builtin_call('SET', [var(Ref), var(Ref2)], StateIn, StateOut, none) :-
+    find_key(Ref, StateIn, FileName, KeyName, KeyFields),
+    find_key(Ref2, StateIn, FileName, KeyName, _),
+    get_file_state(FileName, StateIn, file_state(_, Prefix, _, Fields, _, Buffer, _, _)),
+    get_key_values(KeyFields, Prefix, Fields, Buffer, Values),
+    set_cursor(FileName, cursor(KeyName, from(Values)), StateIn, State1),
+    set_error(0, State1, StateOut).
 
-% NEXT(file) - Read next record (dispatches to storage backend)
+% NEXT(file) / PREVIOUS(file) - read along the order chosen by SET
 builtin_call('NEXT', [var(FileName)], StateIn, StateOut, none) :-
-    ( get_file_state(FileName, StateIn, FileState)
-    -> get_file_driver(FileName, StateIn, Driver),
-       ( storage_next(Driver, FileState, NewFileState)
-       -> set_file_state(FileName, NewFileState, StateIn, State1),
-          set_error(0, State1, StateOut)
-       ;  set_error(33, StateIn, StateOut)
-       )
-    ;  set_error(2, StateIn, StateOut)
-    ).
-
-% PREVIOUS(file) - Read previous record
+    step_cursor(next, FileName, StateIn, StateOut).
 builtin_call('PREVIOUS', [var(FileName)], StateIn, StateOut, none) :-
-    ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, Records, _, Pos, Open),
-       ( Pos < 0
-       -> % If position is -1 (after SET), start from last record
-          length(Records, NumRecords),
-          PrevPos is NumRecords - 1
-       ;  PrevPos is Pos - 1
-       ),
-       ( PrevPos >= 0
-       -> nth0(PrevPos, Records, NewBuffer),
-          NewFileState = file_state(FileName, Prefix, Keys, Fields, Records, NewBuffer, PrevPos, Open),
-          set_file_state(FileName, NewFileState, StateIn, State1),
-          set_error(0, State1, StateOut)
-       ;  set_error(33, StateIn, StateOut)
-       )
-    ;  set_error(2, StateIn, StateOut)
-    ).
+    step_cursor(previous, FileName, StateIn, StateOut).
 
 % RECORDS(file) - Get number of records (dispatches to storage backend)
 builtin_call('RECORDS', [var(FileName)], StateIn, StateIn, Count) :-
@@ -556,8 +623,11 @@ get_event_phase(_, none).
 
 error_message(0, "").
 error_message(2, "File not found").
-error_message(33, "Record not found").
+error_message(30, "Entry not found").
+error_message(33, "Record not available").
+error_message(35, "Record not found").
 error_message(37, "File not open").
+error_message(40, "Creates duplicate key").
 error_message(47, "Invalid key").
 error_message(52, "File already open").
 error_message(89, "Record changed by another station").
@@ -567,6 +637,125 @@ error_message(_, "Unknown error").
 %------------------------------------------------------------
 % File I/O Helpers
 %------------------------------------------------------------
+
+%% open_file(+Name, +State, -FileState, -Code)
+%  Code is 0, 2 (no such file) or 37 (not open).
+open_file(Name, State, FileState, Code) :-
+    ( get_file_state(Name, State, FileState0)
+    -> FileState = FileState0,
+       ( FileState = file_state(_, _, _, _, _, _, _, true) -> Code = 0 ; Code = 37 )
+    ;  Code = 2
+    ).
+
+% Make the record at Pos the current one
+current_record(Pos, FileName, file_state(FileName, P, K, F, Records, _, _, O), StateIn, StateOut) :-
+    nth0(Pos, Records, Record),
+    typed_buffer(file_state(FileName, P, K, F, Records, Record, Pos, O), NewFileState),
+    set_file_state(FileName, NewFileState, StateIn, State1),
+    set_error(0, State1, StateOut).
+
+% Stored values may come from outside (CSV, database): convert the buffer to
+% the declared field types. Records themselves keep the stored form.
+typed_buffer(file_state(N, P, K, Fields, R, Buffer, Pos, O),
+             file_state(N, P, K, Fields, R, Typed, Pos, O)) :-
+    typed_values(Fields, Buffer, Typed).
+
+typed_values([field(_, Type, Size)|Fs], [V|Vs], [T|Ts]) :- !,
+    coerce(Type, Size, V, T),
+    typed_values(Fs, Vs, Ts).
+typed_values(_, _, []).
+
+% A key reference is PRE:Key, or Key when the file has no prefix
+file_key(Ref, file_state(_, Prefix, Keys, _, _, _, _, _), KeyName, KeyFields) :-
+    ( parse_prefixed_name(Ref, Prefix, KeyName0) -> true ; KeyName0 = Ref ),
+    memberchk(key(KeyName0, KeyFields), Keys),
+    KeyName = KeyName0.
+
+find_key(Ref, State, FileName, KeyName, KeyFields) :-
+    get_files(State, Files),
+    member(FileState, Files),
+    FileState = file_state(FileName, _, _, _, _, _, _, _),
+    file_key(Ref, FileState, KeyName, KeyFields), !.
+
+queue_field(Ref, FileName, file_state(_, Prefix, _, Fields, _, _, _, _), Field) :-
+    parse_prefixed_name(Ref, Qualifier, Field),
+    ( Qualifier == FileName ; Qualifier == Prefix ), !,
+    memberchk(field(Field, _, _), Fields).
+
+key_attributes(KeyName, Keys, Attrs) :-
+    ( memberchk(key_attrs(KeyName, Attrs0), Keys) -> Attrs = Attrs0 ; Attrs = [] ).
+
+% The buffer repeats a unique key of some record other than the one at Pos.
+% A key is unique unless DUP; OPT ignores blank key values.
+duplicate_key(file_state(_, Prefix, Keys, Fields, Records, Buffer, _, _), Pos) :-
+    member(key_attrs(KeyName, Attrs), Keys),
+    \+ memberchk(dup, Attrs),
+    memberchk(key(KeyName, KeyFields), Keys),
+    get_key_values(KeyFields, Prefix, Fields, Buffer, Values),
+    \+ ( memberchk(opt, Attrs), forall(member(V, Values), blank_value(V)) ),
+    nth0(Index, Records, Record),
+    Index \== Pos,
+    get_key_values(KeyFields, Prefix, Fields, Record, Others),
+    same_values(Values, Others, Attrs), !.
+
+blank_value(V) :- number(V), !, V =:= 0.
+blank_value('$null$') :- !.
+blank_value(V) :- clip_text(V, "").
+
+%------------------------------------------------------------
+% Sequential access
+%------------------------------------------------------------
+% Entries are KeyValues-Index, ordered by key values then record index.
+% Record order is the same thing with no key values.
+
+step_cursor(Direction, FileName, StateIn, StateOut) :-
+    open_file(FileName, StateIn, FileState, Code),
+    ( Code =\= 0
+    -> set_error(Code, StateIn, StateOut)
+    ;  get_cursor(FileName, StateIn, cursor(Key, At)),
+       FileState = file_state(_, _, Keys, _, _, _, _, _),
+       key_attributes(Key, Keys, Attrs),
+       findall(Entry,
+               ( cursor_entry(Key, FileState, Entry), beyond(Direction, At, Entry, Attrs) ),
+               Entries),
+       ( nearest(Direction, Entries, Attrs, Values-Index)
+       -> current_record(Index, FileName, FileState, StateIn, State1),
+          set_cursor(FileName, cursor(Key, at(Values, Index)), State1, StateOut)
+       ;  set_error(33, StateIn, StateOut)
+       )
+    ).
+
+cursor_entry(none, file_state(_, _, _, _, Records, _, _, _), []-Index) :- !,
+    nth0(Index, Records, _).
+cursor_entry(Key, file_state(_, Prefix, Keys, Fields, Records, _, _, _), Values-Index) :-
+    memberchk(key(Key, KeyFields), Keys),
+    nth0(Index, Records, Record),
+    get_key_values(KeyFields, Prefix, Fields, Record, Values).
+
+beyond(_, start, _, _).
+beyond(next, from(Values), V-_, Attrs) :- compare_keys(O, V, Values, Attrs), O \== (<).
+beyond(previous, from(Values), V-_, Attrs) :- compare_keys(O, V, Values, Attrs), O \== (>).
+beyond(next, at(Values, Index), E, Attrs) :- compare_entries(>, E, Values-Index, Attrs).
+beyond(previous, at(Values, Index), E, Attrs) :- compare_entries(<, E, Values-Index, Attrs).
+
+compare_entries(Order, V1-I1, V2-I2, Attrs) :-
+    compare_keys(O, V1, V2, Attrs),
+    ( O == (=) -> compare(Order0, I1, I2) ; Order0 = O ),
+    Order = Order0.
+
+nearest(Direction, [E|Es], Attrs, Nearest) :-
+    ( Direction == next -> Better = (<) ; Better = (>) ),
+    foldl([X, Best0, Best]>>( compare_entries(Better, X, Best0, Attrs) -> Best = X ; Best = Best0 ),
+          Es, E, Nearest).
+
+% Records after the deleted one move down by one
+cursor_after_delete(FileName, Pos, StateIn, StateOut) :-
+    get_cursor(FileName, StateIn, cursor(Key, At)),
+    ( At = at(Values, Index), Pos =< Index
+    -> Index1 is Index - 1,
+       set_cursor(FileName, cursor(Key, at(Values, Index1)), StateIn, StateOut)
+    ;  StateOut = StateIn
+    ).
 
 %% storage_call(:Goal, -Code)
 %  Code is 0 if Goal succeeds, or the code of a storage_error/1 it throws.

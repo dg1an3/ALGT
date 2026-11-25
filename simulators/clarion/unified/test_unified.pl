@@ -30,6 +30,9 @@ check(Label, Got, Expected) :-
         format("  ~w [FAIL] got ~w, expected ~w~n", [Label, Got, Expected])
     ).
 
+:- use_module(library(process)).
+:- include(test_fidelity).
+
 %------------------------------------------------------------
 % Parser Tests (via bridge)
 %------------------------------------------------------------
@@ -535,6 +538,7 @@ test_odbc_safety :-
     with_sqlite(odbc_connect_failure),
     with_sqlite(odbc_insert_failure),
     with_sqlite(odbc_write_through),
+    with_sqlite(odbc_big_integer),
     with_sqlite(odbc_put_preserves),
     with_sqlite(odbc_put_conflict),
     with_sqlite(odbc_delete_ambiguous),
@@ -590,13 +594,22 @@ odbc_write_through :-
     odbcstore_session(S0),
     call_procedure(S0, 'ODBCOpen', [], _, S1),
     raw_odbc('INSERT INTO SensorReadings VALUES (50,9,900,90,5,''other'')', _),
-    call_procedure(S1, 'ODBCAddReading', [2, 3000000000, 20], _, S2),
-    raw_odbc('SELECT CAST(Value AS TEXT), typeof(Value) FROM SensorReadings WHERE ReadingID = 2', Big),
-    check('write-through: row stored before CLOSE, value exact', Big, [row('3000000000', integer)]),
+    call_procedure(S1, 'ODBCAddReading', [2, 200, 20], _, S2),
+    raw_odbc('SELECT Value FROM SensorReadings WHERE ReadingID = 2', Added),
+    check('write-through: row stored before CLOSE', Added, [row(200)]),
     call_procedure(S2, 'ODBCClose', [], _, _),
     raw_odbc('SELECT ReadingID, Note FROM SensorReadings WHERE Note IS NOT NULL ORDER BY ReadingID', Notes),
     check('write-through: undeclared column and other writer''s row kept', Notes,
           [row(1,keep), row(50,other)]).
+
+% DECIMAL holds integers beyond 32 bits; ODBC integer binding does not.
+odbc_big_integer :-
+    raw_odbc('CREATE TABLE Big (ID INTEGER, Amount BIGINT)', _),
+    Src = "  MEMBER()\nBig FILE,DRIVER('ODBC'),PRE(BB)\nRecord RECORD\nID LONG\nAmount DECIMAL(15,0)\n  END\n  END\n  MAP\n    BAdd(),LONG\n  END\nBAdd PROCEDURE()\n  CODE\n  OPEN(Big)\n  BB:ID = 1\n  BB:Amount = 3000000000\n  ADD(Big)\n  RETURN(ERRORCODE())\n",
+    exec_procedure(Src, 'BAdd', [], R),
+    check('big integer: ADD', R, 0),
+    raw_odbc('SELECT CAST(Amount AS TEXT), typeof(Amount) FROM Big', Rows),
+    check('big integer: stored exactly', Rows, [row('3000000000', integer)]).
 
 person_session(S0) :-
     raw_odbc('CREATE TABLE People (ID INTEGER, Name TEXT, Score REAL, Note TEXT)', _),
@@ -702,8 +715,9 @@ visits_session(S0) :-
     init_session(Src, S0).
 
 visits_source(DayType, AtType, SeenType, Src) :-
-    format(string(Src), "  MEMBER()\nVisits FILE,DRIVER('ODBC'),PRE(VV)\nRecord RECORD\nID LONG\nDay ~w\nAt ~w\nSeen ~w\n  END\n  END\n  MAP\n    VOpen(),LONG\n    VFirst(),LONG\n    VDay(),LONG\n    VAt(),LONG\n    VSeen(),LONG\n    VAdd(LONG id, LONG dy, LONG tm, LONG sn),LONG\n    VMove(LONG dy),LONG\n    VDelete(),LONG\n    VAddText(),LONG\n    VAddBadText(),LONG\n    VClose(),LONG\n  END\nVOpen PROCEDURE()\n  CODE\n  OPEN(Visits)\n  RETURN(ERRORCODE())\nVFirst PROCEDURE()\n  CODE\n  SET(Visits)\n  NEXT(Visits)\n  RETURN(ERRORCODE())\nVDay PROCEDURE()\n  CODE\n  RETURN(VV:Day)\nVAt PROCEDURE()\n  CODE\n  RETURN(VV:At)\nVSeen PROCEDURE()\n  CODE\n  RETURN(VV:Seen)\nVAdd PROCEDURE(LONG id, LONG dy, LONG tm, LONG sn)\n  CODE\n  VV:ID = id\n  VV:Day = dy\n  VV:At = tm\n  VV:Seen = sn\n  ADD(Visits)\n  RETURN(ERRORCODE())\nVMove PROCEDURE(LONG dy)\n  CODE\n  VV:Day = dy\n  PUT(Visits)\n  RETURN(ERRORCODE())\nVDelete PROCEDURE()\n  CODE\n  DELETE(Visits)\n  RETURN(ERRORCODE())\nVAddText PROCEDURE()\n  CODE\n  VV:ID = 2\n  VV:Day = '2024-02-29'\n  VV:At = '23:59:58'\n  VV:Seen = '2024-02-29 01:02:03.5'\n  ADD(Visits)\n  RETURN(ERRORCODE())\nVAddBadText PROCEDURE()\n  CODE\n  VV:ID = 3\n  VV:Day = '2023-02-29'\n  ADD(Visits)\n  RETURN(ERRORCODE())\nVClose PROCEDURE()\n  CODE\n  CLOSE(Visits)\n  RETURN(ERRORCODE())\n",
-           [DayType, AtType, SeenType]).
+    ( DayType = "LONG" -> Ret = "LONG" ; Ret = "STRING" ),
+    format(string(Src), "  MEMBER()\nVisits FILE,DRIVER('ODBC'),PRE(VV)\nRecord RECORD\nID LONG\nDay ~w\nAt ~w\nSeen ~w\n  END\n  END\n  MAP\n    VOpen(),LONG\n    VFirst(),LONG\n    VDay(),~w\n    VAt(),LONG\n    VSeen(),~w\n    VAdd(LONG id, LONG dy, LONG tm, LONG sn),LONG\n    VMove(LONG dy),LONG\n    VDelete(),LONG\n    VAddText(),LONG\n    VAddBadText(),LONG\n    VClose(),LONG\n  END\nVOpen PROCEDURE()\n  CODE\n  OPEN(Visits)\n  RETURN(ERRORCODE())\nVFirst PROCEDURE()\n  CODE\n  SET(Visits)\n  NEXT(Visits)\n  RETURN(ERRORCODE())\nVDay PROCEDURE()\n  CODE\n  RETURN(VV:Day)\nVAt PROCEDURE()\n  CODE\n  RETURN(VV:At)\nVSeen PROCEDURE()\n  CODE\n  RETURN(VV:Seen)\nVAdd PROCEDURE(LONG id, LONG dy, LONG tm, LONG sn)\n  CODE\n  VV:ID = id\n  VV:Day = dy\n  VV:At = tm\n  VV:Seen = sn\n  ADD(Visits)\n  RETURN(ERRORCODE())\nVMove PROCEDURE(LONG dy)\n  CODE\n  VV:Day = dy\n  PUT(Visits)\n  RETURN(ERRORCODE())\nVDelete PROCEDURE()\n  CODE\n  DELETE(Visits)\n  RETURN(ERRORCODE())\nVAddText PROCEDURE()\n  CODE\n  VV:ID = 2\n  VV:Day = '2024-02-29'\n  VV:At = '23:59:58'\n  VV:Seen = '2024-02-29 01:02:03.5'\n  ADD(Visits)\n  RETURN(ERRORCODE())\nVAddBadText PROCEDURE()\n  CODE\n  VV:ID = 3\n  VV:Day = '2023-02-29'\n  ADD(Visits)\n  RETURN(ERRORCODE())\nVClose PROCEDURE()\n  CODE\n  CLOSE(Visits)\n  RETURN(ERRORCODE())\n",
+           [DayType, AtType, SeenType, Ret, Ret]).
 
 odbc_dates_read :-
     visits_session(S0),
@@ -751,8 +765,8 @@ odbc_dates_text :-
     init_session(Src, S0),
     call_procedure(S0, 'VOpen', [], R0, S1), check('dates text: OPEN', R0, 0),
     call_procedure(S1, 'VFirst', [], _, S2),
-    call_procedure(S2, 'VDay', [], D, S3), check('dates text: DATE', D, '2024-01-02'),
-    call_procedure(S3, 'VSeen', [], N, S4), check('dates text: DATETIME', N, '2024-01-02 04:05:06.25'),
+    call_procedure(S2, 'VDay', [], D, S3), clarion_types:clip_text(D, D1), check('dates text: DATE', D1, "2024-01-02"),
+    call_procedure(S3, 'VSeen', [], N, S4), clarion_types:clip_text(N, N1), check('dates text: DATETIME', N1, "2024-01-02 04:05:06.25"),
     call_procedure(S4, 'VDelete', [], R1, S5), check('dates text: DELETE matches', R1, 0),
     call_procedure(S5, 'VAddText', [], R2, S6), check('dates text: ADD', R2, 0),
     call_procedure(S6, 'VAddBadText', [], R3, _), check('dates text: 2023-02-29 refused', R3, 90),
@@ -1011,13 +1025,13 @@ test_map_name_alias_call :-
 test_map_external_stub :-
     % Calling an external MODULE procedure should return a stub value (0 for LONG)
     Src = "  MEMBER()\n  MAP\n    MODULE('mylib')\n      ExtFunc(LONG x),LONG,C,NAME('ExtFunc')\n    END\n    TestStub(),LONG\n  END\nTestStub PROCEDURE()\nR LONG(0)\n  CODE\n  R = ExtFunc(42)\n  RETURN(R)\n",
-    exec_procedure(Src, 'TestStub', [], R),
+    with_external_stubs(['ExtFunc' = default], exec_procedure(Src, 'TestStub', [], R)),
     check('External stub returns 0 for LONG', R, 0).
 
 test_map_external_void_stub :-
     % Calling an external void procedure should not error
     Src = "  MEMBER()\n  MAP\n    MODULE('kernel32')\n      DoNothing(LONG x),RAW,PASCAL,NAME('DoNothing')\n    END\n    TestVoid(),LONG\n  END\nTestVoid PROCEDURE()\n  CODE\n  DoNothing(1)\n  RETURN(99)\n",
-    exec_procedure(Src, 'TestVoid', [], R),
+    with_external_stubs(['DoNothing' = default], exec_procedure(Src, 'TestVoid', [], R)),
     check('External void stub continues execution', R, 99).
 
 test_map_proto_arity :-
@@ -1607,7 +1621,7 @@ test_like_decl :-
     parse_clarion(Src, program(_, _, Globals, _, [procedure('F', _, _, Locals, _)])),
     ( member(global('Copy:Record', like('Rec', [pre('CPY')]), 0), Globals) -> G = ok ; G = Globals ),
     check('global LIKE(Rec),PRE(CPY) parsed', G, ok),
-    ( Locals = [local('A', long, 0), like('B', 'A', []), like('R', 'REC:Id', [pre('RR')])] -> L = ok ; L = Locals ),
+    ( Locals = [local('A', long, 0), like('B', 'A', []), like('R', 'Rec:Id', [pre('RR')])] -> L = ok ; L = Locals ),
     check('local LIKE / LIKE,PRE parsed', L, ok),
     exec_procedure(Src, 'F', [], R),
     check('LIKE local exec B=5 -> 6', R, 6),
@@ -1674,7 +1688,7 @@ test_local_queue_group :-
     Src = "  MEMBER()\n  MAP\n    F(),LONG,C,NAME('F'),EXPORT\n  END\nF PROCEDURE()\nMsgQ QUEUE\nText STRING(200)\n  .\nCur GROUP,PRE(CUR)\nId LONG\nName STRING(20)\n  .\nT LONG\n  CODE\n  CUR:Id = 41\n  MsgQ.Text = 'hello'\n  ADD(MsgQ)\n  T = CUR:Id + RECORDS(MsgQ)\n  RETURN(T)\n",
     parse_clarion(Src, AST),
     bridge_ast(AST, program(_, _, _, [procedure('F', _, Locals, _)])),
-    ( Locals = [local_decl(queue('MsgQ', _)), local_decl(group('Cur', 'CUR', _)), local_var('T', 'LONG', _)]
+    ( Locals = [local_decl(queue('MsgQ', _)), local_decl(group('Cur', 'Cur', _)), local_var('T', 'LONG', _)]
     -> L = ok ; L = Locals ),
     check('local QUEUE/GROUP bridged as local_decl', L, ok),
     exec_procedure(Src, 'F', [], R),
@@ -1954,6 +1968,10 @@ main :-
     run_test(test_array_field),
     run_test(test_local_queue_group),
     run_test(test_not_call),
+    % Language semantics
+    run_test(test_fidelity),
+    run_test(test_fidelity_stubs),
+    run_test(test_fidelity_any_directory),
     % Summary
     test_count(Total),
     pass_count(Pass),
