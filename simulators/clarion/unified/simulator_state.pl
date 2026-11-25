@@ -28,6 +28,9 @@
     % Variable operations
     get_var/3,
     set_var/4,
+    bind_raw/4,
+    alias_of/3,
+    same_name/2,
 
     % Procedure lookup
     get_proc/3,
@@ -125,19 +128,46 @@ clear_continuation(StateIn, StateOut) :-
 % Handles both regular variables and prefixed file fields (Prefix:Field)
 % A colon name whose prefix matches no file, group or instance (e.g. the
 % label 'Copy:Record' or the equate 'NT::THIS_MODULE') is a plain variable.
+% Implicit LONG variable (name ends in '#', e.g. SAV:ITM:EDIT_DATE#): never a
+% file/group field, and reads as 0 before its first assignment.
+% A by-reference parameter is an alias: read the variable it stands for
+get_var(Name, State, Value) :-
+    get_vars(State, Vars), alias_of(Name, Vars, Target), !,
+    get_var(Target, State, Value).
+get_var(Name, State, Value) :-
+    implicit_long_name(Name), !,
+    get_vars(State, Vars),
+    ( memberchk(var(Name, V0), Vars) -> Value = V0 ; Value = 0 ).
 get_var(Name, State, Value) :-
     ( parse_prefixed_name(Name, Prefix, FieldName),
       get_prefixed_var(Prefix, FieldName, State, Value)
     -> true
     ;  get_vars(State, Vars),
-       member(var(Name, Value), Vars)
+       ( member(var(Name, Value), Vars)
+       ;  ci_var(Name, Vars, var(_, Value))
+       )
     ), !.
+% Implicit EQUATES.CLW constants, used only when no variable of that name exists
+get_var(Name, _, Value) :-
+    atom(Name), upcase_atom(Name, U), implicit_equate(U, Value), !.
 get_var(Name, _, _) :-
     format(user_error, "Error: Undefined variable '~w'~n", [Name]),
     fail.
 
 % Set variable value in state
 % Handles both regular variables and prefixed file fields (Prefix:Field)
+% Implicit LONG (Name#): plain variable, value truncated to an integer.
+% ...and assignments to it write the aliased variable or record field
+set_var(Name, Value, StateIn, StateOut) :-
+    Value \= alias(_),
+    get_vars(StateIn, Vars), memberchk(var(Name, alias(Target)), Vars), !,
+    set_var(Target, Value, StateIn, StateOut).
+set_var(Name, Value, StateIn, StateOut) :-
+    implicit_long_name(Name), !,
+    implicit_long_value(Value, Long),
+    StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
+    ( select(var(Name, _), Vars, RestVars) -> true ; RestVars = Vars ),
+    StateOut = state([var(Name, Long)|RestVars], Procs, Out, Files, Err, Classes, Self, UI, Cont).
 set_var(Name, Value, StateIn, StateOut) :-
     ( parse_prefixed_name(Name, Prefix, FieldName),
       set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut)
@@ -145,10 +175,60 @@ set_var(Name, Value, StateIn, StateOut) :-
     ;  StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
        ( select(var(Name, _), Vars, RestVars)
        -> NewVars = [var(Name, Value)|RestVars]
+       ;  ci_var(Name, Vars, var(Existing, _)),
+          select(var(Existing, _), Vars, RestVars)
+       -> NewVars = [var(Existing, Value)|RestVars]
        ;  NewVars = [var(Name, Value)|Vars]
        ),
        StateOut = state(NewVars, Procs, Out, Files, Err, Classes, Self, UI, Cont)
     ).
+
+%% Clarion names are case-insensitive. Lookups try the exact name first and
+%% fall back to these (e.g. code that reads O:OPtionsMask for a parameter
+%% declared as O:OptionsMask, or writes PRE:EDIT_DATE to a field Edit_Date).
+same_name(A, A) :- !.
+same_name(A, B) :- atom(A), atom(B), upcase_atom(A, U), upcase_atom(B, U).
+
+ci_var(Name, Vars, var(N, V)) :-
+    atom(Name), upcase_atom(Name, U),
+    member(var(N, V), Vars), atom(N), upcase_atom(N, U), !.
+
+field_index(FieldName, Fields, Index) :-
+    nth0(Index, Fields, field(FieldName, _, _)), !.
+field_index(FieldName, Fields, Index) :-
+    nth0(Index, Fields, field(F, _, _)), same_name(FieldName, F), !.
+% Group.Field (PRE:Edit_DtTm.Edit_Date): record groups are flattened, so use
+% the last component
+field_index(FieldName, Fields, Index) :-
+    atom(FieldName), atomic_list_concat(Parts, '.', FieldName), Parts = [_, _|_],
+    last(Parts, Last), field_index(Last, Fields, Index).
+
+% Bind Name exactly (no prefix, alias or case-insensitive resolution)
+bind_raw(Name, Value, state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
+         state([var(Name, Value)|Rest], Procs, Out, Files, Err, Classes, Self, UI, Cont)) :-
+    ( select(var(Name, _), Vars, Rest) -> true ; Rest = Vars ).
+
+% alias_of(+Name, +Vars, -Target): Name is a by-reference parameter (exact
+% name first, then case-insensitively, like every other lookup)
+alias_of(Name, Vars, Target) :- memberchk(var(Name, alias(Target)), Vars), !.
+alias_of(Name, Vars, Target) :-
+    atom(Name), upcase_atom(Name, U),
+    member(var(N, alias(Target)), Vars), atom(N), upcase_atom(N, U), !.
+
+implicit_equate('TRUE', 1).
+implicit_equate('FALSE', 0).
+
+implicit_long_name(Name) :-
+    atom(Name), sub_atom(Name, _, 1, 0, '#').
+
+% Clarion LONG conversion: reals truncate toward zero, numeric text converts,
+% anything else is 0.
+implicit_long_value(V, L) :- integer(V), !, L = V.
+implicit_long_value(V, L) :- number(V), !, L is truncate(V).
+implicit_long_value(V, L) :-
+    ( atom(V) ; string(V) ), !,
+    ( normalize_space(atom(A), V), atom_number(A, N) -> L is truncate(N) ; L = 0 ).
+implicit_long_value(_, 0).
 
 % Parse a prefixed name like 'Cust:CustomerID' or 'Queue.Field' into prefix and field
 parse_prefixed_name(Name, Prefix, FieldName) :-
@@ -168,12 +248,12 @@ parse_prefixed_name(Name, Prefix, FieldName) :-
 % Tries: file by prefix (colon), then file/queue by name (dot), then instance, then group
 get_prefixed_var(Prefix, FieldName, State, Value) :-
     ( find_file_by_prefix(Prefix, State, FileState) ->
-        ( FieldName = 'Record'
+        ( same_name(FieldName, 'Record')
         -> FileState = file_state(_, _, _, _, _, Value, _, _)
         ;  get_buffer_field(FieldName, FileState, Value)
         )
     ; get_file_state(Prefix, State, FileState) ->
-        ( FieldName = 'Record'
+        ( same_name(FieldName, 'Record')
         -> FileState = file_state(_, _, _, _, _, Value, _, _)
         ;  get_buffer_field(FieldName, FileState, Value)
         )
@@ -187,13 +267,13 @@ get_prefixed_var(Prefix, FieldName, State, Value) :-
 set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut) :-
     ( find_file_by_prefix(Prefix, StateIn, FileState) ->
         FileState = file_state(FileName, _, _, _, _, _, _, _),
-        ( FieldName = 'Record'
+        ( same_name(FieldName, 'Record')
         -> StateOut = StateIn
         ;  set_buffer_field(FieldName, Value, FileState, NewFileState),
            set_file_state(FileName, NewFileState, StateIn, StateOut)
         )
     ; get_file_state(Prefix, StateIn, FileState) ->
-        ( FieldName = 'Record'
+        ( same_name(FieldName, 'Record')
         -> StateOut = StateIn
         ;  set_buffer_field(FieldName, Value, FileState, NewFileState),
            set_file_state(Prefix, NewFileState, StateIn, StateOut)
@@ -245,6 +325,9 @@ get_proc(Name, State, Proc) :-
     ; % Try NAME alias: look up the alias in MAP protos, find the Clarion name
       resolve_name_alias(Name, State, ClarionName),
       member(Proc, Procs), Proc = procedure(ClarionName, _, _, _), !
+    ; % Clarion names are case-insensitive (lookup(...) calls Lookup)
+      atom(Name),
+      member(Proc, Procs), Proc = procedure(PName, _, _, _), same_name(Name, PName), !
     ).
 get_proc(Name, _, _) :-
     format(user_error, "Error: Undefined procedure '~w'~n", [Name]),
@@ -325,12 +408,19 @@ get_file_state(Name, State, FileState) :-
     get_files(State, Files),
     member(FileState, Files),
     FileState = file_state(Name, _, _, _, _, _, _, _), !.
+get_file_state(Name, State, FileState) :-
+    atom(Name),
+    get_files(State, Files),
+    member(FileState, Files),
+    FileState = file_state(N, _, _, _, _, _, _, _), same_name(Name, N), !.
 
 set_file_state(Name, NewFileState,
                state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
                state(Vars, Procs, Out, NewFiles, Err, Classes, Self, UI, Cont)) :-
-    NewFileState = file_state(Name, _, _, _, _, _, _, _),
-    ( select(file_state(Name, _, _, _, _, _, _, _), Files, RestFiles)
+    % The stored name is canonical; Name may differ in case (add(item))
+    NewFileState = file_state(CName, _, _, _, _, _, _, _),
+    ( CName == Name -> true ; same_name(Name, CName) ),
+    ( select(file_state(CName, _, _, _, _, _, _, _), Files, RestFiles)
     -> NewFiles = [NewFileState|RestFiles]
     ;  NewFiles = [NewFileState|Files]
     ).
@@ -339,13 +429,18 @@ find_file_by_prefix(Prefix, State, FileState) :-
     get_files(State, Files),
     member(FileState, Files),
     FileState = file_state(_, Prefix, _, _, _, _, _, _), !.
+find_file_by_prefix(Prefix, State, FileState) :-
+    atom(Prefix),
+    get_files(State, Files),
+    member(FileState, Files),
+    FileState = file_state(_, P, _, _, _, _, _, _), same_name(Prefix, P), !.
 
 %------------------------------------------------------------
 % Record Buffer Operations
 %------------------------------------------------------------
 
 get_buffer_field(FieldName, file_state(_, _, _, Fields, _, Buffer, _, _), Value) :-
-    nth0(Index, Fields, field(FieldName, _, _)),
+    field_index(FieldName, Fields, Index),
     nth0(Index, Buffer, Value), !.
 get_buffer_field(FieldName, _, _) :-
     format(user_error, "Error: Unknown field '~w'~n", [FieldName]),
@@ -354,7 +449,7 @@ get_buffer_field(FieldName, _, _) :-
 set_buffer_field(FieldName, Value,
                  file_state(Name, Prefix, Keys, Fields, Records, Buffer, Pos, Open),
                  file_state(Name, Prefix, Keys, Fields, Records, NewBuffer, Pos, Open)) :-
-    nth0(Index, Fields, field(FieldName, _, _)),
+    field_index(FieldName, Fields, Index),
     replace_nth0(Index, Buffer, Value, NewBuffer), !.
 
 create_empty_buffer([], []).
@@ -366,6 +461,7 @@ create_empty_buffer([field(_, Type, Size)|Rest], [Value|Values]) :-
 % Default Values
 %------------------------------------------------------------
 
+default_value(byref(T), Size, V) :- !, default_value(T, Size, V).
 default_value('STRING', _, "").
 default_value('CSTRING', _, "").
 default_value('PSTRING', _, "").

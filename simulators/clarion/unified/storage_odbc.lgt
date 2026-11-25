@@ -94,7 +94,10 @@
 
     % Public ODBC helpers
     connect_dsn(DSN, Connection) :-
-        catch(odbc:odbc_connect(DSN, Connection, [auto_commit(false)]),
+        catch(( sub_atom(DSN, _, _, _, '=')
+              -> odbc:odbc_driver_connect(DSN, Connection, [auto_commit(false)])
+              ;  odbc:odbc_connect(DSN, Connection, [auto_commit(false)])
+              ),
               Error, (format(user_error, "ODBC error: ~w~n", [Error]), fail)).
 
     disconnect(Connection) :-
@@ -135,7 +138,9 @@
             ( disconnect(Connection), throw(Error) )
         ),
         length(Records, Count),
-        format("  [ODBC: Connected to ~w, loaded ~w records from ~w]~n", [DSN, Count, Table]),
+        % A connection string may carry a password: never print it.
+        ( sub_atom(DSN, _, _, _, '=') -> Shown = '<connection string>' ; Shown = DSN ),
+        format("  [ODBC: Connected to ~w, loaded ~w records from ~w]~n", [Shown, Count, Table]),
         ::assertz(odbc_conn(Table, Connection, Kinds)).
 
     drop_connection(Table) :-

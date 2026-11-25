@@ -35,7 +35,7 @@ ui_simulation.lgt     ← Logtalk headless UI backend for testing
 ui_dispatcher.lgt     ← Logtalk UI dispatcher (routes by backend type)
 loader.lgt            ← Logtalk loader for all backend objects
 scenario_*.pl         ← From modular (unchanged)
-test_unified.pl       ← Test suite (224 checks passing)
+test_unified.pl       ← Test suite (294 checks; the SQLite ODBC ones skip without a driver)
 clarion_preproc.pl    ← COMPILE/OMIT conditional-compile pre-pass
 ```
 
@@ -161,8 +161,53 @@ Found by a parse-coverage survey:
 - **NOT / `~expr`:** `not(E)` is bridged recursively, and `eval_full_expr(not(E))` evaluates the operand with `eval_full_expr`, so calls inside `~` work.
 - **Result:** `Some_Db.clw` parses and bridges with no unhandled-node warnings. Executing it still needs the dependent declarations and stubs.
 
+### 8. Implicit `#` variables and ODBC fixes (2026-11-24)
+- **Implicit LONG `Name#`** (`SAV:PRE:EDIT_DATE#`, `i#`): `ident//1` keeps the trailing `#` in the name. `get_var`/`set_var` (simulator_state.pl) handle such names first: they bypass prefix/file/group lookup (so `PRE:X#` never touches the PRE group), read as 0 before first assignment, and truncate assigned values to an integer. `$` (REAL) and `"` (STRING) implicits are not handled yet.
+- **storage_odbc.lgt**: `CLARION_ODBC_DSN` may be a DSN name or a full connection string (contains `=`, uses `odbc_driver_connect/3`); a connection string is logged as `<connection string>` so a password is never printed. (The write-through/data-safety rework of this backend came from PRs #18/#19.)
+
+### 9. References (`&=`, `&Type`) and keyword table names (2026-11-24)
+- **`Name &Type` locals** (`objLog &LogClass`, `FREF:Image &file`) parse as `ref_var(Name, Type)`, bridge to `local_var(Name, reference(Type), init(null))`, and start as `null`.
+- **`Ref &= Target` statement** parses as `ref_assign(Var, Target)`. The bridge emits `ref_assign(Var, null | new(Class) | name(N) | expr(E))`. The simulator stores `null`, a new instance (`create_instance`, class must be declared), `ref(file(N))` for a FILE/QUEUE name, or a value copy otherwise. **Aliasing is not modelled**: two references to the same object hold independent copies.
+- **`Ref &= NULL` / `A &= B` in expressions** parse as `ref_eq/2` (in `compare_rest`), bridged and evaluated as identity of the stored values.
+- **Keyword table names**: `Prompt`, `Queue` and other keywords are accepted as `var(Name)` when one is a whole call argument (followed by `,` or `)`), via `kw_name_arg//1` in `primary//1` and the `DELETE(...)` statement. A keyword elsewhere in an expression is still rejected. `NOT/AND/OR/TO/OF/OROF` are excluded.
+
+### 10. `*FILE` parameters (2026-11-24)
+- **Parser:** `*FILE Name` in procedure and MAP parameter lists parses as `param(Name, ref(file))`. It is deliberately not part of `type//1`, so a FILE declaration is never read as a local.
+- **Bridge:** `ref(file)` becomes the parameter type `file_ref`.
+- **Calls:** `eval_call_args/4` passes an argument for a `file_ref` parameter as `ref(file(F))` when it names a FILE/QUEUE (or a variable that already holds a file reference) instead of evaluating it.
+- **Builtins:** `resolve_file_ref_args/3` (in `exec_call`) rewrites `var(N)` to `var(F)` when N holds `ref(file(F))`, so `ADD/PUT/DELETE(P:File)` act on the real file and `ADDRESS(P:File) = ADDRESS(Item)`. This makes a `case address(P:File) / of address(Item)` dispatcher work.
+- The pre-existing loss of callee state in expression calls is fixed; see section 11.
+
+### 11. Calls inside expressions keep their effects (2026-11-24)
+- **Bug:** `eval_full_expr(call(...))` ran `exec_call` and discarded its output state, so a procedure called inside an expression (`x# = Helper()`, `if DoAdd(Item)`, `return(DoAdd:Item(...))`, `loop while Bump() < 5`) lost its global/file/ERRORCODE changes. Only statement calls kept them. (A `LOOP WHILE F()` whose F changes a global never terminated.)
+- **Fix:** new `eval_expr_st(+Expr, +S0, -S, -Value)` in simulator.pl threads state through `call`, `method_call`, `binop`, `not` and `ref_eq` (left to right, no short-circuit) and falls back to the pure `eval_full_expr/3` otherwise. Used by assign, `+=`, SELF/member/array assigns, `&= expr`, RETURN, IF/ELSIF conditions, CASE selector, LOOP TO bounds, LOOP WHILE/UNTIL conditions, and procedure argument evaluation (`eval_call_args/5`, `eval_args_st/4`).
+- **Still pure (calls there lose their effects):** CASE `OF` labels, `bind_params` defaults, method-call argument lists and external-stub arguments (builtin arguments: see section 14).
+- **Also fixed:** `exec_call` reset the caller's SELF context to `none` after any procedure call, so a method that called a procedure could no longer use `SELF`. The caller's SELF is now restored.
+
+### 12. FILE declarations, unique keys, case-insensitive names, builtins (2026-11-24)
+- **FILE declarations** (parser): KEYs are kept (they were parsed and discarded, so `GET(file, key)` on a declared FILE always failed), plus key `NAME()`, file flags (`THREAD`, `BINDABLE`, ...), `RECORD,PRE()`, field attributes (`NAME('x |NULLABLE')`, `DIM`, `OVER`, `BINARY`), inline `GROUP,PRE()` / `GROUP,DIM(n),OVER(x)`, `ULONG` (simulated as LONG), and a keyword as the FILE label (`Prompt FILE`, `Queue FILE`). A DIM'd group inside a record is flattened as a single element.
+- **Unique keys**: `init_file` records keys without `DUP` as `file_unique_keys(File)`. `ADD`, and `PUT` onto another record's values, set ERRORCODE 40 (Creates Duplicate Key) and leave the file unchanged.
+- **Case-insensitive names**: variables, file names, prefixes and record fields fall back to a case-insensitive match when the exact name is not found (e.g. `O:OPtionsMask` for a parameter declared `O:OptionsMask`, `PRE:EDIT_DATE` for a field `Edit_Date`). Caveat: a local whose name differs only in case from a global updates the global instead of shadowing it.
+- **Builtins**: `BAND`, `BOR`, `BXOR`, `DATE(m,d,y)` (days since 28 Dec 1800, so `DATE(1,1,1801)` = 4), `NAME(file)` (returns the label, not the NAME() attribute), `ASSERT(cond[, msg])` (logs and continues). `TRUE`/`FALSE` are predefined when no variable has that name.
+
+### 13. `ADDRESS` collisions (2026-11-24)
+- `ADDRESS(var)` was the sum of the name's character codes, so anagram names (`Listen`/`Silent`) shared an address and a `case address(P:File)` dispatcher silently ran another file's branch. It is now the upper-cased name read as a base-256 number (+65536): injective and case-insensitive.
+
+### 14. By-reference parameters and more parsing (2026-11-24)
+- **`*T` parameters are aliases.** The bridge emits `byref(T)` for `*T` (`*FILE` stays `file_ref`). When the argument is a plain name (variable, record field, key, group), `eval_call_args/5` passes `alias(Target)`; `bind_param` binds it without writing through, `get_var`/`set_var` follow it (case-insensitively, `alias_of/3`), and `resolve_file_ref_args/3` resolves it for builtins (`GET(F, K)`, `CLEAR(R)`). Any other argument (literal, expression) is passed by value.
+- **New parameter types:** `*KEY`, `*GROUP`, `*QUEUE`, `*?` and untyped `?`, also optional (`<*? X>`, `<? X>`).
+- **`OMITTED(param)`**: `bind_params` records `'$omitted'(Name)` (1/0) for every parameter.
+- **`DISPOSE(ref)`** sets the reference to NULL.
+- **Scoping fix:** `merge_globals` ignored its parameter/local name lists, so a parameter or local with a global's name overwrote the global on return. Such names now keep the caller's value.
+- **Global objects:** `Name ClassName` at module level (one line) creates an instance at init (`instance_global/2`).
+- **`SELF.P += E`** and other `SELF.P` reads/assignments that arrive as plain names are bridged to `self_assign`/`self_access`.
+- **Calls inside builtin arguments** (`LEN(CLIP(F()))`, `ABS(Bump(5))`): `exec_call` evaluates such arguments first with `eval_expr_st` (keeping their effects) and passes `evaluated(V)`. Previously the builtin failed and the call fell through to "undefined procedure".
+- **Parser:** picture tokens as literals (`@n02`, `@d01`, `@t3`, `@P.###P`; `FORMAT` still ignores the picture), `,AUTO`/`,STATIC`/`,THREAD`/`,NAME()`/`,OVER()` on locals, `LIKE(PRE:Group.Field)`.
+- **Case-insensitive procedure and key names** (`helper()` calls `Helper`, `GET(t, Tt:by_item_id)`), and `PRE:Group.Field` reads/writes the flattened record field.
+- The "still pure" list in section 11 no longer includes builtin arguments.
+
 ### 6. ADDRESS/MemCopy simulation
-- `ADDRESS(var)` returns a unique deterministic ID per variable name (hash-based)
+- `ADDRESS(var)` returns a unique deterministic ID per variable name (the upper-cased name as a base-256 number; see section 13)
 - `MemCopy` (via `MODULE('kernel32')`) is a no-op in the simulator since Clarion code uses direct GROUP field assignments for the actual data movement; MemCopy only matters for passing structs to external callers via pointer
 
 ## API
@@ -183,7 +228,7 @@ call_procedure(Session, ProcName, Args, Result, Session2).
 exec_program(Source, Events, Result).
 ```
 
-## Test Coverage (224 checks as of 2026-11-23)
+## Test Coverage (294 checks as of 2026-11-24)
 
 - **Parser + Bridge** (11): MEMBER parse, MathLib, SensorLib, DiagnosisStore, FormDemo, OdbcStore, control_flow.clw PROGRAM
 - **Arithmetic** (4): MathAdd, Multiply with various inputs

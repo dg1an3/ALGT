@@ -1520,7 +1520,7 @@ test_qualnames_full :-
 
 test_double_colon_parse :-
     % Identifiers with :: (scope resolution) should parse correctly
-    Src = "  MEMBER()\nSAV GROUP,PRE(SAV)\nSIT   GROUP,PRE(SIT)\nRecord  LONG\n      END\n    END\n  MAP\n    TestDC(),LONG\n  END\nTestDC PROCEDURE()\n  CODE\n  SIT:Record = 42\n  RETURN(SIT:Record)\n",
+    Src = "  MEMBER()\nSAV GROUP,PRE(SAV)\nITM   GROUP,PRE(ITM)\nRecord  LONG\n      END\n    END\n  MAP\n    TestDC(),LONG\n  END\nTestDC PROCEDURE()\n  CODE\n  ITM:Record = 42\n  RETURN(ITM:Record)\n",
     exec_procedure(Src, 'TestDC', [], R),
     check('Double-colon style nested group', R, 42).
 
@@ -1618,9 +1618,9 @@ test_like_decl :-
 
 test_string_equate :-
     format("~nEQUATE string / :: tests:~n"),
-    Src = "  MEMBER('X.clw')\nNT::THIS_MODULE   Equate('Site_Db.clw(RTC.app)')\nA::B EQUATE(7)\n  MAP\n    F(),LONG,C,NAME('F'),EXPORT\n  END\nF PROCEDURE()\n  CODE\n  RETURN(A::B)\n",
+    Src = "  MEMBER('X.clw')\nNT::THIS_MODULE   Equate('Some_Db.clw(APP.app)')\nA::B EQUATE(7)\n  MAP\n    F(),LONG,C,NAME('F'),EXPORT\n  END\nF PROCEDURE()\n  CODE\n  RETURN(A::B)\n",
     parse_clarion(Src, program(_, _, Globals, _, _)),
-    ( Globals = [equate('NT::THIS_MODULE', 'Site_Db.clw(RTC.app)'), equate('A::B', 7)] -> G = ok ; G = Globals ),
+    ( Globals = [equate('NT::THIS_MODULE', 'Some_Db.clw(APP.app)'), equate('A::B', 7)] -> G = ok ; G = Globals ),
     check('EQUATE(string) and :: names parsed', G, ok),
     exec_procedure(Src, 'F', [], R),
     check('A::B EQUATE(7) exec', R, 7).
@@ -1656,16 +1656,16 @@ test_orof :-
 
 test_array_field :-
     format("~nArray element field tests:~n"),
-    Src = "  MEMBER()\nF PROCEDURE()\nI LONG(1)\nX LONG\n  CODE\n  if SIT:Fx[I].WaveIdx > X\n    X = SIT:Fx[I].WaveIdx\n  .\n  SIT:Fx[I].WaveIdx = 3\n",
+    Src = "  MEMBER()\nF PROCEDURE()\nI LONG(1)\nX LONG\n  CODE\n  if ITM:Fx[I].WaveIdx > X\n    X = ITM:Fx[I].WaveIdx\n  .\n  ITM:Fx[I].WaveIdx = 3\n",
     parse_clarion(Src, program(_, _, _, _, [procedure('F', _, _, _, Body)])),
-    ( Body = [if(gt(array_field('SIT:Fx', var('I'), 'WaveIdx'), var('X')),
-                 [assign('X', array_field('SIT:Fx', var('I'), 'WaveIdx'))], []),
-              assign(array_field('SIT:Fx', var('I'), 'WaveIdx'), lit(3))] -> P = ok ; P = Body ),
+    ( Body = [if(gt(array_field('ITM:Fx', var('I'), 'WaveIdx'), var('X')),
+                 [assign('X', array_field('ITM:Fx', var('I'), 'WaveIdx'))], []),
+              assign(array_field('ITM:Fx', var('I'), 'WaveIdx'), lit(3))] -> P = ok ; P = Body ),
     check('A[i].Field read and assign parsed', P, ok),
     bridge_ast(program([], [], [], [], [procedure('F', [], void, [], Body)]),
                program(_, _, _, [procedure('F', _, _, code(BB))])),
-    ( BB = [if(binop('>', array_field_access('SIT:Fx', var('I'), 'WaveIdx'), var('X')), _, [], []),
-            array_field_assign('SIT:Fx', var('I'), 'WaveIdx', number(3))] -> B = ok ; B = BB ),
+    ( BB = [if(binop('>', array_field_access('ITM:Fx', var('I'), 'WaveIdx'), var('X')), _, [], []),
+            array_field_assign('ITM:Fx', var('I'), 'WaveIdx', number(3))] -> B = ok ; B = BB ),
     check('A[i].Field bridged', B, ok).
 
 
@@ -1692,6 +1692,219 @@ test_not_call :-
     call_procedure(S0, 'F', [5], R1, _), check('~IsBig(5) and NOT IsBig(5) and ~(5=3) -> 11', R1, 11),
     call_procedure(S0, 'F', [3], R2, _), check('x=3 -> 1', R2, 1),
     call_procedure(S0, 'F', [50], R3, _), check('~IsBig(50) false -> 0', R3, 0).
+
+test_implicit_long :-
+    format("~nImplicit # variable tests:~n"),
+    % DoUpdate:Item save/restore pattern: SAV:ITM:EDIT_DATE# holds the field
+    % while it is overwritten, then restores it.  The ITM prefix matches a
+    % real GROUP, so ITM:Tmp# must stay a plain variable, not a group field.
+    Src = "  MEMBER()\nItemRec GROUP,PRE(ITM)\nEDIT_DATE LONG\nOther LONG\n  END\n  MAP\n    Upd(LONG m),LONG,C,NAME('Upd'),EXPORT\n    Trunc(),LONG,C,NAME('Trunc'),EXPORT\n    Unset(),LONG,C,NAME('Unset'),EXPORT\n  END\nUpd PROCEDURE(LONG m)\n  CODE\n  ITM:EDIT_DATE = 77000\n  if m\n    SAV:ITM:EDIT_DATE# = ITM:EDIT_DATE\n    ITM:EDIT_DATE = 0\n  .\n  ITM:Other = ITM:EDIT_DATE\n  if m\n    ITM:EDIT_DATE = SAV:ITM:EDIT_DATE#\n  .\n  ITM:Tmp# = 5\n  RETURN(ITM:EDIT_DATE + ITM:Other + ITM:Tmp#)\nTrunc PROCEDURE\n  CODE\n  t# = 79 / 10\n  t# = t# + 2.9\n  RETURN(t#)\nUnset PROCEDURE\n  CODE\n  RETURN(never_set# + 1)\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, _, Procs0),
+    ( member(procedure('Upd', _, _, _, Body), Procs0),
+      sub_term(assign('SAV:ITM:EDIT_DATE#', _), Body)
+    -> P = ok ; P = missing ),
+    check('SAV:ITM:EDIT_DATE# parsed as one name', P, ok),
+    init_session(Src, S0),
+    call_procedure(S0, 'Upd', [1], R1, _),
+    check('save/restore via implicit #: 77000 + 0 + 5', R1, 77005),
+    call_procedure(S0, 'Upd', [0], R2, _),
+    check('no save: 77000 + 77000 + 5', R2, 154005),
+    call_procedure(S0, 'Trunc', [], R3, _),
+    check('implicit # truncates reals: 7 + 2.9 -> 9', R3, 9),
+    call_procedure(S0, 'Unset', [], R4, _),
+    check('unassigned implicit # reads 0', R4, 1).
+
+test_ref_assign :-
+    format("~nReference assignment (&=) tests:~n"),
+    Src = "  MEMBER()\nSomeClass CLASS,TYPE\nV LONG\n  END\n  MAP\n    R(LONG x),LONG,C,NAME('R'),EXPORT\n  END\nR PROCEDURE(LONG x)\nobjA     &SomeClass\nCopy     &LONG\nNothing  &SomeClass\n  CODE\n  Copy &= x\n  Nothing &= NULL\n  if Nothing &= NULL\n    Copy += 100\n  .\n  if objA &= NULL\n    Copy += 1000\n  .\n  objA &= NEW(SomeClass)\n  if objA &= NULL\n    Copy += 5000\n  .\n  RETURN(Copy + 1)\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, _, Procs),
+    member(procedure('R', _, _, Locals, Body), Procs),
+    ( Locals = [ref_var(objA, 'SomeClass'), ref_var('Copy', 'LONG'), ref_var('Nothing', 'SomeClass')]
+    -> L = ok ; L = Locals ),
+    check('&Type locals parsed as ref_var', L, ok),
+    ( Body = [ref_assign('Copy', var(x)), ref_assign('Nothing', null)|_] -> B = ok ; B = Body ),
+    check('Copy &= x / Nothing &= NULL parsed', B, ok),
+    init_session(Src, S0),
+    call_procedure(S0, 'R', [41], R1, _),
+    check('&= copy + NULL tests (41 + 100 + 1000 + 1)', R1, 1142),
+    % NEW(Class) and a call on the right-hand side bridge distinctly
+    parse_clarion("  MEMBER()\n  MAP\n  END\nP PROCEDURE\nobjLog &LogClass\n  CODE\n  objLog &= new(LogClass)\n  ActiveReg &= Registry:Find()\n  FREF:Image &= Image\n", AST2),
+    bridge_ast(AST2, program(_, _, _, [procedure('P', _, _, code(BBody))|_])),
+    ( BBody = [ref_assign(objLog, new('LogClass')),
+               ref_assign('ActiveReg', expr(call(_, []))),
+               ref_assign('FREF:Image', name('Image'))]
+    -> NB = ok ; NB = BBody ),
+    check('&= NEW / call / name bridged', NB, ok).
+
+test_keyword_table_names :-
+    format("~nKeyword table-name argument tests:~n"),
+    Src = "  MEMBER()\n  MAP\n  END\nP PROCEDURE\n  CODE\n  add(Prompt)\n  PUT(Prompt)\n  delete(Prompt)\n  add(Queue)\n  if ~Lookup(Queue,Que:By_Que_Id,QUE:Record)\n    x = 1\n  .\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, _, [procedure('P', _, _, _, Body)]),
+    ( Body = [call(add, [var('Prompt')]), call('PUT', [var('Prompt')]),
+              call('DELETE', [var('Prompt')]), call(add, [var('Queue')]),
+              if(not(call('Lookup', [var('Queue')|_])), _, _)]
+    -> B = ok ; B = Body ),
+    check('Prompt/Queue accepted as whole arguments', B, ok),
+    % ...but a keyword is still a keyword elsewhere
+    ( parse_clarion("  MEMBER()\n  MAP\n  END\nP PROCEDURE\n  CODE\n  x = Queue + 1\n", _) -> K = parsed ; K = rejected ),
+    check('keyword inside an expression still rejected', K, rejected).
+
+test_file_ref_param :-
+    format("~nFILE reference parameter (*FILE) tests:~n"),
+    % A dispatcher of the form: case address(P:File) / of address(F) / call F's handler
+    Src = "  MEMBER()\nItem FILE,DRIVER('DOS'),PRE(ITM)\nRecord RECORD\nITM_ID LONG\n  END\n  END\nPart FILE,DRIVER('DOS'),PRE(PRT)\nRecord RECORD\nFLD_ID LONG\n  END\n  END\n  MAP\n    Run(LONG which),LONG,C,NAME('Run'),EXPORT\n  END\nDoAdd PROCEDURE(*file P:File, <long O:OptionsMask>)\nFREF:Image &file\n  CODE\n  FREF:Image &= Item\n  case address(P:File)\n  of address(Item)\n    return(DoAdd:Item(O:OptionsMask))\n  of address(Part)\n    return(DoAdd:Part(O:OptionsMask))\n  .\n  return(-1)\nDoAdd:Item PROCEDURE(<long O:OptionsMask>)\n  CODE\n  return(11 + O:OptionsMask)\nDoAdd:Part PROCEDURE(<long O:OptionsMask>)\n  CODE\n  return(22 + O:OptionsMask)\nPassOn PROCEDURE(*file F)\n  CODE\n  return(DoAdd(F, 100))\nAddVia PROCEDURE(*file F)\n  CODE\n  add(F)\nRun PROCEDURE(LONG which)\n  CODE\n  open(Item)\n  open(Part)\n  case which\n  of 1\n    return(DoAdd(Item))\n  of 2\n    return(DoAdd(Part, 5))\n  of 3\n    return(PassOn(Part))\n  of 4\n    ITM:ITM_ID = 7\n    AddVia(Item)\n    AddVia(Item)\n    return(records(Item))\n  .\n  return(0)\n",
+    parse_clarion(Src, AST),
+    AST = program(_, _, _, _, Procs),
+    ( member(procedure('DoAdd', [param('P:File', ref(file)), _], _, _, _), Procs) -> P = ok ; P = missing ),
+    check('*file P:File parsed as ref(file)', P, ok),
+    init_session(Src, S0),
+    call_procedure(S0, 'Run', [1], R1, _), check('DoAdd(Item) dispatches to DoAdd:Item', R1, 11),
+    call_procedure(S0, 'Run', [2], R2, _), check('DoAdd(Part, 5) dispatches to DoAdd:Part', R2, 27),
+    call_procedure(S0, 'Run', [3], R3, _), check('*file passed on through a second *file param', R3, 122),
+    call_procedure(S0, 'Run', [4], R4, _), check('ADD(F) through *file param adds to Item', R4, 2).
+
+test_expr_call_state :-
+    format("~nProcedure calls inside expressions keep their effects:~n"),
+    Src = "  MEMBER()\nItem FILE,DRIVER('DOS'),PRE(ITM)\nRecord RECORD\nITM_ID LONG\n  END\n  END\nCounter LONG(0)\n  MAP\n    Run(LONG which),LONG,C,NAME('Run'),EXPORT\n  END\nAddItem PROCEDURE(LONG id)\n  CODE\n  ITM:ITM_ID = id\n  add(Item)\n  return(errorcode())\nBump PROCEDURE(LONG n)\n  CODE\n  Counter += n\n  return(Counter)\nDoAdd PROCEDURE(*file P:File, <long O:OptionsMask>)\n  CODE\n  case address(P:File)\n  of address(Item)\n    return(DoAdd:Item(O:OptionsMask))\n  .\n  return(-1)\nDoAdd:Item PROCEDURE(<long O:OptionsMask>)\n  CODE\n  add(Item)\n  return(errorcode())\nRun PROCEDURE(LONG which)\n  CODE\n  open(Item)\n  case which\n  of 1\n    x# = AddItem(1)\n    return(records(Item))\n  of 2\n    if AddItem(1) = 0 and AddItem(2) = 0\n      x# = 1\n    .\n    return(records(Item))\n  of 3\n    return(Bump(1) * 100 + Bump(Bump(10)))\n  of 4\n    loop while Bump(1) < 5\n    .\n    return(Counter)\n  of 5\n    ITM:ITM_ID = 9\n    if DoAdd(Item)\n      return(-1)\n    .\n    x# = DoAdd(Item, 0)\n    return(records(Item))\n  .\n  return(0)\n",
+    init_session(Src, S0),
+    call_procedure(S0, 'Run', [1], R1, _),
+    check('x# = AddItem(1) keeps the ADD', R1, 1),
+    call_procedure(S0, 'Run', [2], R2, _),
+    check('both calls in an IF condition keep their ADDs', R2, 2),
+    call_procedure(S0, 'Run', [3], R3, _),
+    check('globals thread left to right, incl. nested args: 1*100 + 22', R3, 122),
+    call_procedure(S0, 'Run', [4], R4, _),
+    check('LOOP WHILE condition call updates the global each pass', R4, 5),
+    call_procedure(S0, 'Run', [5], R5, _),
+    check('if DoAdd(Item) / x# = DoAdd(Item, 0) both add a record', R5, 2),
+    % A method that calls a procedure keeps its SELF context afterwards
+    MSrc = "  MEMBER()\nAcc CLASS,TYPE\nTotal LONG\nAddTwice PROCEDURE(LONG n)\nGet PROCEDURE,LONG\n  END\n  MAP\n    TestM(),LONG\n  END\nDouble PROCEDURE(LONG v)\n  CODE\n  return(v * 2)\nTestM PROCEDURE\na Acc\n  CODE\n  a.AddTwice(5)\n  RETURN(a.Get())\nAcc.AddTwice PROCEDURE(LONG n)\n  CODE\n  SELF.Total = Double(n)\n  Double(1)\n  SELF.Total = SELF.Total + Double(n)\nAcc.Get PROCEDURE\n  CODE\n  RETURN SELF.Total\n",
+    exec_procedure(MSrc, 'TestM', [], RM),
+    check('SELF survives procedure calls inside a method: 10 + 10', RM, 20).
+
+% Clarion names are case-insensitive; keys from a FILE declaration are kept
+test_case_insensitive_names :-
+    format("~nCase-insensitive names, FILE keys and new builtins:~n"),
+    Src = "  MEMBER()\nT FILE,DRIVER('DOS'),PRE(TT),THREAD\nBy_ID KEY(TT:ID),NAME('PK'),PRIMARY\nBy_Code KEY(TT:Code),DUP,NOCASE\nRecord RECORD,PRE()\nID LONG,NAME('ID |NULLABLE')\nCode LONG\nDt GROUP,PRE()\nD DATE\n  END\n  END\n  END\n  MAP\n    Run(LONG which),LONG,C,NAME('Run'),EXPORT\n  END\nRun PROCEDURE(LONG which)\nMyVar LONG(7)\n  CODE\n  open(t)\n  case which\n  of 1\n    return(myvar + MYVAR)\n  of 2\n    MyVAR = 3\n    return(MyVar)\n  of 3\n    tt:id = 5\n    return(TT:ID)\n  of 4\n    TT:ID = 1\n    TT:Code = 9\n    add(T)\n    TT:ID = 2\n    add(T)\n    a# = errorcode()\n    TT:ID = 1\n    add(T)\n    return(a# * 100 + errorcode())\n  of 5\n    return(band(6, 3) * 100 + bor(4, 1) * 10 + TRUE)\n  of 6\n    return(date(1, 1, 1801) * 100000 + date(3, 1, 2000))\n  of 7\n    TT:ID = 1\n    add(T)\n    TT:ID = 2\n    add(T)\n    TT:ID = 1\n    get(T, TT:By_ID)\n    TT:ID = 2\n    put(T)\n    return(errorcode())\n  .\n  return(0)\n",
+    init_session(Src, S0),
+    call_procedure(S0, 'Run', [1], R1, _), check('myvar / MYVAR read MyVar', R1, 14),
+    call_procedure(S0, 'Run', [2], R2, _), check('MyVAR = 3 updates MyVar', R2, 3),
+    call_procedure(S0, 'Run', [3], R3, _), check('tt:id writes TT:ID', R3, 5),
+    call_procedure(S0, 'Run', [4], R4, _), check('DUP key allows repeats; PRIMARY key gives ERRORCODE 40', R4, 40),
+    call_procedure(S0, 'Run', [5], R5, _), check('BAND(6,3)=2, BOR(4,1)=5, TRUE=1', R5, 251),
+    call_procedure(S0, 'Run', [6], R6, _), check('DATE(1,1,1801)=4, DATE(3,1,2000)=72747 (days since 28 Dec 1800)', R6, 472747),
+    call_procedure(S0, 'Run', [7], R7, _), check('PUT onto another record''s unique key gives 40', R7, 40),
+    % ADDRESS was a sum of character codes, so anagram names collided
+    ASrc = "  MEMBER()
+  MAP
+    A(),LONG
+  END
+A PROCEDURE
+Listen LONG
+Silent LONG
+  CODE
+  if address(Listen) = address(Silent) then return(0).
+  if address(listen) <> address(Listen) then return(1).
+  return(2)
+",
+    exec_procedure(ASrc, 'A', [], RA),
+    check('ADDRESS: anagrams differ, case does not matter', RA, 2),
+    % procedure and key names in any case; PRE:Group.Field on a record
+    KSrc = "  MEMBER()
+T FILE,DRIVER('DOS'),PRE(TT)
+By_Item_ID KEY(TT:ID),PRIMARY
+Record RECORD
+ID LONG
+Stamp GROUP
+D DATE
+  END
+  END
+  END
+  MAP
+    Run(),LONG
+  END
+Helper PROCEDURE(LONG n)
+  CODE
+  return(n * 2)
+Run PROCEDURE
+  CODE
+  open(T)
+  TT:ID = 4
+  TT:Stamp.D = 77
+  add(T)
+  clear(TT:Record)
+  tt:id = 4
+  get(t, Tt:by_item_id)
+  if errorcode() then return(-1).
+  return(helper(TT:Stamp.D) + HELPER(1))
+",
+    exec_procedure(KSrc, 'Run', [], KR),
+    check('procedure/key names in any case, PRE:Group.Field: 77*2 + 2', KR, 156).
+
+% Picture tokens, local storage attributes, LIKE(Pre:Group.Field)
+test_pictures_local_attrs :-
+    format("~nPicture tokens, ,AUTO locals, dotted LIKE:~n"),
+    Src = "  MEMBER()\nRec FILE,DRIVER('DOS'),PRE(REC)\nRecord RECORD\nStamp GROUP\nD DATE\n  END\n  END\n  END\n  MAP\n    Run(),LONG\n  END\nRun PROCEDURE\nTxt cstring(64),auto\nN long,auto\nLastD like(REC:Stamp.D)\nArr long,dim(3),auto\n  CODE\n  N = 7\n  Txt = format(N, @n02) & format(N % 5, @P.###P) & format(N, @d01)\n  if N = 7 and len(clip(Txt)) > 0\n    LastD = 12\n  .\n  return(N + LastD)\n",
+    ( catch(parse_clarion(Src, AST), _, fail) -> P = ok ; P = failed ),
+    check('parses @n02 / @P.###P / @d01, ,auto, like(PRE:G.F)', P, ok),
+    ( P == ok, AST = program(_, _, _, _, [procedure('Run', _, _, Locals, _)]),
+      memberchk(like('LastD', 'REC:Stamp.D', _), Locals) -> L = ok ; L = missing ),
+    check('LIKE keeps the dotted reference', L, ok),
+    exec_procedure(Src, 'Run', [], R),
+    check('runs: N + LastD', R, 19),
+    BSrc = "  MEMBER()
+Counter LONG(0)
+  MAP
+    Run(),LONG
+  END
+Bump PROCEDURE(LONG n)
+  CODE
+  Counter += n
+  return(Counter)
+Run PROCEDURE
+  CODE
+  x# = abs(Bump(5)) + len(clip(Bump(1)))
+  return(Counter * 100 + x#)
+",
+    exec_procedure(BSrc, 'Run', [], BR),
+    check('calls inside builtin args run and keep effects: 6*100 + 5 + 1', BR, 606).
+
+% *T parameters are aliases; *KEY/*GROUP/*?/? params; OMITTED; DISPOSE;
+% a parameter or local shadows a global of the same name
+test_byref_params :-
+    format("~nBy-reference parameters, OMITTED, DISPOSE, shadowing:~n"),
+    Src = "  MEMBER()\nRec FILE,DRIVER('DOS'),PRE(REC)\nBy_ID KEY(REC:ID),PRIMARY\nRecord RECORD\nID LONG\nVal LONG\n  END\n  END\nG LONG(5)\nCls CLASS,TYPE\nInit PROCEDURE(LONG n)\n  END\n  MAP\n    Run(LONG which),LONG\n  END\nInc PROCEDURE(*LONG X)\n  CODE\n  X += 1\nFind PROCEDURE(*FILE F, *KEY K, *GROUP R, *? Fld, ? Target, <*? Fld2>, <? Target2>)\n  CODE\n  clear(F)\n  Fld = Target\n  if ~omitted(FLD2)\n    fld2 = Target2\n  .\n  get(F, K)\n  if errorcode()\n    clear(R)\n    return(FALSE)\n  .\n  return(TRUE)\nShadow PROCEDURE(LONG G)\nN LONG\n  CODE\n  G = 99\n  return(G)\nOmit PROCEDURE(<LONG a>, <LONG b>)\n  CODE\n  return(omitted(a) * 10 + omitted(b))\nCls.Init PROCEDURE(LONG n)\n  CODE\nRun PROCEDURE(LONG which)\nL LONG(1)\no &Cls\n  CODE\n  open(Rec)\n  REC:ID = 1\n  REC:Val = 10\n  add(Rec)\n  REC:ID = 2\n  REC:Val = 20\n  add(Rec)\n  case which\n  of 1\n    Inc(L)\n    Inc(L)\n    Inc(REC:Val)\n    return(L * 100 + REC:Val)\n  of 2\n    clear(REC:Record)\n    x# = Find(Rec, REC:By_ID, REC:Record, REC:ID, 2)\n    return(x# * 100 + REC:Val)\n  of 3\n    x# = Find(Rec, REC:By_ID, REC:Record, REC:ID, 7)\n    return(x# * 100 + REC:Val)\n  of 4\n    y# = Shadow(1)\n    return(y# * 100 + G)\n  of 5\n    return(Omit(1) * 100 + Omit(, 2))\n  of 6\n    o &= new(Cls)\n    dispose(o)\n    if o &= NULL then return(1).\n    return(0)\n  of 7\n    Inc(5)\n    return(G)\n  .\n  return(0)\n",
+    init_session(Src, S0),
+    call_procedure(S0, 'Run', [1], R1, _), check('*LONG param writes the caller variable and a record field', R1, 321),
+    call_procedure(S0, 'Run', [2], R2, _), check('*FILE/*KEY/*GROUP/*? lookup finds record 2 (Fld = Target via alias)', R2, 120),
+    call_procedure(S0, 'Run', [3], R3, _), check('lookup miss returns FALSE and clears the record via *GROUP', R3, 0),
+    call_procedure(S0, 'Run', [4], R4, _), check('a parameter named like a global shadows it', R4, 9905),
+    call_procedure(S0, 'Run', [5], R5, _), check('OMITTED: (1) -> 01, (,2) -> 10', R5, 110),
+    call_procedure(S0, 'Run', [6], R6, _), check('DISPOSE makes the reference NULL', R6, 1),
+    call_procedure(S0, 'Run', [7], R7, _), check('*LONG given a literal is passed by value', R7, 5),
+    GSrc = "  MEMBER()
+CounterClass CLASS,TYPE
+N LONG
+Bump PROCEDURE,LONG
+  END
+Tally CounterClass
+  MAP
+    Run(),LONG
+  END
+CounterClass.Bump PROCEDURE
+  CODE
+  SELF.N += 1
+  return(SELF.N)
+Run PROCEDURE
+  CODE
+  Tally.Bump()
+  return(Tally.Bump())
+",
+    exec_procedure(GSrc, 'Run', [], GR),
+    check('global object (Name ClassName) keeps its state across calls', GR, 2).
 
 %------------------------------------------------------------
 % Main
@@ -1954,6 +2167,14 @@ main :-
     run_test(test_array_field),
     run_test(test_local_queue_group),
     run_test(test_not_call),
+    run_test(test_implicit_long),
+    run_test(test_ref_assign),
+    run_test(test_keyword_table_names),
+    run_test(test_file_ref_param),
+    run_test(test_expr_call_state),
+    run_test(test_case_insensitive_names),
+    run_test(test_pictures_local_attrs),
+    run_test(test_byref_params),
     % Summary
     test_count(Total),
     pass_count(Pass),

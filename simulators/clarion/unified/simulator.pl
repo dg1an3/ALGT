@@ -148,6 +148,11 @@ init_globals([queue(Name, Fields)|Rest], StateIn, StateOut) :-
     FileState = file_state(Name, '', [], Fields, [], Buffer, -1, true),
     set_file_state(Name, FileState, StateIn, State1),
     init_globals(Rest, State1, StateOut).
+% Global object (its CLASS is declared earlier in the module)
+init_globals([instance_global(Name, ClassName)|Rest], StateIn, StateOut) :-
+    create_instance(ClassName, StateIn, Instance),
+    set_var(Name, Instance, StateIn, State1),
+    init_globals(Rest, State1, StateOut).
 init_globals([window(_Name, _Title, _Attrs, Controls)|Rest], StateIn, StateOut) :-
     assign_equates(Controls, 1, StateIn, State1),
     init_globals(Rest, State1, StateOut).
@@ -194,12 +199,24 @@ create_group_value([field(_, Type, Size)|Rest], [Value|Values]) :-
 init_file(Name, Attrs, Contents, StateIn, StateOut) :-
     ( member(pre(Prefix), Attrs) -> true ; Prefix = '' ),
     ( member(driver(Driver), Attrs) -> true ; Driver = memory ),
-    extract_keys(Contents, Keys),
+    % KEY declarations arrive as attributes (from the parser) or as contents
+    append(Attrs, Contents, KeySources),
+    extract_keys(KeySources, Keys),
+    unique_keys(KeySources, UniqueKeys),
     extract_record_fields(Contents, Fields),
     create_empty_buffer(Fields, Buffer),
     FileState = file_state(Name, Prefix, Keys, Fields, [], Buffer, -1, false),
     set_file_state(Name, FileState, StateIn, State1),
-    set_var(file_driver(Name), Driver, State1, StateOut).
+    set_var(file_driver(Name), Driver, State1, State2),
+    set_var(file_unique_keys(Name), UniqueKeys, State2, StateOut).
+
+% Keys without DUP reject a second record with the same values (ERRORCODE 40)
+unique_keys([], []).
+unique_keys([key(KeyName, KeyFields, KAttrs)|Rest], [key(KeyName, KeyFields)|Keys]) :-
+    is_list(KAttrs), \+ memberchk(dup, KAttrs), !,
+    unique_keys(Rest, Keys).
+unique_keys([_|Rest], Keys) :-
+    unique_keys(Rest, Keys).
 
 extract_keys([], []).
 extract_keys([key(KeyName, KeyFields, _)|Rest], [key(KeyName, KeyFields)|Keys]) :-
@@ -233,8 +250,8 @@ exec_statement(call(Name, Args), StateIn, StateOut, normal) :- !,
     exec_call(Name, Args, StateIn, StateOut, _Result).
 
 % Assignment (with tracing)
-exec_statement(assign(VarName, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(Expr, StateIn, Value),
+exec_statement(assign(VarName, Expr), StateIn0, StateOut, normal) :- !,
+    eval_expr_st(Expr, StateIn0, StateIn, Value),
     % Trace: record the assignment
     ( is_tracing
     -> ( get_var(VarName, StateIn, OldValue) -> true ; OldValue = undefined ),
@@ -247,13 +264,24 @@ exec_statement(assign(VarName, Expr), StateIn, StateOut, normal) :- !,
     ),
     set_var(VarName, Value, StateIn, StateOut).
 
+% Reference assignment (Ref &= Target). Value-semantics approximation:
+%   NULL        -> null
+%   NEW(Class)  -> a fresh instance of Class
+%   Name        -> ref(file(Name)) when Name is a FILE/QUEUE; otherwise a copy of
+%                  Name's current value (aliasing between references is not modelled)
+%   Expr        -> the evaluated value (e.g. Registry:Find())
+exec_statement(ref_assign(VarName, Target), StateIn0, StateOut, normal) :- !,
+    ( Target = expr(E) -> eval_expr_st(E, StateIn0, StateIn, Value)
+    ; StateIn = StateIn0, ref_target_value(Target, StateIn, Value) ),
+    set_var(VarName, Value, StateIn, StateOut).
+
 % Method call (as statement)
 exec_statement(method_call(ObjName, MethodName, Args), StateIn, StateOut, normal) :- !,
     exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, _Result).
 
 % SELF assignment
-exec_statement(self_assign(PropName, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(Expr, StateIn, Value),
+exec_statement(self_assign(PropName, Expr), StateIn0, StateOut, normal) :- !,
+    eval_expr_st(Expr, StateIn0, StateIn, Value),
     get_self(StateIn, self_context(VarName, _, _)),
     get_var(VarName, StateIn, Instance),
     set_instance_prop(PropName, Value, Instance, NewInstance),
@@ -264,13 +292,12 @@ exec_statement(parent_call(MethodName, Args), StateIn, StateOut, normal) :- !,
     exec_parent_call(MethodName, Args, StateIn, StateOut, _Result).
 
 % GROUP/instance member assignment
-exec_statement(member_assign(VarName, FieldName, Expr), StateIn, StateOut, normal) :- !,
+exec_statement(member_assign(VarName, FieldName, Expr), StateIn0, StateOut, normal) :- !,
+    eval_expr_st(Expr, StateIn0, StateIn, Value),
     ( get_file_state(VarName, StateIn, FileState) ->
-        eval_full_expr(Expr, StateIn, Value),
         set_buffer_field(FieldName, Value, FileState, NewFileState),
         set_file_state(VarName, NewFileState, StateIn, StateOut)
     ;
-        eval_full_expr(Expr, StateIn, Value),
         get_var(VarName, StateIn, GroupVal),
         ( GroupVal = group_val(Pfx, Fields, Values)
         -> set_group_field(FieldName, Value, Fields, Values, NewValues),
@@ -287,9 +314,9 @@ exec_statement(member_assign(VarName, FieldName, Expr), StateIn, StateOut, norma
     ).
 
 % Array assignment
-exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(IndexExpr, StateIn, Index),
-    eval_full_expr(Expr, StateIn, Value),
+exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn0, StateOut, normal) :- !,
+    eval_expr_st(IndexExpr, StateIn0, StateIn1, Index),
+    eval_expr_st(Expr, StateIn1, StateIn, Value),
     get_var(ArrayName, StateIn, ArrayVal),
     ( ArrayVal = array(Elements)
     -> Idx is Index - 1,
@@ -299,9 +326,9 @@ exec_statement(array_assign(ArrayName, IndexExpr, Expr), StateIn, StateOut, norm
     ).
 
 % A[i].Field = Expr — only when the element is a GROUP value; otherwise warn and skip
-exec_statement(array_field_assign(ArrayName, IndexExpr, Field, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(IndexExpr, StateIn, Index),
-    eval_full_expr(Expr, StateIn, Value),
+exec_statement(array_field_assign(ArrayName, IndexExpr, Field, Expr), StateIn0, StateOut, normal) :- !,
+    eval_expr_st(IndexExpr, StateIn0, StateIn1, Index),
+    eval_expr_st(Expr, StateIn1, StateIn, Value),
     Idx is Index - 1,
     (   get_var(ArrayName, StateIn, array(Elements)),
         simulator_eval:get_array_element(Idx, Elements, Elem),
@@ -315,20 +342,20 @@ exec_statement(array_field_assign(ArrayName, IndexExpr, Field, Expr), StateIn, S
         StateOut = StateIn
     ).
 
-exec_statement(assign_add(VarName, Expr), StateIn, StateOut, normal) :- !,
-    eval_full_expr(Expr, StateIn, Val),
+exec_statement(assign_add(VarName, Expr), StateIn0, StateOut, normal) :- !,
+    eval_expr_st(Expr, StateIn0, StateIn, Val),
     get_var(VarName, StateIn, CurrentVal),
     NewVal is CurrentVal + Val,
     set_var(VarName, NewVal, StateIn, StateOut).
 
 % Return statements
 exec_statement(return, State, State, return) :- !.
-exec_statement(return(Expr), StateIn, StateIn, return(Value)) :- !,
-    eval_full_expr(Expr, StateIn, Value).
+exec_statement(return(Expr), StateIn, StateOut, return(Value)) :- !,
+    eval_expr_st(Expr, StateIn, StateOut, Value).
 
 % IF statement (4-arg form with ELSIF) - with tracing
-exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn, StateOut, Control) :- !,
-    eval_full_expr(Cond, StateIn, CondVal),
+exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn0, StateOut, Control) :- !,
+    eval_expr_st(Cond, StateIn0, StateIn, CondVal),
     IsTruthy = is_truthy(CondVal),
     ( call(IsTruthy) -> BranchTaken = true ; BranchTaken = false ),
     % Trace: record the branch decision
@@ -344,9 +371,9 @@ exec_statement(if(Cond, ThenStmts, ElsifClauses, ElseStmts), StateIn, StateOut, 
     ).
 
 % IF statement (3-arg legacy form) - with tracing
-exec_statement(if(Cond, ThenStmts, ElseStmts), StateIn, StateOut, Control) :- !,
+exec_statement(if(Cond, ThenStmts, ElseStmts), StateIn0, StateOut, Control) :- !,
     \+ is_list(ElseStmts),
-    eval_full_expr(Cond, StateIn, CondVal),
+    eval_expr_st(Cond, StateIn0, StateIn, CondVal),
     ( is_truthy(CondVal) -> BranchTaken = true ; BranchTaken = false ),
     % Trace: record the branch decision
     ( is_tracing
@@ -372,9 +399,9 @@ exec_statement(loop(Body), StateIn, StateOut, Control) :- !,
     ;  true
     ).
 
-exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn, StateOut, Control) :- !,
-    eval_full_expr(FromExpr, StateIn, From),
-    eval_full_expr(ToExpr, StateIn, To),
+exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn0, StateOut, Control) :- !,
+    eval_expr_st(FromExpr, StateIn0, StateIn1, From),
+    eval_expr_st(ToExpr, StateIn1, StateIn, To),
     ( is_tracing
     -> trace_loop_start(loop_to, info{var: Var, from: From, to: To}),
        add_graph_node(loop, loop{type: loop_to, var: Var, from: From, to: To}, _)
@@ -416,8 +443,8 @@ exec_statement(break, State, State, break) :- !.
 exec_statement(cycle, State, State, cycle) :- !.
 
 % CASE statement - with tracing
-exec_statement(case(Expr, Cases, ElseStmts), StateIn, StateOut, Control) :- !,
-    eval_full_expr(Expr, StateIn, Value),
+exec_statement(case(Expr, Cases, ElseStmts), StateIn0, StateOut, Control) :- !,
+    eval_expr_st(Expr, StateIn0, StateIn, Value),
     ( is_tracing
     -> add_graph_node(branch, branch{type: case, expr: Expr, value: Value}, NodeId),
        trace_expr_reads(Expr, StateIn, NodeId)
@@ -452,6 +479,34 @@ exec_statement(Stmt, State, State, normal) :-
 
 % Full expression evaluation that handles calls and method calls
 % Binop must use eval_full_expr for sub-expressions (they may contain calls)
+%% eval_expr_st(+Expr, +StateIn, -StateOut, -Value)
+%
+% Like eval_full_expr/3, but a procedure or method called inside the
+% expression keeps its effects (globals, files, ERRORCODE): the callee's output
+% state is threaded through. Operands are evaluated left to right, all of them
+% (no short-circuit), matching eval_full_expr/3. Sub-expressions that cannot
+% contain a call are evaluated purely.
+eval_expr_st(call(Name, Args), S0, S, Value) :- !,
+    exec_call(Name, Args, S0, S, Value).
+eval_expr_st(method_call(ObjName, MethodName, Args), S0, S, Value) :- !,
+    exec_method_call(ObjName, MethodName, Args, S0, S, Value).
+eval_expr_st(binop(Op, Left, Right), S0, S, Value) :- !,
+    eval_expr_st(Left, S0, S1, LVal),
+    eval_expr_st(Right, S1, S, RVal),
+    eval_binop(Op, LVal, RVal, Value).
+eval_expr_st(not(Expr), S0, S, Value) :- !,
+    eval_expr_st(Expr, S0, S, Val),
+    ( is_truthy(Val) -> Value = 0 ; Value = 1 ).
+eval_expr_st(ref_eq(A, null), S0, S, Value) :- !,
+    eval_expr_st(A, S0, S, V),
+    ( V == null -> Value = 1 ; Value = 0 ).
+eval_expr_st(ref_eq(A, B), S0, S, Value) :- !,
+    eval_expr_st(A, S0, S1, VA),
+    eval_expr_st(B, S1, S, VB),
+    ( VA == VB -> Value = 1 ; Value = 0 ).
+eval_expr_st(Expr, S, S, Value) :-
+    eval_full_expr(Expr, S, Value).
+
 eval_full_expr(binop(Op, Left, Right), State, Result) :- !,
     eval_full_expr(Left, State, LVal),
     eval_full_expr(Right, State, RVal),
@@ -479,6 +534,15 @@ eval_full_expr(member_access(ObjName, PropName), State, Value) :- !,
 eval_full_expr(not(Expr), State, Result) :- !,
     eval_full_expr(Expr, State, Val),
     ( is_truthy(Val) -> Result = 0 ; Result = 1 ).
+% Reference identity: Ref &= NULL is true for an unassigned reference;
+% Ref &= Other compares the stored references (value approximation).
+eval_full_expr(ref_eq(A, null), State, Result) :- !,
+    eval_full_expr(A, State, V),
+    ( V == null -> Result = 1 ; Result = 0 ).
+eval_full_expr(ref_eq(A, B), State, Result) :- !,
+    eval_full_expr(A, State, VA),
+    eval_full_expr(B, State, VB),
+    ( VA == VB -> Result = 1 ; Result = 0 ).
 % Omitted call argument f(, a): passed through as the atom 'omitted'
 eval_full_expr(omitted, _, omitted) :- !.
 % A[i].Field — field of a GROUP array element (0 if the element is not a group)
@@ -500,8 +564,8 @@ eval_full_expr(Expr, State, Value) :-
 
 exec_elsifs([], ElseStmts, StateIn, StateOut, Control) :-
     exec_statements(ElseStmts, StateIn, StateOut, Control).
-exec_elsifs([elsif(Cond, Stmts)|Rest], ElseStmts, StateIn, StateOut, Control) :-
-    eval_full_expr(Cond, StateIn, CondVal),
+exec_elsifs([elsif(Cond, Stmts)|Rest], ElseStmts, StateIn0, StateOut, Control) :-
+    eval_expr_st(Cond, StateIn0, StateIn, CondVal),
     ( is_truthy(CondVal)
     -> exec_statements(Stmts, StateIn, StateOut, Control)
     ;  exec_elsifs(Rest, ElseStmts, StateIn, StateOut, Control)
@@ -533,8 +597,8 @@ exec_loop_to(Var, To, Body, StateIn, StateOut, Control) :-
        )
     ).
 
-exec_loop_while(Cond, Body, StateIn, StateOut, Control) :-
-    eval_full_expr(Cond, StateIn, CondVal),
+exec_loop_while(Cond, Body, StateIn0, StateOut, Control) :-
+    eval_expr_st(Cond, StateIn0, StateIn, CondVal),
     ( is_truthy(CondVal)
     -> exec_statements(Body, StateIn, State1, BodyControl),
        ( BodyControl = break -> StateOut = State1, Control = normal
@@ -550,10 +614,10 @@ exec_loop_until(Cond, Body, StateIn, StateOut, Control) :-
     ( BodyControl = break -> StateOut = State1, Control = normal
     ; BodyControl = return -> StateOut = State1, Control = return
     ; BodyControl = return(V) -> StateOut = State1, Control = return(V)
-    ; eval_full_expr(Cond, State1, CondVal),
+    ; eval_expr_st(Cond, State1, State2, CondVal),
       ( is_truthy(CondVal)
-      -> StateOut = State1, Control = normal
-      ;  exec_loop_until(Cond, Body, State1, StateOut, Control)
+      -> StateOut = State2, Control = normal
+      ;  exec_loop_until(Cond, Body, State2, StateOut, Control)
       )
     ).
 
@@ -691,7 +755,15 @@ exec_accept_loop(Body, StateIn, StateOut, Control, _Phase) :-
 exec_call(Name, Args, StateIn, StateOut, Result) :-
     % Clarion is case-insensitive; builtins are registered UPPERCASE
     upcase_atom(Name, UName),
-    ( builtin_call(UName, Args, StateIn, StateOut, Result)
+    resolve_file_ref_args(Args, StateIn, BArgs0),
+    % Builtins evaluate their arguments with the pure evaluator, which cannot
+    % run a nested call (LEN(CLIP(X)), FORMAT(F(), @n3)). Evaluate such
+    % arguments here first, threading state, and pass the values.
+    ( member(A, BArgs0), contains_call(A), is_builtin_name(UName)
+    -> pre_eval_builtin_args(BArgs0, StateIn, StateB, BArgs)
+    ;  BArgs = BArgs0, StateB = StateIn
+    ),
+    ( builtin_call(UName, BArgs, StateB, StateOut, Result)
     -> true
     ; is_external_proc(Name, StateIn)
     -> % External MODULE procedure — execute as stub
@@ -700,14 +772,14 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
       -> true
       ; throw(error(undefined_procedure(Name), context(exec_call/5, 'Undefined procedure')))
       ),
-      eval_args(Args, StateIn, ArgVals),
+      eval_call_args(Params, Args, StateIn, StateA, ArgVals),
       % Trace: procedure entry
       ( is_tracing
       -> trace_proc_enter(Name, ArgVals),
          add_graph_node(call, call{name: Name, args: ArgVals}, _CallNodeId)
       ;  true
       ),
-      bind_params(Params, ArgVals, StateIn, State1),
+      bind_params(Params, ArgVals, StateA, State1),
       init_locals(LocalVars, State1, State2),
       exec_statements(Body, State2, State3, Control),
       ( Control = return(V) -> Result = V ; Result = none ),
@@ -719,12 +791,13 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
       ),
       % Merge globals back: keep callee's values for vars that existed in caller,
       % discard local-only vars (params and locals)
-      StateIn = state(OuterVars, Procs, _, _, _, _, _, UI, Cont),
+      % The caller's SELF context is restored (it used to be reset to none).
+      StateA = state(OuterVars, Procs, _, _, _, _, CallerSelf, UI, Cont),
       State3 = state(InnerVars, _, NewOut, NewFiles, NewErr, NewClasses, _, _, _),
       param_names(Params, ParamNames),
       local_names(LocalVars, LocalNames),
       merge_globals(OuterVars, InnerVars, ParamNames, LocalNames, MergedVars),
-      StateOut = state(MergedVars, Procs, NewOut, NewFiles, NewErr, NewClasses, none, UI, Cont)
+      StateOut = state(MergedVars, Procs, NewOut, NewFiles, NewErr, NewClasses, CallerSelf, UI, Cont)
     ).
 
 %------------------------------------------------------------
@@ -782,16 +855,24 @@ exec_external_stub(Name, Args, StateIn, StateOut, Result) :-
 
 %% merge_globals(+OuterVars, +InnerVars, +ParamNames, +LocalNames, -MergedVars)
 % For each outer var, pick its value from inner vars (if updated), otherwise keep outer value.
+% A caller variable keeps the callee's value, unless the callee had a parameter
+% or local of the same name: that one shadowed it, so the caller's value stands.
+% (ParamNames and LocalNames used to be ignored, so a parameter or local that
+% shared a global's name overwrote the global on return.)
 merge_globals([], _, _, _, []).
-merge_globals([var(Name, _OldVal)|Rest], InnerVars, ParamNames, LocalNames, [var(Name, NewVal)|MergedRest]) :-
-    member(var(Name, NewVal), InnerVars), !,
-    merge_globals(Rest, InnerVars, ParamNames, LocalNames, MergedRest).
-merge_globals([Var|Rest], InnerVars, ParamNames, LocalNames, [Var|MergedRest]) :-
+merge_globals([var(Name, Old)|Rest], InnerVars, ParamNames, LocalNames, [var(Name, Val)|MergedRest]) :-
+    ( ( memberchk(Name, ParamNames) ; memberchk(Name, LocalNames) )
+    -> Val = Old
+    ;  memberchk(var(Name, New), InnerVars)
+    -> Val = New
+    ;  Val = Old
+    ),
     merge_globals(Rest, InnerVars, ParamNames, LocalNames, MergedRest).
 
+% Each parameter also has an omitted marker (see bind_params/4)
 param_names([], []).
-param_names([param(_, Name)|Rest], [Name|Names]) :- param_names(Rest, Names).
-param_names([param(_, Name, _, _)|Rest], [Name|Names]) :- param_names(Rest, Names).
+param_names([param(_, Name)|Rest], [Name, '$omitted'(Name)|Names]) :- param_names(Rest, Names).
+param_names([param(_, Name, _, _)|Rest], [Name, '$omitted'(Name)|Names]) :- param_names(Rest, Names).
 
 local_names([], []).
 local_names([local_var(Name, _, _)|Rest], [Name|Names]) :- local_names(Rest, Names).
@@ -799,26 +880,90 @@ local_names([local_decl(group(Name, _, _))|Rest], [Name|Names]) :- local_names(R
 local_names([var(Name, _, _)|Rest], [Name|Names]) :- local_names(Rest, Names).
 local_names([_|Rest], Names) :- local_names(Rest, Names).
 
+% Arguments for a *FILE parameter (type file_ref) are passed as ref(file(F))
+% rather than evaluated; a file-ref variable passed on keeps its reference.
+% Arguments are evaluated left to right; a call inside an argument passes its
+% state changes on to the next argument and to the callee.
+eval_call_args(_, [], State, State, []) :- !.
+eval_call_args([P|Ps], [A|As], S0, S, [V|Vs]) :- !,
+    ( ( P = param(file_ref, _) ; P = param(file_ref, _, _, _) ),
+      A = var(N), file_ref_target(N, S0, F)
+    -> V = ref(file(F)), S1 = S0
+    ;  ( P = param(byref(_), _) ; P = param(byref(_), _, _, _) ),
+       A = var(N)
+    -> % *T parameter given a plain name (variable, record field, key, group):
+       % the parameter becomes an alias for it, so assignments reach the caller
+       alias_target(N, S0, T), V = alias(T), S1 = S0
+    ;  eval_expr_st(A, S0, S1, V)
+    ),
+    eval_call_args(Ps, As, S1, S, Vs).
+eval_call_args([], As, S0, S, Vs) :-           % more args than params
+    eval_args_st(As, S0, S, Vs).
+
+eval_args_st([], S, S, []).
+eval_args_st([A|As], S0, S, [V|Vs]) :-
+    eval_expr_st(A, S0, S1, V),
+    eval_args_st(As, S1, S, Vs).
+
+% Follow an alias chain so an alias never points at another alias
+alias_target(N, State, T) :-
+    get_vars(State, Vars),
+    ( alias_of(N, Vars, N1) -> alias_target(N1, State, T) ; T = N ).
+
+% N names a FILE/QUEUE, or a variable holding ref(file(F))
+file_ref_target(N, State, N) :- get_file_state(N, State, _), !.
+file_ref_target(N, State, F) :-
+    get_vars(State, Vars), memberchk(var(N, ref(file(F))), Vars).
+
+% Builtins see the file behind a file reference: ADD(P:File), ADDRESS(P:File)
+% and `Ref &= File` targets operate on the referenced FILE.
+contains_call(T) :- sub_term(S, T), compound(S), ( S = call(_, _) ; S = method_call(_, _, _) ), !.
+
+is_builtin_name(UName) :-
+    catch(clause(simulator_builtins:builtin_call(UName, _, _, _, _), _), _, fail), !.
+
+pre_eval_builtin_args([], S, S, []).
+pre_eval_builtin_args([A|As], S0, S, [B|Bs]) :-
+    ( contains_call(A)
+    -> eval_expr_st(A, S0, S1, V), B = evaluated(V)
+    ;  S1 = S0, B = A
+    ),
+    pre_eval_builtin_args(As, S1, S, Bs).
+
+resolve_file_ref_args([], _, []).
+resolve_file_ref_args([var(N)|As], State, Bs) :-
+    get_vars(State, Vars), alias_of(N, Vars, T), !,
+    % a by-reference parameter: the builtin acts on what it aliases
+    resolve_file_ref_args([var(T)|As], State, Bs).
+resolve_file_ref_args([A|As], State, [B|Bs]) :-
+    ( A = var(N), \+ get_file_state(N, State, _),
+      get_vars(State, Vars), memberchk(var(N, ref(file(F))), Vars)
+    -> B = var(F)
+    ;  B = A
+    ),
+    resolve_file_ref_args(As, State, Bs).
+
 eval_args([], _, []).
 eval_args([Arg|Args], State, [Val|Vals]) :-
     eval_full_expr(Arg, State, Val),
     eval_args(Args, State, Vals).
 
+% Each parameter Name gets a marker '$omitted'(Name) (1 or 0) for OMITTED().
 bind_params([], [], State, State).
 % Omitted argument (f(, a)): bind the parameter's default value
 bind_params([P|Params], [omitted|Vals], StateIn, StateOut) :- !,
     ( P = param(Type, Name, optional, Default) -> true
     ; P = param(Type, Name), Default = none ),
     ( Default = none -> default_value(Type, none, Val) ; eval_full_expr(Default, StateIn, Val) ),
-    set_var(Name, Val, StateIn, State1),
+    bind_param(Name, Val, 1, StateIn, State1),
     bind_params(Params, Vals, State1, StateOut).
 % Required parameter with value provided
 bind_params([param(_, Name)|Params], [Val|Vals], StateIn, StateOut) :-
-    set_var(Name, Val, StateIn, State1),
+    bind_param(Name, Val, 0, StateIn, State1),
     bind_params(Params, Vals, State1, StateOut).
 % Optional parameter with value provided
 bind_params([param(_, Name, optional, _)|Params], [Val|Vals], StateIn, StateOut) :-
-    set_var(Name, Val, StateIn, State1),
+    bind_param(Name, Val, 0, StateIn, State1),
     bind_params(Params, Vals, State1, StateOut).
 % Optional parameter without value - use default
 bind_params([param(Type, Name, optional, Default)|Params], [], StateIn, StateOut) :-
@@ -826,15 +971,36 @@ bind_params([param(Type, Name, optional, Default)|Params], [], StateIn, StateOut
     -> default_value(Type, none, Val)
     ;  eval_full_expr(Default, StateIn, Val)
     ),
-    set_var(Name, Val, StateIn, State1),
+    bind_param(Name, Val, 1, StateIn, State1),
     bind_params(Params, [], State1, StateOut).
 % Extra args - ignore
 bind_params([], [_|_], State, State).
 % Missing required args - use type defaults
 bind_params([param(Type, Name)|Params], [], StateIn, StateOut) :-
     default_value(Type, none, Val),
-    set_var(Name, Val, StateIn, State1),
+    bind_param(Name, Val, 1, StateIn, State1),
     bind_params(Params, [], State1, StateOut).
+
+% A parameter is a fresh binding: it replaces (shadows) any variable of that
+% name without writing through it, even when that variable is an alias.
+bind_param(Name, Val, Omitted, StateIn, StateOut) :-
+    ( Val = alias(_) ; get_vars(StateIn, Vs), alias_of(Name, Vs, _) ), !,
+    bind_raw(Name, Val, StateIn, State1),
+    bind_raw('$omitted'(Name), Omitted, State1, StateOut).
+bind_param(Name, Val, Omitted, StateIn, StateOut) :-
+    set_var(Name, Val, StateIn, State1),
+    bind_raw('$omitted'(Name), Omitted, State1, StateOut).
+
+ref_target_value(null, _, null) :- !.
+ref_target_value(new(Class), State, Instance) :- !,
+    create_instance(Class, State, Instance).
+ref_target_value(name(Name), State, Value) :- !,
+    ( get_file_state(Name, State, _) -> Value = ref(file(Name))
+    ; get_var(Name, State, V) -> Value = V
+    ; Value = ref(Name)
+    ).
+ref_target_value(expr(Expr), State, Value) :-
+    eval_full_expr(Expr, State, Value).
 
 init_locals([], State, State).
 init_locals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-

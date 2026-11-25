@@ -114,6 +114,7 @@ find_method_impl(ClassName, MethodName, _, _) :-
 % Default Values
 %------------------------------------------------------------
 
+default_value(byref(T), Size, V) :- !, default_value(T, Size, V).
 default_value('STRING', _, "").
 default_value('CSTRING', _, "").
 default_value('PSTRING', _, "").

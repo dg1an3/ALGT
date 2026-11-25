@@ -146,6 +146,47 @@ builtin_call('TODAY', [], StateIn, StateIn, 80000).
 % CLOCK() - current time (returns 0 for now)
 builtin_call('CLOCK', [], StateIn, StateIn, 0).
 
+% BAND/BOR/BXOR(a, b) - bitwise AND/OR/XOR
+builtin_call('BAND', [A, B], StateIn, StateIn, R) :-
+    eval_expr(A, StateIn, VA), eval_expr(B, StateIn, VB), R is integer(VA) /\ integer(VB).
+builtin_call('BOR', [A, B], StateIn, StateIn, R) :-
+    eval_expr(A, StateIn, VA), eval_expr(B, StateIn, VB), R is integer(VA) \/ integer(VB).
+builtin_call('BXOR', [A, B], StateIn, StateIn, R) :-
+    eval_expr(A, StateIn, VA), eval_expr(B, StateIn, VB), R is integer(VA) xor integer(VB).
+
+% DATE(month, day, year) - Clarion standard date: days since 28 Dec 1800
+% (so DATE(1,1,1801) = 4). Month overflow (13 -> January next year) is
+% normalised by SWI's date arithmetic.
+builtin_call('DATE', [M, D, Y], StateIn, StateIn, R) :-
+    eval_expr(M, StateIn, VM), eval_expr(D, StateIn, VD), eval_expr(Y, StateIn, VY),
+    date_time_stamp(date(VY, VM, VD, 0, 0, 0, 0, -, -), S),
+    date_time_stamp(date(1800, 12, 28, 0, 0, 0, 0, -, -), S0),
+    R is round((S - S0) / 86400).
+
+% NAME(file) - the file's label (the NAME() attribute is not kept)
+builtin_call('NAME', [var(FileName)], StateIn, StateIn, FileName) :-
+    get_file_state(FileName, StateIn, _), !.
+
+% OMITTED(param) - true when the caller passed no argument for that parameter
+builtin_call('OMITTED', [var(Name)], StateIn, StateIn, R) :-
+    get_vars(StateIn, Vars),
+    ( memberchk(var('$omitted'(Name), O), Vars) -> R = O
+    ; atom(Name), upcase_atom(Name, U),
+      member(var('$omitted'(N), O), Vars), atom(N), upcase_atom(N, U) -> R = O
+    ; R = 0 ), !.
+
+% DISPOSE(ref) - releases a NEW'd object; the reference becomes NULL
+builtin_call('DISPOSE', [var(Name)], StateIn, StateOut, none) :-
+    set_var(Name, null, StateIn, StateOut), !.
+
+% ASSERT(condition [, message]) - logs a failed assertion and continues
+builtin_call('ASSERT', [C|Msg], StateIn, StateIn, none) :-
+    eval_expr(C, StateIn, V),
+    ( V \== 0, V \== '', V \== "" -> true
+    ; ( Msg = [ME], catch(eval_expr(ME, StateIn, MV), _, fail) -> true ; MV = '' ),
+      format("  [ASSERT failed: ~w]~n", [MV])
+    ).
+
 % ABS(number) - absolute value
 builtin_call('ABS', [Expr], StateIn, StateIn, Result) :-
     eval_expr(Expr, StateIn, Val),
@@ -195,14 +236,17 @@ builtin_call('SIZE', [var(Name)], StateIn, StateIn, Size) :-
     ; Size = 0
     ).
 
-% ADDRESS(var) - returns a unique simulated address per variable name
-% Uses a deterministic hash: sum of char codes * 1000 + offset, ensuring
-% different variables get different "addresses" for MemCopy simulation.
+% ADDRESS(var) - returns a unique simulated address per variable name.
+% The upper-cased name read as a base-256 number (+65536): deterministic,
+% case-insensitive and injective. (It used to be the sum of the character
+% codes, so anagram names collided: ADDRESS(Listen) = ADDRESS(Silent)
+% sent a `case address(P:File)` dispatch to the wrong file's branch.)
 builtin_call('ADDRESS', [var(Name)], StateIn, StateIn, Addr) :-
     !,
-    atom_codes(Name, Codes),
-    sumlist(Codes, Sum),
-    Addr is (Sum * 1000) + 65536.
+    upcase_atom(Name, U),
+    atom_codes(U, Codes),
+    foldl([C, A0, A1]>>(A1 is A0 * 256 + C), Codes, 0, N),
+    Addr is N + 65536.
 builtin_call('ADDRESS', [_], StateIn, StateIn, 65536).
 
 % POINTER(file) - returns current file pointer position
@@ -302,6 +346,12 @@ builtin_call('EMPTY', [var(FileName)], StateIn, StateOut, none) :-
 
 % ADD(file) - Add current buffer as new record (dispatches to storage backend)
 builtin_call('ADD', [var(FileName)], StateIn, StateOut, none) :-
+    get_file_state(FileName, StateIn, FileState),
+    duplicate_key(FileName, FileState, -1, StateIn, KeyName),
+    !,
+    format("  [ADD to ~w rejected: duplicate key ~w]~n", [FileName, KeyName]),
+    set_error(40, StateIn, StateOut).
+builtin_call('ADD', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
     -> get_file_driver(FileName, StateIn, Driver),
        storage_call(storage_add(Driver, FileState, NewFileState), Code),
@@ -332,12 +382,13 @@ builtin_call('GET', [var(FileName), IndexExpr], StateIn, StateOut, none) :-
 % GET(file, key) - Get record by key (dispatches to storage backend)
 builtin_call('GET', [var(FileName), var(KeyRef)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
-    -> FileState = file_state(FileName, Prefix, Keys, Fields, _Records, Buffer, _, _Open),
-       ( parse_prefixed_name(KeyRef, Prefix, KeyName)
+    -> FileState = file_state(_, Prefix, Keys, Fields, _Records, Buffer, _, _Open),
+       % Key names, like all Clarion names, are case-insensitive (Chg:By_Chg_Id)
+       ( parse_prefixed_name(KeyRef, P, KeyName0), same_name(P, Prefix)
        -> true
-       ; KeyName = KeyRef
+       ; KeyName0 = KeyRef
        ),
-       ( member(key(KeyName, KeyFields), Keys)
+       ( ( member(key(KeyName, KeyFields), Keys), same_name(KeyName0, KeyName) )
        -> get_key_values(KeyFields, Prefix, Fields, Buffer, SearchValues),
           get_file_driver(FileName, StateIn, Driver),
           ( storage_get(Driver, key_search(KeyName, KeyFields, SearchValues), FileState, NewFileState)
@@ -351,6 +402,14 @@ builtin_call('GET', [var(FileName), var(KeyRef)], StateIn, StateOut, none) :-
     ).
 
 % PUT(file) - Update current record (dispatches to storage backend)
+builtin_call('PUT', [var(FileName)], StateIn, StateOut, none) :-
+    get_file_state(FileName, StateIn, FileState),
+    FileState = file_state(_, _, _, _, _, _, Pos, _),
+    Pos >= 0,
+    duplicate_key(FileName, FileState, Pos, StateIn, KeyName),
+    !,
+    format("  [PUT to ~w rejected: duplicate key ~w]~n", [FileName, KeyName]),
+    set_error(40, StateIn, StateOut).
 builtin_call('PUT', [var(FileName)], StateIn, StateOut, none) :-
     ( get_file_state(FileName, StateIn, FileState)
     -> FileState = file_state(_, _, _, _, _, _, Pos, _),
@@ -435,6 +494,20 @@ builtin_call('RECORDS', [var(FileName)], StateIn, StateIn, Count) :-
        storage_records(Driver, FileState, Count)
     ;  Count = 0
     ).
+
+%% duplicate_key(+File, +FileState, +ExcludePos, +State, -KeyName)
+% True when the buffer's values for a unique (non-DUP) key match a stored
+% record other than the one at ExcludePos (the record being PUT).
+duplicate_key(FileName, file_state(_, Prefix, _, Fields, Records, Buffer, _, _),
+              ExcludePos, State, KeyName) :-
+    get_vars(State, Vars),
+    memberchk(var(file_unique_keys(FileName), UniqueKeys), Vars),
+    member(key(KeyName, KeyFields), UniqueKeys),
+    get_key_values(KeyFields, Prefix, Fields, Buffer, Values),
+    nth0(Pos, Records, Record),
+    Pos =\= ExcludePos,
+    get_key_values(KeyFields, Prefix, Fields, Record, Values),
+    !.
 
 % ERRORCODE() - Get last error code
 builtin_call('ERRORCODE', [], StateIn, StateIn, ErrCode) :-
@@ -558,6 +631,7 @@ error_message(0, "").
 error_message(2, "File not found").
 error_message(33, "Record not found").
 error_message(37, "File not open").
+error_message(40, "Creates Duplicate Key").
 error_message(47, "Invalid key").
 error_message(52, "File already open").
 error_message(89, "Record changed by another station").

@@ -25,6 +25,8 @@
 % Literals
 eval_expr(string(S), _, S).
 eval_expr(number(N), _, N).
+% An argument already evaluated by exec_call (see pre_eval_builtin_args/4)
+eval_expr(evaluated(V), _, V).
 eval_expr(neg(N), _, Result) :- Result is -N.
 eval_expr(true, _, 1).
 eval_expr(false, _, 0).
