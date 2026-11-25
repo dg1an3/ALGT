@@ -64,17 +64,20 @@
     create(FS, FS).
 
     add(FSIn, FSOut) :-
-        storage_memory::add(FSIn, FSOut),
-        FSIn = file_state(_,_,_,_,_,Buffer,_,_),
-        write_through(FSIn, insert(Buffer)).
+        stored_form(FSIn, Stored, Buffer),
+        storage_memory::add(Stored, FSMid),
+        write_through(FSIn, insert(Buffer)),
+        restore_buffer(FSIn, FSMid, FSOut).
 
     get(KeyInfo, FSIn, FSOut) :- storage_memory::get(KeyInfo, FSIn, FSOut).
 
     put(FSIn, FSOut) :-
-        storage_memory::put(FSIn, FSOut),
-        FSIn = file_state(_,_,_,_,Records,Buffer,Pos,_),
+        stored_form(FSIn, Stored, Buffer),
+        storage_memory::put(Stored, FSMid),
+        FSIn = file_state(_,_,_,_,Records,_,Pos,_),
         nth0(Pos, Records, Old),
-        write_through(FSIn, update(Old, Buffer)).
+        write_through(FSIn, update(Old, Buffer)),
+        restore_buffer(FSIn, FSMid, FSOut).
 
     delete(FSIn, FSOut) :-
         storage_memory::delete(FSIn, FSOut),
@@ -105,6 +108,9 @@
 
     % Private helpers
     :- private([
+        stored_form/3,
+        restore_buffer/3,
+        stored_value/3,
         open_table/4,
         drop_connection/1,
         load_table_records/4,
@@ -129,6 +135,18 @@
         bind_param/3,
         convert_rows_to_buffers/2
     ]).
+
+    % Records hold text as the database does, without STRING padding, so that
+    % PUT and DELETE match the row. The record buffer stays padded.
+    stored_form(file_state(N,Pre,K,Fields,R,Buffer,P,O), file_state(N,Pre,K,Fields,R,Stored,P,O), Stored) :-
+        findall(S, ( nth0(I, Fields, field(_, Type, _)), nth0(I, Buffer, V),
+                     stored_value(Type, V, S) ), Stored).
+
+    stored_value(Type, V, S) :-
+        ( field_class(Type, text), {clarion_types:is_text(V)} -> {clarion_types:clip_text(V, S)} ; S = V ).
+
+    restore_buffer(file_state(_,_,_,_,_,Buffer,_,_), file_state(N,Pre,K,F,R,_,P,O),
+                   file_state(N,Pre,K,F,R,Buffer,P,O)).
 
     open_table(DSN, Table, Fields, Records) :-
         ( connect_dsn(DSN, Connection) -> true ; throw(storage_error(90)) ),

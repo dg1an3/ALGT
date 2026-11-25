@@ -24,6 +24,7 @@
 ]).
 
 :- use_module(simulator_state).
+:- use_module(clarion_types, []).
 
 %------------------------------------------------------------
 % Class Definition Management
@@ -114,17 +115,4 @@ find_method_impl(ClassName, MethodName, _, _) :-
 % Default Values
 %------------------------------------------------------------
 
-default_value(byref(T), Size, V) :- !, default_value(T, Size, V).
-default_value('STRING', _, "").
-default_value('CSTRING', _, "").
-default_value('PSTRING', _, "").
-default_value('LONG', _, 0).
-default_value('SHORT', _, 0).
-default_value('BYTE', _, 0).
-default_value('DECIMAL', _, 0).
-default_value('PDECIMAL', _, 0).
-default_value('REAL', _, 0.0).
-default_value('SREAL', _, 0.0).
-default_value('DATE', _, 0).
-default_value('TIME', _, 0).
-default_value(_, _, 0).  % Default for unknown types
+default_value(Type, Size, Value) :- clarion_types:type_default(Type, Size, Value).

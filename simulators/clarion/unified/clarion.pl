@@ -27,13 +27,14 @@
     exec_program_state/3,      % exec_program_state(+Source, +Events, -FinalState)
     init_session/2,            % init_session(+Source, -Session)
     call_procedure/5,          % call_procedure(+Session, +ProcName, +Args, -Result, -Session2)
+    with_external_stubs/2,     % with_external_stubs(+Stubs, :Goal)
     ast_to_mermaid/2,          % ast_to_mermaid(+SimpleAST, -MermaidString)
     ast_to_mermaid_file/2      % ast_to_mermaid_file(+SimpleAST, +FileName)
 ]).
 
 :- use_module(clarion_parser, [parse_clarion/2]).
 :- use_module(ast_bridge, [bridge_ast/2]).
-:- use_module(simulator, [run_ast/1, run_ast/2, exec_statements/4, exec_call/5]).
+:- use_module(simulator, [run_ast/1, run_ast/2, exec_statements/4, exec_call/5, with_external_stubs/2]).
 :- use_module(simulator_state).
 :- use_module(simulator_eval).
 :- use_module(simulator_builtins).

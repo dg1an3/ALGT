@@ -32,7 +32,8 @@
         file_state(N,Pre,Keys,Fields,Records,_,_,O),
         file_state(N,Pre,Keys,Fields,Records,FoundRecord,FoundPos,O)) :-
         member(key(KeyName, KeyFields), Keys),
-        find_record_by_key(KeyFields, Fields, SearchValues, Records, 0, FoundRecord, FoundPos).
+        ( member(key_attrs(KeyName, Attrs), Keys) -> true ; Attrs = [] ),
+        find_record_by_key(KeyFields, Fields, SearchValues-Attrs, Records, 0, FoundRecord, FoundPos).
 
     put(file_state(N,Pre,K,F,Records,Buffer,Pos,O), file_state(N,Pre,K,F,NewRecords,Buffer,Pos,O)) :-
         Pos >= 0, length(Records, NumRecords), Pos < NumRecords,
@@ -77,7 +78,8 @@
 
     find_record_by_key(KeyFields, Fields, SearchValues, [Record|_], Pos, Record, Pos) :-
         get_key_values_from_record(KeyFields, Fields, Record, RecordValues),
-        SearchValues = RecordValues, !.
+        SearchValues = Values-Attrs,
+        {clarion_types:same_values(Values, RecordValues, Attrs)}, !.
     find_record_by_key(KeyFields, Fields, SearchValues, [_|Rest], Pos, FoundRecord, FoundPos) :-
         NextPos is Pos + 1,
         find_record_by_key(KeyFields, Fields, SearchValues, Rest, NextPos, FoundRecord, FoundPos).

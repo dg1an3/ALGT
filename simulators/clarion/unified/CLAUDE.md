@@ -29,13 +29,14 @@ storage_memory.lgt    ← Logtalk in-memory storage backend
 storage_csv.lgt       ← Logtalk CSV file storage backend
 storage_odbc.lgt      ← Logtalk ODBC database storage backend
 storage_dispatcher.lgt ← Logtalk dispatcher (routes by DRIVER)
+clarion_types.pl      ← Declared-type conversion (padding, wrap-around), comparison, byte sizes
 clarion_dates.pl      ← Clarion standard dates/times and database column conversion
 ui_protocol.lgt       ← Logtalk protocol (interface) for UI backends
 ui_simulation.lgt     ← Logtalk headless UI backend for testing
 ui_dispatcher.lgt     ← Logtalk UI dispatcher (routes by backend type)
 loader.lgt            ← Logtalk loader for all backend objects
 scenario_*.pl         ← From modular (unchanged)
-test_unified.pl       ← Test suite (294 checks; the SQLite ODBC ones skip without a driver)
+test_unified.pl       ← Test suite (includes test_fidelity.pl: language semantics)
 clarion_preproc.pl    ← COMPILE/OMIT conditional-compile pre-pass
 ```
 
@@ -70,7 +71,8 @@ program(map(MapDecls), GlobalDecls, code(MainBody), Procedures)
 | `equate(Name)` | `control_ref(Name)` |
 | `param(Name, Type)` | `param(TypeAtom, Name)` (order swapped) |
 | `local(Name, Type, Init)` | `local_var(Name, TypeAtom, init(Init))` |
-| `ref(Type)` in params | Unwrapped to base type (ref is transparent) |
+| `ref(Type)` in params | `ref(TypeAtom)`; changed values are copied back to the caller |
+| `string(N)` etc. | `typed('STRING', size(N))` for variables; fields carry `size(N)` |
 
 ### PROGRAM handling
 
@@ -91,7 +93,7 @@ The AST bridge produces `binop(and, ...)` and `binop(or, ...)` with lowercase at
 Changed from `format(error) + fail` to `throw(error(undefined_procedure(Name), ...))` so errors propagate properly through catch/throw rather than causing silent backtracking loops.
 
 ### 5. Global variable persistence across procedure calls (simulator.pl)
-`exec_call` was restoring `OuterVars` after procedure return, discarding global variable changes made inside procedures (e.g., `NextID += 1`). Fixed with `merge_globals` that preserves callee's values for vars that existed in the caller.
+`exec_call` was restoring `OuterVars` after procedure return, discarding global variable changes made inside procedures (e.g., `NextID += 1`). Now handled by procedure frames (see Language Semantics).
 
 ### 6. Variable initializers (simulator.pl)
 `init_globals` and `init_locals` ignored `init(Value)` terms from the bridge, always using type defaults. Fixed to use the init value when present (e.g., `X LONG(50)` now initializes to 50, not 0).
@@ -208,7 +210,25 @@ Found by a parse-coverage survey:
 
 ### 6. ADDRESS/MemCopy simulation
 - `ADDRESS(var)` returns a unique deterministic ID per variable name (the upper-cased name as a base-256 number; see section 13)
-- `MemCopy` (via `MODULE('kernel32')`) is a no-op in the simulator since Clarion code uses direct GROUP field assignments for the actual data movement; MemCopy only matters for passing structs to external callers via pointer
+- `MemCopy` (via `MODULE('kernel32')`) is the one external that needs no stub: a no-op in the simulator since Clarion code uses direct GROUP field assignments for the actual data movement; MemCopy only matters for passing structs to external callers via pointer
+
+## Language Semantics (2026-11-24)
+
+Expected values are Claude's understanding of Clarion and have not been checked against the compiler or the manual, except where a trace comparison covers them.
+
+- **Calls in expressions** thread state (`eval_full_expr/4`), left to right, so side effects survive. `AND`/`OR` evaluate both sides.
+- **Frames:** a procedure sees globals plus its own parameters and locals (`enter_frame`/`leave_frame`, `'$frame'` variable). Methods still see their caller's variables. A local QUEUE is kept with the files, so it is not per-call.
+- **By reference** (`pass_args`): a plain name the procedure can also see (global, record field, key, file) is an alias. The caller's own variables, and a global hidden by one of the procedure's names, are copied in and copied back. Methods take parameters by value.
+- **Implicit `Name#`** belongs to its procedure: a called procedure's `i#` is separate.
+- **Merge note (2026-11-25):** sections 8-14 came from `4f8dde4`, which fixed several of the same things independently. Where they differ, this section is current: `eval_full_expr/4` replaced `eval_expr_st/4`, `bind_param`/`merge_globals` gave way to frames, `file_unique_keys` to `key_attrs`, and lookup fallbacks for case to respelling before parsing.
+- **Case:** `clarion_preproc.pl` respells every word one way (first column-1 label, else first use) before parsing, so AST spelling can differ from the source.
+- **Types:** `set_var` and buffer/group/array assignment convert to the declared type (`'$type'(Name)` variables). DECIMAL precision and `LIKE` are not applied.
+- **Integer division** still truncates inside expressions; not yet checked against the compiler.
+- **Keys** now reach the simulator as `key(Name, Fields)` + `key_attrs(Name, Attrs)`. Uniqueness is enforced in the built-ins.
+- **SET/NEXT/PREVIOUS** use a per-file cursor, separate from the current record used by PUT/DELETE.
+- **DOS driver** pointers are byte positions, others record numbers.
+- **External procedures** (MODULE, source not loaded) throw `unresolved_external`. Supply results with `with_external_stubs(['Name' = Value], Goal)`; `default` gives the empty value of the return type.
+- **Built-ins** that cannot handle their arguments throw `builtin_failed` instead of being reported as undefined procedures.
 
 ## API
 
@@ -228,7 +248,7 @@ call_procedure(Session, ProcName, Args, Result, Session2).
 exec_program(Source, Events, Result).
 ```
 
-## Test Coverage (294 checks as of 2026-11-24)
+## Test Coverage (470 checks as of 2026-11-25)
 
 - **Parser + Bridge** (11): MEMBER parse, MathLib, SensorLib, DiagnosisStore, FormDemo, OdbcStore, control_flow.clw PROGRAM
 - **Arithmetic** (4): MathAdd, Multiply with various inputs

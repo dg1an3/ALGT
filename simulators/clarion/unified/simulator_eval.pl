@@ -15,6 +15,7 @@
 ]).
 
 :- use_module(simulator_state).
+:- use_module(clarion_types).
 
 :- discontiguous eval_expr/3.
 
@@ -87,23 +88,25 @@ is_clarion_constant(Name) :-
 % Binary Operators
 %------------------------------------------------------------
 
-% Arithmetic (with string concatenation fallback for +)
+% Arithmetic. Numeric text is converted; + on other text concatenates (legacy).
 eval_binop('+', L, R, Result) :-
-    ( (number(L), number(R))
-    -> Result is L + R
-    ;  % String concatenation
-       to_string(L, LS), to_string(R, RS),
+    ( arithmetic(L, LN), arithmetic(R, RN)
+    -> Result is LN + RN
+    ;  to_string(L, LS), to_string(R, RS),
        string_concat(LS, RS, Result)
     ).
-eval_binop('-', L, R, Result) :- Result is L - R.
-eval_binop('*', L, R, Result) :- Result is L * R.
-eval_binop('/', L, R, Result) :-
-    R \= 0,
+eval_binop('-', L, R, Result) :- to_number(L, LN), to_number(R, RN), Result is LN - RN.
+eval_binop('*', L, R, Result) :- to_number(L, LN), to_number(R, RN), Result is LN * RN.
+eval_binop('/', L0, R0, Result) :-
+    to_number(L0, L), to_number(R0, R),
+    R =\= 0,
     ( (integer(L), integer(R))
     -> Result is L // R    % Clarion integer division for LONG operands
     ;  Result is L / R
     ).
-eval_binop('%', L, R, Result) :- R \= 0, Result is L mod R.
+eval_binop('%', L0, R0, Result) :-
+    to_number(L0, L), to_number(R0, R),
+    R =\= 0, Result is truncate(L) mod truncate(R).
 
 % String concatenation
 eval_binop('&', L, R, Result) :-
@@ -111,12 +114,12 @@ eval_binop('&', L, R, Result) :-
     string_concat(LS, RS, Result).
 
 % Comparison
-eval_binop('=', L, R, Result) :- ( L = R -> Result = 1 ; Result = 0 ).
-eval_binop('<>', L, R, Result) :- ( L \= R -> Result = 1 ; Result = 0 ).
-eval_binop('<', L, R, Result) :- ( L < R -> Result = 1 ; Result = 0 ).
-eval_binop('>', L, R, Result) :- ( L > R -> Result = 1 ; Result = 0 ).
-eval_binop('<=', L, R, Result) :- ( L =< R -> Result = 1 ; Result = 0 ).
-eval_binop('>=', L, R, Result) :- ( L >= R -> Result = 1 ; Result = 0 ).
+eval_binop('=', L, R, Result) :- compare_values(O, L, R), ( O == (=) -> Result = 1 ; Result = 0 ).
+eval_binop('<>', L, R, Result) :- compare_values(O, L, R), ( O == (=) -> Result = 0 ; Result = 1 ).
+eval_binop('<', L, R, Result) :- compare_values(O, L, R), ( O == (<) -> Result = 1 ; Result = 0 ).
+eval_binop('>', L, R, Result) :- compare_values(O, L, R), ( O == (>) -> Result = 1 ; Result = 0 ).
+eval_binop('<=', L, R, Result) :- compare_values(O, L, R), ( O == (>) -> Result = 0 ; Result = 1 ).
+eval_binop('>=', L, R, Result) :- compare_values(O, L, R), ( O == (<) -> Result = 0 ; Result = 1 ).
 
 % Logical (both upper and lower case atoms)
 eval_binop('AND', L, R, Result) :-
@@ -132,10 +135,11 @@ eval_binop(or, L, R, Result) :-
 % Helper Predicates
 %------------------------------------------------------------
 
-is_truthy(1) :- !.
-is_truthy(N) :- number(N), N \= 0.
-is_truthy(S) :- string(S), S \= "".
-is_truthy(A) :- atom(A), A \= ''.
+is_truthy(N) :- number(N), !, N =\= 0.
+is_truthy(T) :- is_text(T), clip_text(T, C), C \== "".
+
+arithmetic(V, V) :- number(V), !.
+arithmetic(V, N) :- is_text(V), text_number(V, N).
 
 to_string(S, S) :- string(S), !.
 to_string(A, S) :- atom(A), !, atom_string(A, S).

@@ -5,6 +5,11 @@
 %============================================================
 
 :- module(simulator_state, [
+    declare_type/4,
+    declared_type/4,
+    get_cursor/3,
+    set_cursor/4,
+    is_queue/2,
     % State creation
     empty_state/1,
     empty_ui_state/1,
@@ -28,9 +33,9 @@
     % Variable operations
     get_var/3,
     set_var/4,
-    bind_raw/4,
     alias_of/3,
     same_name/2,
+    implicit_long_name/1,
 
     % Procedure lookup
     get_proc/3,
@@ -67,6 +72,8 @@
     % List utilities
     replace_nth0/4
 ]).
+
+:- use_module(clarion_types).
 
 %------------------------------------------------------------
 % State Structure
@@ -128,8 +135,8 @@ clear_continuation(StateIn, StateOut) :-
 % Handles both regular variables and prefixed file fields (Prefix:Field)
 % A colon name whose prefix matches no file, group or instance (e.g. the
 % label 'Copy:Record' or the equate 'NT::THIS_MODULE') is a plain variable.
-% Implicit LONG variable (name ends in '#', e.g. SAV:ITM:EDIT_DATE#): never a
-% file/group field, and reads as 0 before its first assignment.
+% Implicit LONG variable (name ends in '#'): never a file/group field, and reads
+% as 0 before its first assignment.
 % A by-reference parameter is an alias: read the variable it stands for
 get_var(Name, State, Value) :-
     get_vars(State, Vars), alias_of(Name, Vars, Target), !,
@@ -143,9 +150,7 @@ get_var(Name, State, Value) :-
       get_prefixed_var(Prefix, FieldName, State, Value)
     -> true
     ;  get_vars(State, Vars),
-       ( member(var(Name, Value), Vars)
-       ;  ci_var(Name, Vars, var(_, Value))
-       )
+       member(var(Name, Value), Vars)
     ), !.
 % Implicit EQUATES.CLW constants, used only when no variable of that name exists
 get_var(Name, _, Value) :-
@@ -156,79 +161,58 @@ get_var(Name, _, _) :-
 
 % Set variable value in state
 % Handles both regular variables and prefixed file fields (Prefix:Field)
-% Implicit LONG (Name#): plain variable, value truncated to an integer.
-% ...and assignments to it write the aliased variable or record field
+% Implicit LONG (Name#): plain variable, value converted to an integer.
+% Assignments to an alias write the aliased variable or record field.
 set_var(Name, Value, StateIn, StateOut) :-
-    Value \= alias(_),
-    get_vars(StateIn, Vars), memberchk(var(Name, alias(Target)), Vars), !,
+    get_vars(StateIn, Vars), alias_of(Name, Vars, Target), !,
     set_var(Target, Value, StateIn, StateOut).
 set_var(Name, Value, StateIn, StateOut) :-
     implicit_long_name(Name), !,
-    implicit_long_value(Value, Long),
+    coerce('LONG', none, Value, Long),
     StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
-    ( select(var(Name, _), Vars, RestVars) -> true ; RestVars = Vars ),
+    ( selectchk(var(Name, _), Vars, RestVars) -> true ; RestVars = Vars ),
     StateOut = state([var(Name, Long)|RestVars], Procs, Out, Files, Err, Classes, Self, UI, Cont).
 set_var(Name, Value, StateIn, StateOut) :-
     ( parse_prefixed_name(Name, Prefix, FieldName),
       set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut)
     -> true
     ;  StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
-       ( select(var(Name, _), Vars, RestVars)
-       -> NewVars = [var(Name, Value)|RestVars]
-       ;  ci_var(Name, Vars, var(Existing, _)),
-          select(var(Existing, _), Vars, RestVars)
-       -> NewVars = [var(Existing, Value)|RestVars]
-       ;  NewVars = [var(Name, Value)|Vars]
+       ( atom(Name), memberchk(var('$type'(Name), type(Type, Size)), Vars)
+       -> coerce(Type, Size, Value, Stored)
+       ;  Stored = Value
+       ),
+       ( selectchk(var(Name, _), Vars, RestVars)
+       -> NewVars = [var(Name, Stored)|RestVars]
+       ;  NewVars = [var(Name, Stored)|Vars]
        ),
        StateOut = state(NewVars, Procs, Out, Files, Err, Classes, Self, UI, Cont)
     ).
 
-%% Clarion names are case-insensitive. Lookups try the exact name first and
-%% fall back to these (e.g. code that reads O:OPtionsMask for a parameter
-%% declared as O:OptionsMask, or writes PRE:EDIT_DATE to a field Edit_Date).
+% alias_of(+Name, +Vars, -Target): Name is a by-reference parameter
+alias_of(Name, Vars, Target) :-
+    memberchk(var(Name, Value), Vars),
+    nonvar(Value), Value = alias(Target).
+
 same_name(A, A) :- !.
 same_name(A, B) :- atom(A), atom(B), upcase_atom(A, U), upcase_atom(B, U).
 
-ci_var(Name, Vars, var(N, V)) :-
-    atom(Name), upcase_atom(Name, U),
-    member(var(N, V), Vars), atom(N), upcase_atom(N, U), !.
-
-field_index(FieldName, Fields, Index) :-
-    nth0(Index, Fields, field(FieldName, _, _)), !.
-field_index(FieldName, Fields, Index) :-
-    nth0(Index, Fields, field(F, _, _)), same_name(FieldName, F), !.
-% Group.Field (PRE:Edit_DtTm.Edit_Date): record groups are flattened, so use
-% the last component
-field_index(FieldName, Fields, Index) :-
-    atom(FieldName), atomic_list_concat(Parts, '.', FieldName), Parts = [_, _|_],
-    last(Parts, Last), field_index(Last, Fields, Index).
-
-% Bind Name exactly (no prefix, alias or case-insensitive resolution)
-bind_raw(Name, Value, state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
-         state([var(Name, Value)|Rest], Procs, Out, Files, Err, Classes, Self, UI, Cont)) :-
-    ( select(var(Name, _), Vars, Rest) -> true ; Rest = Vars ).
-
-% alias_of(+Name, +Vars, -Target): Name is a by-reference parameter (exact
-% name first, then case-insensitively, like every other lookup)
-alias_of(Name, Vars, Target) :- memberchk(var(Name, alias(Target)), Vars), !.
-alias_of(Name, Vars, Target) :-
-    atom(Name), upcase_atom(Name, U),
-    member(var(N, alias(Target)), Vars), atom(N), upcase_atom(N, U), !.
+implicit_long_name(Name) :- atom(Name), sub_atom(Name, _, 1, 0, '#').
 
 implicit_equate('TRUE', 1).
 implicit_equate('FALSE', 0).
 
-implicit_long_name(Name) :-
-    atom(Name), sub_atom(Name, _, 1, 0, '#').
+%% declare_type(+Name, +TypeTerm, +StateIn, -StateOut)
+%  Values later assigned to Name are converted to this type.
+declare_type(Name, TypeTerm, StateIn, StateOut) :-
+    split_type(TypeTerm, Type, Size),
+    ( atom(Type)
+    -> set_var('$type'(Name), type(Type, Size), StateIn, StateOut)
+    ;  StateOut = StateIn          % LIKE(...) and classes: not resolved
+    ).
 
-% Clarion LONG conversion: reals truncate toward zero, numeric text converts,
-% anything else is 0.
-implicit_long_value(V, L) :- integer(V), !, L = V.
-implicit_long_value(V, L) :- number(V), !, L is truncate(V).
-implicit_long_value(V, L) :-
-    ( atom(V) ; string(V) ), !,
-    ( normalize_space(atom(A), V), atom_number(A, N) -> L is truncate(N) ; L = 0 ).
-implicit_long_value(_, 0).
+declared_type(Name, State, Type, Size) :-
+    get_vars(State, Vars),
+    memberchk(var('$type'(Name), type(Type, Size)), Vars).
 
 % Parse a prefixed name like 'Cust:CustomerID' or 'Queue.Field' into prefix and field
 parse_prefixed_name(Name, Prefix, FieldName) :-
@@ -300,7 +284,9 @@ set_group_field_by_prefix(Prefix, FieldName, Value, StateIn, StateOut) :-
     member(var(group_prefix(Prefix), GroupName), Vars),
     member(var(GroupName, group_val(Prefix, Fields, Values)), Vars),
     nth1_field_index(FieldName, Fields, Idx),
-    replace_nth1(Idx, Values, Value, NewValues),
+    nth1(Idx, Fields, field(_, Type, Size)),
+    coerce(Type, Size, Value, Stored),
+    replace_nth1(Idx, Values, Stored, NewValues),
     set_var(GroupName, group_val(Prefix, Fields, NewValues), StateIn, StateOut).
 
 nth1_field_index(FieldName, Fields, Idx) :-
@@ -325,9 +311,6 @@ get_proc(Name, State, Proc) :-
     ; % Try NAME alias: look up the alias in MAP protos, find the Clarion name
       resolve_name_alias(Name, State, ClarionName),
       member(Proc, Procs), Proc = procedure(ClarionName, _, _, _), !
-    ; % Clarion names are case-insensitive (lookup(...) calls Lookup)
-      atom(Name),
-      member(Proc, Procs), Proc = procedure(PName, _, _, _), same_name(Name, PName), !
     ).
 get_proc(Name, _, _) :-
     format(user_error, "Error: Undefined procedure '~w'~n", [Name]),
@@ -408,36 +391,48 @@ get_file_state(Name, State, FileState) :-
     get_files(State, Files),
     member(FileState, Files),
     FileState = file_state(Name, _, _, _, _, _, _, _), !.
-get_file_state(Name, State, FileState) :-
-    atom(Name),
-    get_files(State, Files),
-    member(FileState, Files),
-    FileState = file_state(N, _, _, _, _, _, _, _), same_name(Name, N), !.
 
 set_file_state(Name, NewFileState,
                state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
                state(Vars, Procs, Out, NewFiles, Err, Classes, Self, UI, Cont)) :-
-    % The stored name is canonical; Name may differ in case (add(item))
-    NewFileState = file_state(CName, _, _, _, _, _, _, _),
-    ( CName == Name -> true ; same_name(Name, CName) ),
-    ( select(file_state(CName, _, _, _, _, _, _, _), Files, RestFiles)
+    NewFileState = file_state(Name, _, _, _, _, _, _, _),
+    ( select(file_state(Name, _, _, _, _, _, _, _), Files, RestFiles)
     -> NewFiles = [NewFileState|RestFiles]
     ;  NewFiles = [NewFileState|Files]
     ).
+
+% Sequential position, kept with the files so it survives procedure return:
+% cursor(Key, At). Key is none (record order) or a key name. At is start,
+% from(KeyValues) or at(KeyValues, RecordIndex).
+get_cursor(File, State, Cursor) :-
+    get_files(State, Files),
+    ( memberchk(file_cursor(File, Cursor0), Files) -> Cursor = Cursor0 ; Cursor = cursor(none, start) ).
+
+set_cursor(File, Cursor,
+           state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
+           state(Vars, Procs, Out, NewFiles, Err, Classes, Self, UI, Cont)) :-
+    ( selectchk(file_cursor(File, _), Files, Rest) -> true ; Rest = Files ),
+    append(Rest, [file_cursor(File, Cursor)], NewFiles).
+
+is_queue(Name, State) :-
+    get_vars(State, Vars),
+    \+ memberchk(var(file_driver(Name), _), Vars).
 
 find_file_by_prefix(Prefix, State, FileState) :-
     get_files(State, Files),
     member(FileState, Files),
     FileState = file_state(_, Prefix, _, _, _, _, _, _), !.
-find_file_by_prefix(Prefix, State, FileState) :-
-    atom(Prefix),
-    get_files(State, Files),
-    member(FileState, Files),
-    FileState = file_state(_, P, _, _, _, _, _, _), same_name(Prefix, P), !.
 
 %------------------------------------------------------------
 % Record Buffer Operations
 %------------------------------------------------------------
+
+field_index(FieldName, Fields, Index) :-
+    nth0(Index, Fields, field(F, _, _)), same_name(FieldName, F), !.
+% Group.Field: record groups are flattened, so use the last component
+field_index(FieldName, Fields, Index) :-
+    atom(FieldName), atomic_list_concat(Parts, '.', FieldName), Parts = [_, _|_],
+    last(Parts, Last), field_index(Last, Fields, Index).
 
 get_buffer_field(FieldName, file_state(_, _, _, Fields, _, Buffer, _, _), Value) :-
     field_index(FieldName, Fields, Index),
@@ -450,7 +445,9 @@ set_buffer_field(FieldName, Value,
                  file_state(Name, Prefix, Keys, Fields, Records, Buffer, Pos, Open),
                  file_state(Name, Prefix, Keys, Fields, Records, NewBuffer, Pos, Open)) :-
     field_index(FieldName, Fields, Index),
-    replace_nth0(Index, Buffer, Value, NewBuffer), !.
+    nth0(Index, Fields, field(_, Type, Size)),
+    coerce(Type, Size, Value, Stored),
+    replace_nth0(Index, Buffer, Stored, NewBuffer), !.
 
 create_empty_buffer([], []).
 create_empty_buffer([field(_, Type, Size)|Rest], [Value|Values]) :-
@@ -461,20 +458,7 @@ create_empty_buffer([field(_, Type, Size)|Rest], [Value|Values]) :-
 % Default Values
 %------------------------------------------------------------
 
-default_value(byref(T), Size, V) :- !, default_value(T, Size, V).
-default_value('STRING', _, "").
-default_value('CSTRING', _, "").
-default_value('PSTRING', _, "").
-default_value('LONG', _, 0).
-default_value('SHORT', _, 0).
-default_value('BYTE', _, 0).
-default_value('DECIMAL', _, 0).
-default_value('PDECIMAL', _, 0).
-default_value('REAL', _, 0.0).
-default_value('SREAL', _, 0.0).
-default_value('DATE', _, 0).
-default_value('TIME', _, 0).
-default_value(_, _, 0).  % Default for unknown types
+default_value(Type, Size, Value) :- type_default(Type, Size, Value).
 
 %------------------------------------------------------------
 % List Utilities

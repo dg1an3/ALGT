@@ -15,6 +15,8 @@
     bridge_ast/2          % bridge_ast(+SimpleAST, -ModularAST)
 ]).
 
+:- use_module(clarion_types, []).
+
 %------------------------------------------------------------
 % Top-level program translation
 %------------------------------------------------------------
@@ -87,9 +89,11 @@ bridge_map_attrs([_|Rest], BRest) :- bridge_map_attrs(Rest, BRest).
 
 bridge_files([], [], []).
 bridge_files([file(Name, Prefix, Attrs, Fields)|Rest],
-             [file(Name, BridgedAttrs, [record(BridgedFields)])|RestDecs],
+             [file(Name, BridgedAttrs, Contents)|RestDecs],
              AllNestedGroups) :-
     bridge_file_attrs(Prefix, Attrs, BridgedAttrs),
+    findall(key(K, KF, KA), member(key(K, KF, KA), Attrs), Keys),
+    append(Keys, [record(BridgedFields)], Contents),
     bridge_fields(Fields, BridgedFields),
     extract_nested_groups(Fields, NestedGroups),
     bridge_files(Rest, RestDecs, RestNestedGroups),
@@ -106,9 +110,6 @@ bridge_file_attr_list([name(N)|Rest], [name(N)|BRest]) :-
 bridge_file_attr_list([owner(O)|Rest], [owner(O)|BRest]) :-
     bridge_file_attr_list(Rest, BRest).
 bridge_file_attr_list([create|Rest], [create|BRest]) :-
-    bridge_file_attr_list(Rest, BRest).
-bridge_file_attr_list([key(KName, KFields, KAttrs)|Rest],
-                      [key(KName, KFields, KAttrs)|BRest]) :-
     bridge_file_attr_list(Rest, BRest).
 bridge_file_attr_list([_|Rest], BRest) :-
     bridge_file_attr_list(Rest, BRest).
@@ -132,8 +133,9 @@ bridge_groups([group(Name, Prefix, Fields)|Rest],
 %------------------------------------------------------------
 
 bridge_fields([], []).
-bridge_fields([field(Name, Type)|Rest], [field(Name, TypeAtom, none)|BRest]) :-
+bridge_fields([field(Name, Type)|Rest], [field(Name, TypeAtom, Size)|BRest]) :-
     bridge_type_name(Type, TypeAtom),
+    type_size(Type, Size),
     bridge_fields(Rest, BRest).
 bridge_fields([field(Name, Type, Size)|Rest], [field(Name, TypeAtom, size(Size))|BRest]) :-
     bridge_type_name(Type, TypeAtom),
@@ -153,8 +155,44 @@ extract_nested_groups([group(Name, Prefix, SubFields)|Rest], [group(Name, Prefix
 extract_nested_groups([_|Rest], Groups) :-
     extract_nested_groups(Rest, Groups).
 
+% Declared length of a type (used to pad, truncate and size values)
+type_size(string(N), size(N)) :- number(N), !.
+type_size(cstring(N), size(N)) :- number(N), !.
+type_size(pstring(N), size(N)) :- number(N), !.
+type_size(decimal(N), size(N)) :- number(N), !.
+type_size(decimal(N, _), size(N)) :- number(N), !.
+type_size(pdecimal(N), size(N)) :- number(N), !.
+type_size(pdecimal(N, _), size(N)) :- number(N), !.
+type_size(_, none).
+
+% Type with its length, for variables and parameters
+sized_type(ref(file), file_ref) :- !.            % *FILE parameter
+sized_type(ref(T), ref(Sized)) :- !, sized_type(T, Sized).
+sized_type(Type, Sized) :-
+    bridge_type_name(Type, TypeAtom),
+    type_size(Type, Size),
+    ( Size == none -> Sized = TypeAtom ; Sized = typed(TypeAtom, Size) ).
+
+% The parser gives 0 as the initial value of an uninitialised string
+initial_value(Type, 0, "") :- is_text_type(Type), !.
+initial_value(_, Init, Init).
+
+initial_array(Type, Size, array(Values)) :-
+    length(Values, Size),
+    sized_type(Type, Sized),
+    clarion_types:split_type(Sized, T, S),
+    ( is_text_type(Type) -> clarion_types:type_default(T, S, V) ; V = 0 ),
+    maplist(=(V), Values).
+
+is_text_type(string).
+is_text_type(string(_)).
+is_text_type(cstring).
+is_text_type(cstring(_)).
+is_text_type(pstring).
+is_text_type(pstring(_)).
+
 bridge_type_name(long, 'LONG').
-bridge_type_name(ulong, 'LONG').
+bridge_type_name(ulong, 'ULONG').
 bridge_type_name(short, 'SHORT').
 bridge_type_name(byte, 'BYTE').
 bridge_type_name(real, 'REAL').
@@ -173,10 +211,7 @@ bridge_type_name(pstring, 'PSTRING').
 bridge_type_name(pstring(N), 'PSTRING') :- number(N).
 bridge_type_name(string, 'STRING').
 bridge_type_name(string(N), 'STRING') :- number(N).
-bridge_type_name(ref(file), file_ref) :- !.   % *FILE parameter
-% *T parameter: passed by reference (an alias for the caller's variable when
-% the argument is a plain name; see eval_call_args/5)
-bridge_type_name(ref(T), byref(TypeAtom)) :- !, bridge_type_name(T, TypeAtom).
+bridge_type_name(ref(T), TypeAtom) :- !, bridge_type_name(T, TypeAtom).
 bridge_type_name(key, 'KEY') :- !.
 bridge_type_name(group, 'GROUP') :- !.
 bridge_type_name(queue, 'QUEUE') :- !.
@@ -189,15 +224,18 @@ bridge_type_name(T, T).  % pass through unknown types
 %------------------------------------------------------------
 
 bridge_globals([], [], [], []).
-bridge_globals([global(Name, Type, Init)|Rest], [var(Name, TypeAtom, init(Init))|VRest], Wins, Main) :-
-    bridge_type_name(Type, TypeAtom),
+bridge_globals([global(Name, Type, Init0)|Rest], [var(Name, TypeAtom, init(Init))|VRest], Wins, Main) :-
+    sized_type(Type, TypeAtom),
+    initial_value(Type, Init0, Init),
     bridge_globals(Rest, VRest, Wins, Main).
-bridge_globals([array(Name, Type, Size)|Rest], [var(Name, TypeAtom, init(array(Zeros)))|VRest], Wins, Main) :-
-    bridge_type_name(Type, TypeAtom),
-    length(Zeros, Size),
-    maplist(=(0), Zeros),
+bridge_globals([array(Name, Type, Size)|Rest], [var(Name, TypeAtom, init(Values))|VRest], Wins, Main) :-
+    sized_type(Type, TypeAtom),
+    initial_array(Type, Size, Values),
     bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([queue(Name, Fields)|Rest], [queue(Name, BridgedFields)|VRest], Wins, Main) :-
+    bridge_fields(Fields, BridgedFields),
+    bridge_globals(Rest, VRest, Wins, Main).
+bridge_globals([queue(Name, Prefix, Fields)|Rest], [queue(Name, Prefix, BridgedFields)|VRest], Wins, Main) :-
     bridge_fields(Fields, BridgedFields),
     bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([window(Name, Title, Attrs, Controls)|Rest], Vars,
@@ -279,10 +317,10 @@ bridge_proc_list([routine(Name, Body)|Rest],
 
 bridge_params([], []).
 bridge_params([param(Name, Type, optional)|Rest], [param(TypeAtom, Name, optional, none)|BRest]) :-
-    bridge_type_name(Type, TypeAtom),
+    sized_type(Type, TypeAtom),
     bridge_params(Rest, BRest).
 bridge_params([param(Name, Type)|Rest], [param(TypeAtom, Name)|BRest]) :-
-    bridge_type_name(Type, TypeAtom),
+    sized_type(Type, TypeAtom),
     bridge_params(Rest, BRest).
 
 bridge_locals([], []).
@@ -290,10 +328,9 @@ bridge_locals([instance_var(Name, ClassName)|Rest],
               [local_var(Name, custom(ClassName), init(none))|BRest]) :-
     bridge_locals(Rest, BRest).
 bridge_locals([array(Name, Type, Size)|Rest],
-              [local_var(Name, TypeAtom, init(array(Zeros)))|BRest]) :-
-    bridge_type_name(Type, TypeAtom),
-    length(Zeros, Size),
-    maplist(=(0), Zeros),
+              [local_var(Name, TypeAtom, init(Values))|BRest]) :-
+    sized_type(Type, TypeAtom),
+    initial_array(Type, Size, Values),
     bridge_locals(Rest, BRest).
 % LIKE(Ref) local: the referenced declaration is not resolved here, so the
 % variable starts at the simulator's default value (0).
@@ -304,6 +341,9 @@ bridge_locals([like(Name, Ref, _Attrs)|Rest],
 % them exactly like the matching global declarations. Nested GROUPs inside a
 % local GROUP are emitted as separate local_decls (for prefix registration).
 bridge_locals([queue(Name, Fields)|Rest], [local_decl(queue(Name, BFields))|BRest]) :- !,
+    bridge_fields(Fields, BFields),
+    bridge_locals(Rest, BRest).
+bridge_locals([queue(Name, Prefix, Fields)|Rest], [local_decl(queue(Name, Prefix, BFields))|BRest]) :- !,
     bridge_fields(Fields, BFields),
     bridge_locals(Rest, BRest).
 bridge_locals([group(Name, Prefix0, Fields)|Rest], Decls) :- !,
@@ -319,9 +359,10 @@ bridge_locals([ref_var(Name, Type)|Rest],
 % Local WINDOW (title only; body skipped by the parser): nothing to initialise
 bridge_locals([window(_, _)|Rest], BRest) :- !,
     bridge_locals(Rest, BRest).
-bridge_locals([local(Name, Type, Init)|Rest],
+bridge_locals([local(Name, Type, Init0)|Rest],
               [local_var(Name, TypeAtom, init(Init))|BRest]) :-
-    bridge_type_name(Type, TypeAtom),
+    sized_type(Type, TypeAtom),
+    initial_value(Type, Init0, Init),
     bridge_locals(Rest, BRest).
 
 %------------------------------------------------------------
