@@ -90,7 +90,62 @@ parse_clarion(Source, AST, Options) :-
     ),
     option(defines(Defines), Options, []),
     preprocess_codes(Codes0, Defines, Codes),
-    phrase(program(AST), Codes).
+    phrase(program(AST0), Codes),
+    resolve_constants(AST0, AST).
+
+%% ==========================================================================
+%% Constant expressions
+%% ==========================================================================
+% A declaration may use an EQUATE where a number goes (DIM(N), LONG(N),
+% EQUATE(N * 2)). The grammar leaves const(Expr); EQUATEs are evaluated in
+% order, then every const(Expr) is replaced by its value.
+
+resolve_constants(program(Files, Groups, Globals0, Map, Procs), AST) :-
+    resolve_equates(Globals0, [], Env, Globals),
+    resolve_term(program(Files, Groups, Globals, Map, Procs), Env, AST).
+
+resolve_equates([], Env, Env, []).
+resolve_equates([equate(Name, V0)|Gs0], Env0, Env, [equate(Name, V)|Gs]) :- !,
+    ( V0 = const(E) -> const_value(E, Env0, V) ; V = V0 ),
+    resolve_equates(Gs0, [Name-V|Env0], Env, Gs).
+resolve_equates([G|Gs0], Env0, Env, [G|Gs]) :-
+    resolve_equates(Gs0, Env0, Env, Gs).
+
+resolve_term(T, _, T) :- \+ compound(T), !.
+resolve_term(const(E), Env, V) :- !, const_value(E, Env, V).
+resolve_term(T0, Env, T) :-
+    T0 =.. [F|As0],
+    resolve_terms(As0, Env, As),
+    T =.. [F|As].
+
+resolve_terms([], _, []).
+resolve_terms([A0|As0], Env, [A|As]) :- resolve_term(A0, Env, A), resolve_terms(As0, Env, As).
+
+const_value(lit(V), _, V) :- !.
+const_value(var(Name), Env, V) :- memberchk(Name-V0, Env), !, V = V0.
+const_value(var(Name), _, V) :- upcase_atom(Name, U), memberchk(U-V0, ['TRUE'-1, 'FALSE'-0]), !, V = V0.
+const_value(var(Name), _, _) :- !,
+    throw(error(unknown_constant(Name), context(parse_clarion/2, 'No EQUATE of this name comes before its use'))).
+const_value(E, Env, V) :-
+    E =.. [Op, A, B], memberchk(Op, [add, sub, mul, div, modulo]),
+    const_value(A, Env, VA), const_value(B, Env, VB),
+    number(VA), number(VB),
+    const_op(Op, VA, VB, V), !.
+const_value(E, _, _) :-
+    throw(error(unknown_constant(E), context(parse_clarion/2, 'Not a constant expression'))).
+
+const_op(add, A, B, V) :- V is A + B.
+const_op(sub, A, B, V) :- V is A - B.
+const_op(mul, A, B, V) :- V is A * B.
+% Same rule as division at run time (simulator_eval.pl)
+const_op(div, A, B, V) :- B =\= 0, ( integer(A), integer(B) -> V is A // B ; V is A / B ).
+const_op(modulo, A, B, V) :- B =\= 0, V is truncate(A) mod truncate(B).
+
+% A number, or a constant expression
+const_num(N) --> number(N), const_end_ahead, !.
+const_num(const(E)) --> add_expr(E).
+
+const_end_ahead(S, S) :- skip_blanks(S, R), R = [C|_], ( C == 0', ; C == 0') ).
 
 %% ==========================================================================
 %% Top-level structure
@@ -101,21 +156,28 @@ program(program(Files, Groups, Globals, MapEntries, Procs)) -->
     ws, kw("MEMBER"), ws, "(", ws,
     ( "'", qchars(_), "'" ; [] ), ws,
     ")", ws,
-    top_decls(Files, Groups, Globals), ws,
-    opt_map_block(MapEntries), ws,
+    decls_and_map(Files, Groups, Globals, MapEntries), ws,
     procedures(Procs), ws.
 
 % PROGRAM form (EXE with inline CODE + optional procedures)
 program(program(Files, Groups, Globals, MapEntries, [MainProc|Procs])) -->
     ws, kw("PROGRAM"), ws,
-    map_block(MapEntries), ws,
-    top_decls(Files, Groups, Globals), ws,
+    decls_and_map(Files, Groups, Globals, MapEntries), ws,
     kw("CODE"), ws,
     statements(Body), ws,
     procedures(Procs),
     { MainProc = procedure('_main', [], void, [], Body) }.
 
 % --- Top-level declarations (FILE, GROUP, global vars) ---
+
+% Declarations may come before and after MAP
+decls_and_map(Files, Groups, Globals, MapEntries) -->
+    top_decls(Files1, Groups1, Globals1), ws,
+    opt_map_block(MapEntries), ws,
+    top_decls(Files2, Groups2, Globals2),
+    { append(Files1, Files2, Files),
+      append(Groups1, Groups2, Groups),
+      append(Globals1, Globals2, Globals) }.
 
 top_decls(Files, Groups, Globals) -->
     star(top_decl_item, Items),
@@ -184,7 +246,7 @@ top_decl_item(window(Name, Title)) -->
 % Array declaration: Name TYPE,DIM(n)
 top_decl_item(array(Name, Type, Size)) -->
     ident(Name), ws, type(Type), ws,
-    ",", ws, kw("DIM"), ws, "(", ws, number(Size), ws, ")".
+    ",", ws, kw("DIM"), ws, "(", ws, const_num(Size), ws, ")".
 
 % EQUATE declaration: Name EQUATE(Value)
 % Uses word/1 instead of ident/1 because EQUATE names may shadow keywords
@@ -195,8 +257,8 @@ top_decl_item(equate(Name, Value)) -->
     callable_name(Name), ws, kw("EQUATE"), ws, !,
     "(", ws, equate_value(Value), ws, ")".
 
-equate_value(Value) --> number(Value), !.
-equate_value(Value) --> "'", qchars(Cs), "'", { atom_codes(Value, Cs) }.
+equate_value(Value) --> "'", qchars(Cs), "'", !, { atom_codes(Value, Cs) }.
+equate_value(Value) --> const_num(Value).
 
 % Global LIKE declaration: Name LIKE(Ref)[,PRE(p)][,DIM(n)]...
 top_decl_item(global(Name, like(Ref, Attrs), 0)) -->
@@ -209,7 +271,7 @@ top_decl_item(global(Name, string(Len), Init)) -->
 % Global variable: Name TYPE(Init)
 top_decl_item(global(Name, Type, Init)) -->
     ident(Name), ws, type(Type), ws,
-    ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
+    ( "(", ws, const_num(Init), ws, ")" ; { Init = 0 } ).
 
 % Global object: Name ClassName (both on one line; ClassName not a keyword/type)
 top_decl_item(global_instance(Name, ClassName)) -->
@@ -523,6 +585,8 @@ file_attr(flag(F), none) -->
 file_attr(owner(Owner), none) -->
     kw("OWNER"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")",
     { atom_codes(Owner, Cs) }.
+file_attr(owner(var(Owner)), none) -->          % OWNER(variable): connection set at run time
+    kw("OWNER"), ws, "(", ws, ident(Owner), ws, ")".
 file_attr(pre(Pre), Pre) --> kw("PRE"), ws, "(", ws, ident(Pre), ws, ")".
 
 merge_pre(none, none, none) :- !.
@@ -586,8 +650,15 @@ field_decl(group(Name, Prefix, SubFields)) -->
     end_or_dot.
 
 field_decl(field(Name, like(Ref, Attrs))) --> field_name(Name), ws, like_decl(Ref, Attrs), !.
-field_decl(field(Name, string(Len))) --> field_name(Name), ws, string_init(Len, _), !, comma_attrs(field_attr, _).
+field_decl(field_init(Name, string(Len), Init)) --> field_name(Name), ws, string_init(Len, Init), !, comma_attrs(field_attr, _).
+% Initial values (GROUP fields): field_init(Name, Type, Value)
+field_decl(field_init(Name, Type, Init)) -->
+    field_name(Name), ws, type(Type), { \+ takes_length(Type) },
+    ws_nonnl, "(", ws, const_num(Init), ws, ")", !, comma_attrs(field_attr, _).
 field_decl(field(Name, Type)) --> field_name(Name), ws, type(Type), comma_attrs(field_attr, _).
+
+% In STRING(10) the parentheses hold the length, not an initial value
+takes_length(T) :- memberchk(T, [string, cstring, pstring, decimal, pdecimal]).
 
 % Attributes after a field's type. They do not change simulation (NAME is the
 % SQL column name, |NULLABLE a driver hint), so they are parsed and dropped.
@@ -786,11 +857,11 @@ local_var(local(Name, string(Len), Init)) -->
 % Local array: Name TYPE,DIM(Size)
 local_var(array(Name, Type, Size)) -->
     ident(Name), ws, type(Type), ws,
-    ",", ws, kw("DIM"), ws, "(", ws, number(Size), ws, ")", !, comma_attrs(local_attr, _).
+    ",", ws, kw("DIM"), ws, "(", ws, const_num(Size), ws, ")", !, comma_attrs(local_attr, _).
 
 local_var(local(Name, Type, Init)) -->
     ident(Name), ws, type(Type), ws,
-    ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ),
+    ( "(", ws, const_num(Init), ws, ")" ; { Init = 0 } ),
     comma_attrs(local_attr, _).
 
 
@@ -809,7 +880,7 @@ local_attr(over(V)) --> kw("OVER"), ws, "(", ws, ident(V), ws, ")".
 
 is_builtin_type(Name) :-
     upcase_atom(Name, U),
-    member(U, ['LONG','SHORT','BYTE','REAL','SREAL','DATE','TIME',
+    member(U, ['LONG','ULONG','SHORT','BYTE','REAL','SREAL','DATE','TIME',
                'DECIMAL','PDECIMAL','CSTRING','PSTRING','STRING']).
 
 %% --- Procedure parameter list ---
@@ -853,11 +924,11 @@ type(decimal) --> kw("DECIMAL").
 type(pdecimal(Size, Prec)) --> kw("PDECIMAL"), ws, "(", ws, number(Size), ws, ",", ws, number(Prec), ws, ")".
 type(pdecimal(Size)) --> kw("PDECIMAL"), ws, "(", ws, number(Size), ws, ")".
 type(pdecimal) --> kw("PDECIMAL").
-type(cstring(Size)) --> kw("CSTRING"), ws, "(", ws, number(Size), ws, ")".
+type(cstring(Size)) --> kw("CSTRING"), ws, "(", ws, const_num(Size), ws, ")".
 type(cstring) --> kw("CSTRING").
-type(pstring(Size)) --> kw("PSTRING"), ws, "(", ws, number(Size), ws, ")".
+type(pstring(Size)) --> kw("PSTRING"), ws, "(", ws, const_num(Size), ws, ")".
 type(pstring) --> kw("PSTRING").
-type(string(Size)) --> kw("STRING"), ws, "(", ws, number(Size), ws, ")".
+type(string(Size)) --> kw("STRING"), ws, "(", ws, const_num(Size), ws, ")".
 type(string) --> kw("STRING").
 
 %% ==========================================================================
@@ -865,6 +936,7 @@ type(string) --> kw("STRING").
 %% ==========================================================================
 
 % Hand-rolled: supports optional semicolons between statements
+statements(Ss) --> ";", !, ws, statements(Ss).         % OF 2; X = 1
 statements([S|Ss]) --> statement(S), !, ws, ( ";", ws ; [] ), statements(Ss).
 statements([]) --> [].
 
@@ -877,6 +949,19 @@ statement(if(Cond, Then, Else)) -->
     ( kw("THEN"), ws ; [] ),
     statements(Then), ws,
     elsif_else(Else), ws,
+    end_or_dot.
+
+% LOOP var = start TO end BY step / stmts / END
+statement(loop_for(Var, Start, End, Step, Body)) -->
+    kw("LOOP"), ws, ident(Var), ws, "=", ws, expr(Start), ws, kw("TO"), ws, expr(End), ws,
+    kw("BY"), ws, expr(Step), ws,
+    statements(Body), ws,
+    end_or_dot.
+
+% LOOP n TIMES / stmts / END
+statement(loop_times(Count, Body)) -->
+    kw("LOOP"), ws, expr(Count), ws, kw("TIMES"), ws,
+    statements(Body), ws,
     end_or_dot.
 
 % LOOP var = start TO end / stmts / END
@@ -970,6 +1055,17 @@ statement(assign(array_field(Name, Index, Field), Expr)) -->
 statement(assign(array_ref(Name, Index), Expr)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", ws, "=", ws, expr(Expr).
 
+% S[a : b] = Expr
+statement(assign(slice(Name, From, To), Expr)) -->
+    ident(Name), ws, "[", ws, expr(From), ws, ":", ws, expr(To), ws, "]", ws, "=", ws, expr(Expr).
+
+% A[i] op= Expr, A[i].Field op= Expr. Not rewritten to A[i] = A[i] op Expr:
+% the index is evaluated only once.
+statement(array_update(Name, Index, Field, Op, Expr)) -->
+    ident(Name), ws, "[", ws, expr(Index), ws, "]",
+    ( ".", word(Field) ; { Field = none } ), ws,
+    compound_op(Op), ws, expr(Expr).
+
 % Reference assignment: Ref &= Target  (Target: a name, NEW(Class), NULL, a call)
 statement(ref_assign(Var, Expr)) -->
     ident(Var), ws, "&=", ws, ref_target(Expr).
@@ -977,18 +1073,19 @@ statement(ref_assign(Var, Expr)) -->
 statement(assign(Var, Expr)) -->
     ident(Var), ws, "=", ws, expr(Expr).
 
-statement(assign(Var, add(var(Var), Expr))) -->
-    ident(Var), ws, "+=", ws, expr(Expr).
+statement(assign(Var, E)) -->
+    ident(Var), ws, compound_op(Op), ws, expr(Expr),
+    { E =.. [Op, var(Var), Expr] }.
 
-statement(assign(Var, sub(var(Var), Expr))) -->
-    ident(Var), ws, "-=", ws, expr(Expr).
+% SELF.Prop op= Expr
+statement(self_assign(Prop, E)) -->
+    kw("SELF"), ws, ".", ws, word(Prop), ws, compound_op(Op), ws, expr(Expr),
+    { E =.. [Op, self_access(Prop), Expr] }.
 
-% SELF.Prop += Expr / SELF.Prop -= Expr
-statement(self_assign(Prop, add(self_access(Prop), Expr))) -->
-    kw("SELF"), ws, ".", ws, word(Prop), ws, "+=", ws, expr(Expr).
-
-statement(self_assign(Prop, sub(self_access(Prop), Expr))) -->
-    kw("SELF"), ws, ".", ws, word(Prop), ws, "-=", ws, expr(Expr).
+compound_op(add) --> "+=".
+compound_op(sub) --> "-=".
+compound_op(mul) --> "*=".
+compound_op(div) --> "/=".
 
 statement(call('DELETE', [var(Name)])) -->
     kw("DELETE"), ws, "(", ws, name_arg(Name), ws, ")".
@@ -1019,6 +1116,22 @@ skip_blanks(R, R).
 
 statement(call(Name, Args)) -->
     callable_name(Name), ws, "(", ws, expr_list(Args), ws, ")".
+
+% Procedure called without parentheses: a name that is the whole statement.
+statement(call(Name, [])) -->
+    ident(Name), statement_end_ahead.
+
+% Lookahead: end of line, comment, ';', '.' or a word that ends the clause
+statement_end_ahead(S, S) :-
+    skip_blanks(S, R),
+    ( R = [] -> true
+    ; R = [C|_], memberchk(C, [10, 13, 0'!, 0';, 0'.]) -> true
+    ; phrase(clause_word, R, _)
+    ), !.
+
+clause_word --> kw("ELSE").
+clause_word --> kw("ELSIF").
+clause_word --> kw("END").
 
 % ELSIF chain: wraps nested if() in a statement list
 elsif_else([if(Cond, Then, Rest)]) -->
@@ -1089,6 +1202,9 @@ primary(lit(S))    --> "'", qchars(Cs), "'", { atom_codes(S, Cs) }, !.
 primary(lit(P))    --> "@", [C], { code_type(C, alpha) }, picture_rest(Cs), !,
     { atom_codes(P, [0'@, C|Cs]) }.
 primary(equate(Name)) --> "?", callable_name(Name), !.
+% Unary minus and plus
+primary(sub(lit(0), E)) --> "-", ws, primary(E), !.
+primary(E) --> "+", ws, primary(E), !.
 
 % ~Expr (NOT / bitwise complement)
 primary(not(E))    --> "~", ws, primary(E), !.
@@ -1122,6 +1238,8 @@ primary(call(Name, Args)) -->
 % A[i].Field — field of an array element (array of GROUP)
 primary(array_field(Name, Index, Field)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", ".", word(Field), !.
+primary(slice(Name, From, To)) -->
+    ident(Name), ws, "[", ws, expr(From), ws, ":", ws, expr(To), ws, "]", !.
 primary(array_ref(Name, Index)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", !.
 primary(var(Name)) --> ident(Name), !.
@@ -1223,16 +1341,16 @@ ident_cont(C) :- C >= 0'0, C =< 0'9.
 is_keyword(Name) :-
     upcase_atom(Name, U),
     member(U, ['MEMBER','PROGRAM','MAP','END','PROCEDURE','CODE','RETURN',
-               'LONG','CSTRING','NAME','EXPORT','FILE','DRIVER',
-               'CREATE','PRE','RECORD','GROUP','MODULE','RAW','PASCAL',
-               'PRIVATE','IF','THEN','ELSE','LOOP','BREAK','SET','DATA',
-               'NEXT','OPEN','CLOSE','GET','PUT','ADD','CLEAR',
+               'LONG','CSTRING','EXPORT','FILE',
+               'PRE','RECORD','GROUP','MODULE',
+               'IF','THEN','ELSE','LOOP','BREAK','SET','DATA',
+               'NEXT','OPEN','CLOSE','CLEAR',
                'ERRORCODE','TODAY',
                'TO','CASE','OF','DIM','AND','OR',
-               'DELETE','KEY','PRIMARY','OWNER',
+               'DELETE',
                'ACCEPT','DISPLAY','ACCEPTED',
                'PROMPT','ENTRY','BUTTON','STRING','LIST','AT','USE',
-               'CENTER','DROP','FROM','CHOICE','SELECT',
+               'CENTER','DROP','FROM','SELECT',
                'WHILE','UNTIL','ELSIF','CYCLE','DO','ROUTINE','EXIT',
                'SHORT','REAL','SREAL','BYTE','DATE','TIME',
                'DECIMAL','PDECIMAL','PSTRING','MESSAGE',
@@ -1248,9 +1366,20 @@ number(N) -->
 
 % Float literal: digits.digits (e.g. 10000.0, 3.14159)
 float_number(N) -->
-    digit(D), digits(Ds), ".", digit(F), digits(Fs),
-    { append([D|Ds], [0'.|[F|Fs]], AllCodes),
+    digit(D), digits(Ds), ".", digit(F), digits(Fs), exponent(Es),
+    { append([[D|Ds], [0'.,F|Fs], Es], AllCodes),
       number_codes(N, AllCodes) }.
+% 1E3: no decimal point
+float_number(N) -->
+    digit(D), digits(Ds), exponent(Es), { Es \== [] },
+    { append([[D|Ds], ".0", Es], AllCodes),
+      number_codes(N, AllCodes) }.
+
+exponent([0'e|Es]) --> ( "e" ; "E" ), exp_sign(Sign), digit(D), digits(Ds), !, { append(Sign, [D|Ds], Es) }.
+exponent([]) --> [].
+exp_sign([0'-]) --> "-", !.
+exp_sign([]) --> "+", !.
+exp_sign([]) --> [].
 
 decimal_number(N) --> digit(D), digits(Ds), { number_codes(N, [D|Ds]) }.
 

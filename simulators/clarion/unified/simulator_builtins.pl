@@ -115,7 +115,8 @@ builtin_call('INSTRING', Args, StateIn, StateIn, Result) :-
     ; Args = [NeedleExpr, HaystackExpr, StartExpr]
     -> eval_expr(NeedleExpr, StateIn, Needle),
        eval_expr(HaystackExpr, StateIn, Haystack),
-       eval_expr(StartExpr, StateIn, Start)
+       eval_expr(StartExpr, StateIn, Start0),
+       Start is truncate(Start0)
     ),
     to_string(Needle, NS),
     to_string(Haystack, HS),
@@ -130,8 +131,8 @@ builtin_call('INSTRING', Args, StateIn, StateIn, Result) :-
 % SUB(string, position, length) - extract substring (1-based position)
 builtin_call('SUB', [StrExpr, PosExpr, LenExpr], StateIn, StateIn, Result) :-
     eval_expr(StrExpr, StateIn, Str),
-    eval_expr(PosExpr, StateIn, Pos),
-    eval_expr(LenExpr, StateIn, Len),
+    eval_expr(PosExpr, StateIn, Pos0), Pos is truncate(Pos0),
+    eval_expr(LenExpr, StateIn, Len0), Len is truncate(Len0),
     to_string(Str, S),
     string_length(S, SLen),
     Start is Pos - 1,
@@ -214,10 +215,8 @@ builtin_call('ROUND', [Expr], StateIn, StateIn, Result) :-
 builtin_call('SQRT', [Expr], StateIn, StateIn, Result) :-
     eval_expr(Expr, StateIn, Val),
     ( Val >= 0
-    -> FResult is sqrt(Val),
-       IResult is truncate(FResult),
-       ( FResult =:= IResult -> Result = IResult ; Result = FResult )
-    ;  Result = 0
+    -> Result is sqrt(Val)            % a REAL, even when whole: SQRT(25) / 2 is 2.5
+    ;  Result = 0.0
     ).
 
 % POWER(base, exponent) - exponentiation (Clarion doesn't have POWER but useful)

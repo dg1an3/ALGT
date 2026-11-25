@@ -36,7 +36,7 @@ ui_simulation.lgt     ← Logtalk headless UI backend for testing
 ui_dispatcher.lgt     ← Logtalk UI dispatcher (routes by backend type)
 loader.lgt            ← Logtalk loader for all backend objects
 scenario_*.pl         ← From modular (unchanged)
-test_unified.pl       ← Test suite (includes test_fidelity.pl: language semantics)
+test_unified.pl       ← Test suite (includes test_fidelity.pl: language semantics; test_parse_coverage.pl)
 clarion_preproc.pl    ← COMPILE/OMIT conditional-compile pre-pass
 ```
 
@@ -208,6 +208,22 @@ Found by a parse-coverage survey:
 - **Case-insensitive procedure and key names** (`helper()` calls `Helper`, `GET(t, Tt:by_item_id)`), and `PRE:Group.Field` reads/writes the flattened record field.
 - The "still pure" list in section 11 no longer includes builtin arguments.
 
+### 15. Constructs from the project survey (2026-11-25)
+- **Survey:** 50 of the 56 `.clw` files under `clarion_projects/` parse. The other six need `INCLUDE`, untyped parameters, `?Ctl{PROP:x}` reads, `WINDOW` menus / `LIST`, or `REPORT`.
+- **Constant expressions:** `DIM()`, `EQUATE()`, initial values and string lengths accept EQUATEs. The grammar leaves `const(Expr)`; `resolve_constants/2` replaces it after parsing and throws `unknown_constant` for a name with no EQUATE before its use.
+- **Declarations** may come before and after MAP. GROUP fields keep initial values (`field_init/3`, then `group_init/3`); on a RECORD or QUEUE they are ignored with a warning.
+- **Statements:** `*=` `/=`, compound assignment to array elements (`array_update/5`, index evaluated once), `LOOP BY` / `TIMES`, leading `;`, a procedure called without parentheses (the name must be the whole statement), `S[a:b]` and `S[i]` on strings.
+- **Expressions:** unary minus, `1.5E-3`.
+- **Labels:** non-reserved words (`NAME`, `ADD`, `KEY`, ...) are ordinary identifiers. A program's own procedure hides a built-in of the same name, except when the first argument is a FILE or QUEUE.
+- **REAL** values are always floats, so a whole REAL no longer divides as an integer; `SQRT` returns REAL; text shows `7`, not `7.0`.
+- **GROUP fields** are reached by PRE or by group name. `G.Field` used to create a separate variable.
+- **Limits:** arrays are lists, so large ones are slow (`DcInit` takes about 40 s; PenBeamIndens is not practical). `DIM` on a GROUP or RECORD field is parsed and dropped.
+
+### 16. Running the projects' DLL tests without the DLL (2026-11-25)
+- `python3 dll_standin/run_dll_test.py ../../../clarion_projects/dh-mtl/test_mtllib.py` runs a project's Python test with `ctypes` replaced, so `CDLL('X.dll')` runs `X.clw` in the simulator. Passing: OptimLib, MtlLib, RtModelLib, MathLib.
+- Numbers only: buffers, pointers and structures raise `NotImplementedError`.
+- A call the simulator cannot run stops the test. `--keep-going` returns 0 instead and always exits 1, because a check can pass by accident on that 0.
+
 ### 6. ADDRESS/MemCopy simulation
 - `ADDRESS(var)` returns a unique deterministic ID per variable name (the upper-cased name as a base-256 number; see section 13)
 - `MemCopy` (via `MODULE('kernel32')`) is the one external that needs no stub: a no-op in the simulator since Clarion code uses direct GROUP field assignments for the actual data movement; MemCopy only matters for passing structs to external callers via pointer
@@ -248,7 +264,7 @@ call_procedure(Session, ProcName, Args, Result, Session2).
 exec_program(Source, Events, Result).
 ```
 
-## Test Coverage (470 checks as of 2026-11-25)
+## Test Coverage (538 checks as of 2026-11-25)
 
 - **Parser + Bridge** (11): MEMBER parse, MathLib, SensorLib, DiagnosisStore, FormDemo, OdbcStore, control_flow.clw PROGRAM
 - **Arithmetic** (4): MathAdd, Multiply with various inputs

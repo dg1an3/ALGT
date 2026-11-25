@@ -147,6 +147,9 @@ init_globals([group(Name, Prefix, Fields)|Rest], StateIn, StateOut) :-
 init_globals([group(Name, Fields)|Rest], StateIn, StateOut) :-
     init_group(Name, '', Fields, StateIn, State1),
     init_globals(Rest, State1, StateOut).
+init_globals([group_init(Name, Field, Value)|Rest], StateIn, StateOut) :-
+    assign_member(Name, Field, Value, StateIn, State1),
+    init_globals(Rest, State1, StateOut).
 init_globals([queue(Name, Fields)|Rest], StateIn, StateOut) :-
     init_globals([queue(Name, '', Fields)|Rest], StateIn, StateOut).
 init_globals([queue(Name, Prefix, Fields)|Rest], StateIn, StateOut) :-
@@ -320,17 +323,44 @@ assign_element(ArrayName, Index, Value0, StateIn, StateOut) :-
     ),
     get_var(ArrayName, StateIn, ArrayVal),
     ( ArrayVal = array(Elements)
-    -> Idx is Index - 1,
+    -> Idx is truncate(Index) - 1,
        set_array_element(Idx, Value, Elements, NewElements),
        set_var(ArrayName, array(NewElements), StateIn, StateOut)
+    ; is_text(ArrayVal)                  % S[i] = character
+    -> assign_slice(ArrayName, Index, Index, Value0, StateIn, StateOut)
     ;  set_var(ArrayName, Value, StateIn, StateOut)
     ).
+
+% S[a:b] = Expr
+exec_statement(slice_assign(Name, FromExpr, ToExpr, Expr), StateIn, StateOut, normal) :- !,
+    eval_full_expr(FromExpr, StateIn, State1, From),
+    eval_full_expr(ToExpr, State1, State2, To),
+    eval_full_expr(Expr, State2, State3, Value),
+    assign_slice(Name, From, To, Value, State3, StateOut).
+
+assign_slice(Name, From, To, Value, StateIn, StateOut) :-
+    get_var(Name, StateIn, Text),
+    replace_slice(Text, From, To, Value, NewText),
+    set_var(Name, NewText, StateIn, StateOut).
+
+% A[i] op= Expr (the index is evaluated once)
+exec_statement(array_update(Name, IndexExpr, Field, Op, Expr), StateIn, StateOut, normal) :- !,
+    eval_full_expr(IndexExpr, StateIn, State1, Index),
+    ( Field == none
+    -> Read = array_access(Name, number(Index)), Write = array_assign(Name, number(Index), evaluated(New))
+    ;  Read = array_field_access(Name, number(Index), Field),
+       Write = array_field_assign(Name, number(Index), Field, evaluated(New))
+    ),
+    eval_full_expr(Read, State1, State2, Old),
+    eval_full_expr(Expr, State2, State3, Value),
+    eval_binop(Op, Old, Value, New),
+    exec_statement(Write, State3, StateOut, normal).
 
 % A[i].Field = Expr — only when the element is a GROUP value; otherwise warn and skip
 exec_statement(array_field_assign(ArrayName, IndexExpr, Field, Expr), StateIn0, StateOut, normal) :- !,
     eval_full_expr(IndexExpr, StateIn0, StateIn1, Index),
     eval_full_expr(Expr, StateIn1, StateIn, Value),
-    Idx is Index - 1,
+    Idx is truncate(Index) - 1,
     (   get_var(ArrayName, StateIn, array(Elements)),
         simulator_eval:get_array_element(Idx, Elements, Elem),
         ( Elem = group_val(P, Fields, Values) -> NewElem = group_val(P, Fields, NewValues)
@@ -400,16 +430,25 @@ exec_statement(loop(Body), StateIn, StateOut, Control) :- !,
     ;  true
     ).
 
-exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn0, StateOut, Control) :- !,
+exec_statement(loop_to(Var, FromExpr, ToExpr, Body), StateIn, StateOut, Control) :- !,
+    exec_statement(loop_to(Var, FromExpr, ToExpr, number(1), Body), StateIn, StateOut, Control).
+exec_statement(loop_times(CountExpr, Body), StateIn, StateOut, Control) :- !,
+    eval_full_expr(CountExpr, StateIn, State1, Count0),
+    to_number(Count0, Count),
+    exec_loop_times(Count, Body, State1, StateOut, Control).
+exec_statement(loop_to(Var, FromExpr, ToExpr, StepExpr, Body), StateIn0, StateOut, Control) :- !,
     eval_full_expr(FromExpr, StateIn0, StateIn1, From),
-    eval_full_expr(ToExpr, StateIn1, StateIn, To),
+    eval_full_expr(ToExpr, StateIn1, StateIn2, To),
+    eval_full_expr(StepExpr, StateIn2, StateIn, Step0),
+    to_number(Step0, Step),
+    ( Step =:= 0 -> throw(error(loop_step_zero(Var), context(exec_statement/4, 'LOOP ... BY 0 never ends'))) ; true ),
     ( is_tracing
     -> trace_loop_start(loop_to, info{var: Var, from: From, to: To}),
        add_graph_node(loop, loop{type: loop_to, var: Var, from: From, to: To}, _)
     ;  true
     ),
     set_var(Var, From, StateIn, State1),
-    exec_loop_to(Var, To, Body, State1, StateOut, Control),
+    exec_loop_to(Var, To, Step, Body, State1, StateOut, Control),
     ( is_tracing
     -> trace_loop_end(loop_to, Control)
     ;  true
@@ -516,6 +555,10 @@ eval_full_expr(ref_eq(A, B), StateIn, StateOut, Result) :- !,
     ( VA == VB -> Result = 1 ; Result = 0 ).
 % Omitted call argument f(, a): passed through as the atom 'omitted'
 eval_full_expr(omitted, State, State, omitted) :- !.
+eval_full_expr(slice(Name, FromExpr, ToExpr), StateIn, StateOut, Value) :- !,
+    eval_full_expr(FromExpr, StateIn, State1, From),
+    eval_full_expr(ToExpr, State1, StateOut, To),
+    eval_expr(slice(Name, number(From), number(To)), StateOut, Value).
 eval_full_expr(array_access(ArrayName, IndexExpr), StateIn, StateOut, Value) :- !,
     eval_full_expr(IndexExpr, StateIn, StateOut, Index),
     eval_expr(array_access(ArrayName, number(Index)), StateOut, Value).
@@ -523,7 +566,7 @@ eval_full_expr(array_access(ArrayName, IndexExpr), StateIn, StateOut, Value) :- 
 eval_full_expr(array_field_access(ArrayName, IndexExpr, Field), StateIn, State, Value) :- !,
     eval_full_expr(IndexExpr, StateIn, State, Index),
     ( get_var(ArrayName, State, array(Elements)),
-      Idx is Index - 1,
+      Idx is truncate(Index) - 1,
       simulator_eval:get_array_element(Idx, Elements, Elem),
       ( Elem = group_val(_, Fields, Values) ; Elem = group_val(Fields, Values) )
     -> get_group_field(Field, Fields, Values, Value)
@@ -558,18 +601,34 @@ exec_loop_infinite(Body, StateIn, StateOut, Control) :-
     ; exec_loop_infinite(Body, State1, StateOut, Control)
     ).
 
-exec_loop_to(Var, To, Body, StateIn, StateOut, Control) :-
+exec_loop_to(Var, To, Step, Body, StateIn, StateOut, Control) :-
     get_var(Var, StateIn, Current),
-    ( Current > To
+    ( loop_done(Step, Current, To)
     -> StateOut = StateIn, Control = normal
     ;  exec_statements(Body, StateIn, State1, BodyControl),
-       ( BodyControl = break -> StateOut = State1, Control = normal
-       ; BodyControl = exit -> StateOut = State1, Control = exit
-    ; BodyControl = return -> StateOut = State1, Control = return
-       ; BodyControl = return(V) -> StateOut = State1, Control = return(V)
-       ; Next is Current + 1,
-         set_var(Var, Next, State1, State2),
-         exec_loop_to(Var, To, Body, State2, StateOut, Control)
+       ( loop_exit(BodyControl, Control0)
+       -> StateOut = State1, Control = Control0
+       ;  Next is Current + Step,
+          set_var(Var, Next, State1, State2),
+          exec_loop_to(Var, To, Step, Body, State2, StateOut, Control)
+       )
+    ).
+
+loop_done(Step, Current, To) :- ( Step < 0 -> Current < To ; Current > To ).
+
+loop_exit(break, normal).
+loop_exit(exit, exit).
+loop_exit(return, return).
+loop_exit(return(V), return(V)).
+
+exec_loop_times(N, Body, StateIn, StateOut, Control) :-
+    ( N < 1
+    -> StateOut = StateIn, Control = normal
+    ;  exec_statements(Body, StateIn, State1, BodyControl),
+       ( loop_exit(BodyControl, Control0)
+       -> StateOut = State1, Control = Control0
+       ;  N1 is N - 1,
+          exec_loop_times(N1, Body, State1, StateOut, Control)
        )
     ).
 
@@ -725,7 +784,7 @@ exec_accept_loop(Body, StateIn, StateOut, Control, _Phase) :-
 exec_call(Name, Args, StateIn, StateOut, Result) :-
     % Clarion is case-insensitive; builtins are registered UPPERCASE
     upcase_atom(Name, UName),
-    ( \+ is_builtin(UName)
+    ( ( \+ is_builtin(UName) ; own_procedure(Name, Args, StateIn) )
     -> exec_user_call(Name, Args, StateIn, StateOut, Result)
     ; builtin_args(UName, Args, StateIn, State1, BuiltinArgs),
       builtin_call(UName, BuiltinArgs, State1, StateOut, Result)
@@ -735,6 +794,12 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
     ; length(Args, Arity),
       throw(error(builtin_failed(UName, Arity), context(exec_call/5, 'Built-in cannot handle these arguments')))
     ).
+
+% The program's own procedure hides a built-in of that name (Add(1, 2)), except
+% where the built-in is meant: ADD(File).
+own_procedure(Name, Args, State) :-
+    find_proc(Name, State, _),
+    \+ ( Args = [var(First)|_], file_ref_target(First, State, _) ).
 
 is_builtin(UName) :-
     clause(simulator_builtins:builtin_call(UName, _, _, _, _), _), !.
@@ -1211,7 +1276,7 @@ get_group_field(FieldName, _, _, 0) :-
 
 set_array_element(0, Value, [_|Rest], [Value|Rest]) :- !.
 set_array_element(Idx, Value, [H|T], [H|NewT]) :-
-    Idx > 0,
+    Idx > 0, !,
     Idx1 is Idx - 1,
     set_array_element(Idx1, Value, T, NewT).
 set_array_element(Idx, Value, [], NewList) :-

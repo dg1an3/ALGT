@@ -32,6 +32,7 @@ check(Label, Got, Expected) :-
 
 :- use_module(library(process)).
 :- include(test_fidelity).
+:- include(test_parse_coverage).
 
 %------------------------------------------------------------
 % Parser Tests (via bridge)
@@ -1627,7 +1628,7 @@ test_like_decl :-
     check('LIKE local exec B=5 -> 6', R, 6),
     QSrc = "  MEMBER()\nQ QUEUE\nId LIKE(X:Id)\nName STRING('abc')\n  END\n",
     parse_clarion(QSrc, program(_, _, QG, _, _)),
-    ( QG = [queue('Q', [field('Id', like('X:Id', [])), field('Name', string(3))])] -> QOk = ok ; QOk = QG ),
+    ( QG = [queue('Q', [field('Id', like('X:Id', [])), field_init('Name', string(3), abc)])] -> QOk = ok ; QOk = QG ),
     check('LIKE and STRING(init) fields in QUEUE', QOk, ok).
 
 test_string_equate :-
@@ -2192,6 +2193,7 @@ main :-
     % Language semantics
     run_test(test_fidelity),
     run_test(test_fidelity_calls),
+    run_test(test_parse_coverage),
     run_test(test_fidelity_stubs),
     run_test(test_fidelity_any_directory),
     % Summary

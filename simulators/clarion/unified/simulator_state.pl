@@ -271,23 +271,28 @@ set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut) :-
     ; set_group_field_by_prefix(Prefix, FieldName, Value, StateIn, StateOut)
     ).
 
-% Group field access by prefix
+% Qualifier is a group's PRE, or its name (G.Field; G:Field when it has no PRE)
+find_group(Qualifier, Vars, Name, Prefix, Fields, Values) :-
+    (   memberchk(var(group_prefix(Qualifier), Name), Vars)
+    ;   Name = Qualifier
+    ),
+    memberchk(var(Name, group_val(Prefix, Fields, Values)), Vars).
+
+% Group field access
 get_group_field(Prefix, FieldName, State, Value) :-
     get_vars(State, Vars),
-    member(var(group_prefix(Prefix), GroupName), Vars),
-    member(var(GroupName, group_val(Prefix, Fields, Values)), Vars),
+    find_group(Prefix, Vars, _, _, Fields, Values),
     nth1_field_index(FieldName, Fields, Idx),
     nth1(Idx, Values, Value).
 
 set_group_field_by_prefix(Prefix, FieldName, Value, StateIn, StateOut) :-
     get_vars(StateIn, Vars),
-    member(var(group_prefix(Prefix), GroupName), Vars),
-    member(var(GroupName, group_val(Prefix, Fields, Values)), Vars),
+    find_group(Prefix, Vars, GroupName, GroupPrefix, Fields, Values),
     nth1_field_index(FieldName, Fields, Idx),
     nth1(Idx, Fields, field(_, Type, Size)),
     coerce(Type, Size, Value, Stored),
     replace_nth1(Idx, Values, Stored, NewValues),
-    set_var(GroupName, group_val(Prefix, Fields, NewValues), StateIn, StateOut).
+    set_var(GroupName, group_val(GroupPrefix, Fields, NewValues), StateIn, StateOut).
 
 nth1_field_index(FieldName, Fields, Idx) :-
     nth1_field_index_(FieldName, Fields, 1, Idx).

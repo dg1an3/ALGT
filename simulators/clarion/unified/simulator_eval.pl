@@ -11,6 +11,8 @@
     eval_binop/4,
     is_truthy/1,
     to_string/2,
+    text_slice/4,
+    replace_slice/5,
     is_clarion_constant/1
 ]).
 
@@ -63,10 +65,19 @@ eval_expr(array_access(ArrayName, IndexExpr), State, Value) :-
     eval_expr(IndexExpr, State, Index),
     get_var(ArrayName, State, ArrayVal),
     ( ArrayVal = array(Elements)
-    -> Idx is Index - 1,  % Clarion arrays are 1-based
+    -> Idx is truncate(Index) - 1,  % Clarion arrays are 1-based
        get_array_element(Idx, Elements, Value)
+    ; is_text(ArrayVal)                % S[i]: one character
+    -> text_slice(ArrayVal, Index, Index, Value)
     ;  Value = 0
     ).
+
+% S[a:b]
+eval_expr(slice(Name, FromExpr, ToExpr), State, Value) :-
+    eval_expr(FromExpr, State, From),
+    eval_expr(ToExpr, State, To),
+    get_var(Name, State, Text),
+    text_slice(Text, From, To, Value).
 
 % Picture expressions (for FORMAT)
 eval_expr(picture(Pic), _, picture(Pic)).
@@ -143,7 +154,37 @@ arithmetic(V, N) :- is_text(V), text_number(V, N).
 
 to_string(S, S) :- string(S), !.
 to_string(A, S) :- atom(A), !, atom_string(A, S).
-to_string(N, S) :- number(N), number_string(N, S).
+to_string(N, S) :- number(N), clarion_types:text_string(N, S).
+
+%------------------------------------------------------------
+% String slices (1-based, inclusive; positions past the end give nothing)
+%------------------------------------------------------------
+
+text_slice(Text, From0, To0, Slice) :-
+    to_string(Text, S),
+    string_length(S, Length),
+    From is max(1, truncate(From0)),
+    To is min(Length, truncate(To0)),
+    ( From =< To
+    -> Start is From - 1, Count is To - From + 1,
+       sub_string(S, Start, Count, _, Slice)
+    ;  Slice = ""
+    ).
+
+% Positions From..To become New, padded or cut to fit. Text shorter than To
+% (a CSTRING) is extended.
+replace_slice(Text, From0, To0, New, Result) :-
+    to_string(Text, S0),
+    From is max(1, truncate(From0)), To is truncate(To0),
+    ( From > To
+    -> Result = S0
+    ;  Width is To - From + 1, Before is From - 1,
+       coerce('STRING', size(Width), New, Piece),
+       string_length(S0, Length),
+       ( Length < Before -> coerce('STRING', size(Before), S0, Head) ; sub_string(S0, 0, Before, _, Head) ),
+       ( Length > To -> sub_string(S0, To, _, 0, Tail) ; Tail = "" ),
+       atomic_list_concat([Head, Piece, Tail], Joined), atom_string(Joined, Result)
+    ).
 
 %------------------------------------------------------------
 % Array Access Helper
@@ -151,7 +192,7 @@ to_string(N, S) :- number(N), number_string(N, S).
 
 get_array_element(0, [H|_], H) :- !.
 get_array_element(Idx, [_|T], Value) :-
-    Idx > 0,
+    Idx > 0, !,
     Idx1 is Idx - 1,
     get_array_element(Idx1, T, Value).
 get_array_element(_, [], 0).  % Out of bounds returns 0

@@ -17,6 +17,7 @@
     compare_keys/4,      % -Order, +As, +Bs, +KeyAttrs
     text_number/2,       % +Text, -Number (fails if not numeric)
     to_number/2,         % +Value, -Number (non-numeric text is 0)
+    text_string/2,       % +Value, -String as Clarion shows it
     clip_text/2,         % +Text, -String without trailing spaces
     is_text/1,
     text_type/1
@@ -76,7 +77,11 @@ coerce_(Type, _, V, N) :-
     I is truncate(N0),
     wrap(Signed, Bits, I, N).
 coerce_(Type, _, V, N) :-
-    member(Type, ['REAL', 'SREAL', 'DECIMAL', 'PDECIMAL']), !,
+    ( Type == 'REAL' ; Type == 'SREAL' ), !,       % so that 7 / 2 is not integer division
+    to_number(V, N0),
+    N is float(N0).
+coerce_(Type, _, V, N) :-
+    ( Type == 'DECIMAL' ; Type == 'PDECIMAL' ), !,
     to_number(V, N).
 coerce_(_, _, V, V).
 

@@ -93,11 +93,18 @@ bridge_files([file(Name, Prefix, Attrs, Fields)|Rest],
              AllNestedGroups) :-
     bridge_file_attrs(Prefix, Attrs, BridgedAttrs),
     findall(key(K, KF, KA), member(key(K, KF, KA), Attrs), Keys),
+    warn_record_inits(Name, Fields),
     append(Keys, [record(BridgedFields)], Contents),
     bridge_fields(Fields, BridgedFields),
     extract_nested_groups(Fields, NestedGroups),
     bridge_files(Rest, RestDecs, RestNestedGroups),
     append(NestedGroups, RestNestedGroups, AllNestedGroups).
+
+warn_record_inits(Name, Fields) :-
+    ( field_initial(Fields, Field, _)
+    -> format(user_error, "Warning: ast_bridge ignores the initial value of ~w.~w~n", [Name, Field])
+    ;  true
+    ).
 
 bridge_file_attrs(Prefix, Attrs, [pre(Prefix)|BridgedAttrs]) :-
     bridge_file_attr_list(Attrs, BridgedAttrs).
@@ -125,8 +132,19 @@ bridge_groups([group(Name, Prefix, Fields)|Rest],
     extract_nested_groups(Fields, NestedGroups),
     bridge_groups(NestedGroups, NestedDecs),
     bridge_groups(Rest, RestDecs),
-    append([group(Name, Prefix, BridgedFields)], NestedDecs, ThisDecs),
+    group_inits(Fields, Name, Inits),
+    append([group(Name, Prefix, BridgedFields)|Inits], NestedDecs, ThisDecs),
     append(ThisDecs, RestDecs, AllDecs).
+
+% Initial values of a GROUP's fields, applied once the group exists
+group_inits(Fields, Name, Inits) :-
+    findall(group_init(Name, Field, Value), field_initial(Fields, Field, Value), Inits).
+
+field_initial(Fields, Field, Value) :-
+    member(F, Fields),
+    ( F = field_init(Field, _, Value)
+    ; F = group(_, _, SubFields), field_initial(SubFields, Field, Value)
+    ).
 
 %------------------------------------------------------------
 % Field declarations (shared by FILE and GROUP)
@@ -137,6 +155,8 @@ bridge_fields([field(Name, Type)|Rest], [field(Name, TypeAtom, Size)|BRest]) :-
     bridge_type_name(Type, TypeAtom),
     type_size(Type, Size),
     bridge_fields(Rest, BRest).
+bridge_fields([field_init(Name, Type, _)|Rest], BFields) :-      % see group_inits/3
+    bridge_fields([field(Name, Type)|Rest], BFields).
 bridge_fields([field(Name, Type, Size)|Rest], [field(Name, TypeAtom, size(Size))|BRest]) :-
     bridge_type_name(Type, TypeAtom),
     bridge_fields(Rest, BRest).
@@ -223,6 +243,11 @@ bridge_type_name(T, T).  % pass through unknown types
 % Global variables and windows
 %------------------------------------------------------------
 
+equate_type(Value, 'STRING') :- atom(Value), !.
+equate_type(Value, 'REAL') :- float(Value), !.
+equate_type(Value, 'ULONG') :- Value > 2147483647, !.
+equate_type(_, 'LONG').
+
 bridge_globals([], [], [], []).
 bridge_globals([global(Name, Type, Init0)|Rest], [var(Name, TypeAtom, init(Init))|VRest], Wins, Main) :-
     sized_type(Type, TypeAtom),
@@ -233,16 +258,18 @@ bridge_globals([array(Name, Type, Size)|Rest], [var(Name, TypeAtom, init(Values)
     initial_array(Type, Size, Values),
     bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([queue(Name, Fields)|Rest], [queue(Name, BridgedFields)|VRest], Wins, Main) :-
+    warn_record_inits(Name, Fields),
     bridge_fields(Fields, BridgedFields),
     bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([queue(Name, Prefix, Fields)|Rest], [queue(Name, Prefix, BridgedFields)|VRest], Wins, Main) :-
+    warn_record_inits(Name, Fields),
     bridge_fields(Fields, BridgedFields),
     bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([window(Name, Title, Attrs, Controls)|Rest], Vars,
                [window(Name, Title, Attrs, Controls)|WRest], Main) :-
     bridge_globals(Rest, Vars, WRest, Main).
 bridge_globals([equate(Name, Value)|Rest], [var(Name, Type, init(Value))|VRest], Wins, Main) :-
-    ( atom(Value) -> Type = 'STRING' ; Type = 'LONG' ),   % EQUATE('text') vs EQUATE(n)
+    equate_type(Value, Type),
     bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([global_instance(Name, ClassName)|Rest], [instance_global(Name, ClassName)|VRest], Wins, Main) :-
     bridge_globals(Rest, VRest, Wins, Main).
@@ -341,9 +368,11 @@ bridge_locals([like(Name, Ref, _Attrs)|Rest],
 % them exactly like the matching global declarations. Nested GROUPs inside a
 % local GROUP are emitted as separate local_decls (for prefix registration).
 bridge_locals([queue(Name, Fields)|Rest], [local_decl(queue(Name, BFields))|BRest]) :- !,
+    warn_record_inits(Name, Fields),
     bridge_fields(Fields, BFields),
     bridge_locals(Rest, BRest).
 bridge_locals([queue(Name, Prefix, Fields)|Rest], [local_decl(queue(Name, Prefix, BFields))|BRest]) :- !,
+    warn_record_inits(Name, Fields),
     bridge_fields(Fields, BFields),
     bridge_locals(Rest, BRest).
 bridge_locals([group(Name, Prefix0, Fields)|Rest], Decls) :- !,
@@ -378,6 +407,13 @@ bridge_stmts([S|Ss], [BS|BSs]) :-
 bridge_stmt(assign(array_field(Name, Idx, Field), Expr), array_field_assign(Name, BIdx, Field, BExpr)) :- !,
     bridge_expr(Idx, BIdx),
     bridge_expr(Expr, BExpr).
+
+bridge_stmt(assign(slice(Name, From, To), Expr), slice_assign(Name, BFrom, BTo, BExpr)) :- !,
+    bridge_exprs([From, To, Expr], [BFrom, BTo, BExpr]).
+
+bridge_stmt(array_update(Name, Idx, Field, Op, Expr), array_update(Name, BIdx, Field, BOp, BExpr)) :- !,
+    memberchk(Op-BOp, [add-'+', sub-'-', mul-'*', div-'/']),
+    bridge_exprs([Idx, Expr], [BIdx, BExpr]).
 
 bridge_stmt(assign(array_ref(Name, Idx), Expr), array_assign(Name, BIdx, BExpr)) :- !,
     bridge_expr(Idx, BIdx),
@@ -435,6 +471,13 @@ bridge_stmt(loop(Body), loop(BBody)) :- !,
 bridge_stmt(loop_for(Var, Start, End, Body), loop_to(Var, BStart, BEnd, BBody)) :- !,
     bridge_expr(Start, BStart),
     bridge_expr(End, BEnd),
+    bridge_stmts(Body, BBody).
+
+bridge_stmt(loop_for(Var, Start, End, Step, Body), loop_to(Var, BStart, BEnd, BStep, BBody)) :- !,
+    bridge_exprs([Start, End, Step], [BStart, BEnd, BStep]),
+    bridge_stmts(Body, BBody).
+bridge_stmt(loop_times(Count, Body), loop_times(BCount, BBody)) :- !,
+    bridge_expr(Count, BCount),
     bridge_stmts(Body, BBody).
 
 % LOOP WHILE
@@ -564,6 +607,7 @@ bridge_expr(call(Name, Args), call(Name, BArgs)) :- !, bridge_exprs(Args, BArgs)
 
 % Array reference
 bridge_expr(array_ref(Name, Index), array_access(Name, BIndex)) :- !, bridge_expr(Index, BIndex).
+bridge_expr(slice(Name, From, To), slice(Name, BFrom, BTo)) :- !, bridge_exprs([From, To], [BFrom, BTo]).
 bridge_expr(array_field(Name, Index, Field), array_field_access(Name, BIndex, Field)) :- !,
     bridge_expr(Index, BIndex).
 
