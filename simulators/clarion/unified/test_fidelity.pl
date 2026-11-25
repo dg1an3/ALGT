@@ -196,3 +196,43 @@ test_fidelity_any_directory :-
         process_wait(Pid, Status),
         delete_directory(Dir)),
     check('runs from another directory', Status, exit(0)).
+
+%------------------------------------------------------------
+% By-reference aliasing, name collisions and implicit variables
+%------------------------------------------------------------
+
+fid_call('X to X', 2,
+    "  MEMBER()\n  MAP\n    Run(),LONG\n  END\nInc PROCEDURE(*LONG X)\n  CODE\n  X += 1\nRun PROCEDURE\nX LONG(1)\n  CODE\n  Inc(X)\n  RETURN(X)\n").
+fid_call('callee local same name', 2,
+    "  MEMBER()\n  MAP\n    Run(),LONG\n  END\nInc PROCEDURE(*LONG X)\nL LONG(50)\n  CODE\n  L = 99\n  X += 1\nRun PROCEDURE\nL LONG(1)\n  CODE\n  Inc(L)\n  RETURN(L)\n").
+fid_call('swap', 21,
+    "  MEMBER()\n  MAP\n    Run(),LONG\n  END\nSwap PROCEDURE(*LONG A, *LONG B)\nT LONG\n  CODE\n  T = A\n  A = B\n  B = T\nRun PROCEDURE\nA LONG(1)\nB LONG(2)\n  CODE\n  Swap(B, A)\n  RETURN(A * 10 + B)\n").
+fid_call('global aliased both ways', 76,
+    "  MEMBER()\nG LONG(1)\n  MAP\n    Run(),LONG\n  END\nP PROCEDURE(*LONG X)\n  CODE\n  G = 7\n  IF X <> 7 THEN RETURN.\n  X = 70\n  G += 6\nRun PROCEDURE\n  CODE\n  P(G)\n  RETURN(G)\n").
+fid_call('global hidden by callee local', 5,
+    "  MEMBER()\nG LONG(1)\n  MAP\n    Run(),LONG\n  END\nP PROCEDURE(*LONG X)\nG LONG(9)\n  CODE\n  G = 8\n  X = 5\nRun PROCEDURE\n  CODE\n  P(G)\n  RETURN(G)\n").
+fid_call('chain through two procs, same names', 4,
+    "  MEMBER()\nG LONG(1)\n  MAP\n    Run(),LONG\n  END\nQ PROCEDURE(*LONG X)\n  CODE\n  X += 1\nP PROCEDURE(*LONG X)\n  CODE\n  Q(X)\n  Q(X)\n  X += 1\nRun PROCEDURE\n  CODE\n  P(G)\n  RETURN(G)\n").
+fid_call('recursion by ref', 24,
+    "  MEMBER()\n  MAP\n    Run(),LONG\n  END\nFact PROCEDURE(LONG N, *LONG R)\nM LONG\n  CODE\n  IF N <= 1\n    R = 1\n    RETURN\n  .\n  Fact(N - 1, M)\n  R = N * M\nRun PROCEDURE\nM LONG\n  CODE\n  Fact(4, M)\n  RETURN(M)\n").
+fid_call('i# is per procedure', 3,
+    "  MEMBER()\n  MAP\n    Run(),LONG\n  END\nP PROCEDURE\n  CODE\n  i# = 50\nRun PROCEDURE\n  CODE\n  i# = 3\n  P()\n  RETURN(i#)\n").
+fid_call('i# recursion loop', 9,
+    "  MEMBER()\nC LONG(0)\n  MAP\n    Run(),LONG\n  END\nP PROCEDURE\n  CODE\n  LOOP i# = 1 TO 3\n    C += 1\n  .\nRun PROCEDURE\n  CODE\n  LOOP i# = 1 TO 3\n    P()\n  .\n  RETURN(C)\n").
+fid_call('i# by ref', 2,
+    "  MEMBER()\n  MAP\n    Run(),LONG\n  END\nInc PROCEDURE(*LONG X)\n  CODE\n  i# = 40\n  X += 1\nRun PROCEDURE\n  CODE\n  i# = 1\n  Inc(i#)\n  RETURN(i#)\n").
+fid_call('DISPOSE/OMITTED on byref', 110,
+    "  MEMBER()\nG LONG(1)\n  MAP\n    Run(),LONG\n  END\nP PROCEDURE(<*LONG A>, <*LONG B>),LONG\n  CODE\n  RETURN(OMITTED(A) * 10 + OMITTED(B))\nRun PROCEDURE\n  CODE\n  RETURN(P(G) * 100 + P(,G))\n").
+fid_call('method param named like an alias', 1,
+    "  MEMBER()\nC CLASS,TYPE\nV LONG\nSet PROCEDURE(LONG X)\n  END\nG LONG(1)\n  MAP\n    Run(),LONG\n  END\nC.Set PROCEDURE(LONG X)\n  CODE\n  X = 33\n  SELF.V = X\nP PROCEDURE(*LONG X)\nO C\n  CODE\n  O.Set(5)\nRun PROCEDURE\n  CODE\n  P(G)\n  RETURN(G)\n").
+fid_call('byref wraps to target type', -1,
+    "  MEMBER()\nG SHORT(1)\n  MAP\n    Run(),LONG\n  END\nP PROCEDURE(*SHORT X)\n  CODE\n  X = 65535\nRun PROCEDURE\n  CODE\n  P(G)\n  RETURN(G)\n").
+fid_call('ULONG', 4294967295,
+    "  MEMBER()\n  MAP\n    Run(),ULONG\n  END\nRun PROCEDURE\nU ULONG\n  CODE\n  U = -1\n  RETURN(U)\n").
+
+% A wrong alias can point at itself, so each case has a time limit
+test_fidelity_calls :-
+    format("~nBy-reference and implicit variables:~n"),
+    forall(fid_call(Label, Expected, Src),
+           ( ( catch(call_with_time_limit(10, exec_procedure(Src, 'Run', [], R0)), E, R0 = E) -> R = R0 ; R = failed ),
+             check(Label, R, Expected) )).

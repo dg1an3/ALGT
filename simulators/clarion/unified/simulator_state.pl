@@ -33,6 +33,9 @@
     % Variable operations
     get_var/3,
     set_var/4,
+    alias_of/3,
+    same_name/2,
+    implicit_long_name/1,
 
     % Procedure lookup
     get_proc/3,
@@ -132,6 +135,16 @@ clear_continuation(StateIn, StateOut) :-
 % Handles both regular variables and prefixed file fields (Prefix:Field)
 % A colon name whose prefix matches no file, group or instance (e.g. the
 % label 'Copy:Record' or the equate 'NT::THIS_MODULE') is a plain variable.
+% Implicit LONG variable (name ends in '#'): never a file/group field, and reads
+% as 0 before its first assignment.
+% A by-reference parameter is an alias: read the variable it stands for
+get_var(Name, State, Value) :-
+    get_vars(State, Vars), alias_of(Name, Vars, Target), !,
+    get_var(Target, State, Value).
+get_var(Name, State, Value) :-
+    implicit_long_name(Name), !,
+    get_vars(State, Vars),
+    ( memberchk(var(Name, V0), Vars) -> Value = V0 ; Value = 0 ).
 get_var(Name, State, Value) :-
     ( parse_prefixed_name(Name, Prefix, FieldName),
       get_prefixed_var(Prefix, FieldName, State, Value)
@@ -139,12 +152,26 @@ get_var(Name, State, Value) :-
     ;  get_vars(State, Vars),
        member(var(Name, Value), Vars)
     ), !.
+% Implicit EQUATES.CLW constants, used only when no variable of that name exists
+get_var(Name, _, Value) :-
+    atom(Name), upcase_atom(Name, U), implicit_equate(U, Value), !.
 get_var(Name, _, _) :-
     format(user_error, "Error: Undefined variable '~w'~n", [Name]),
     fail.
 
 % Set variable value in state
 % Handles both regular variables and prefixed file fields (Prefix:Field)
+% Implicit LONG (Name#): plain variable, value converted to an integer.
+% Assignments to an alias write the aliased variable or record field.
+set_var(Name, Value, StateIn, StateOut) :-
+    get_vars(StateIn, Vars), alias_of(Name, Vars, Target), !,
+    set_var(Target, Value, StateIn, StateOut).
+set_var(Name, Value, StateIn, StateOut) :-
+    implicit_long_name(Name), !,
+    coerce('LONG', none, Value, Long),
+    StateIn = state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont),
+    ( selectchk(var(Name, _), Vars, RestVars) -> true ; RestVars = Vars ),
+    StateOut = state([var(Name, Long)|RestVars], Procs, Out, Files, Err, Classes, Self, UI, Cont).
 set_var(Name, Value, StateIn, StateOut) :-
     ( parse_prefixed_name(Name, Prefix, FieldName),
       set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut)
@@ -160,6 +187,19 @@ set_var(Name, Value, StateIn, StateOut) :-
        ),
        StateOut = state(NewVars, Procs, Out, Files, Err, Classes, Self, UI, Cont)
     ).
+
+% alias_of(+Name, +Vars, -Target): Name is a by-reference parameter
+alias_of(Name, Vars, Target) :-
+    memberchk(var(Name, Value), Vars),
+    nonvar(Value), Value = alias(Target).
+
+same_name(A, A) :- !.
+same_name(A, B) :- atom(A), atom(B), upcase_atom(A, U), upcase_atom(B, U).
+
+implicit_long_name(Name) :- atom(Name), sub_atom(Name, _, 1, 0, '#').
+
+implicit_equate('TRUE', 1).
+implicit_equate('FALSE', 0).
 
 %% declare_type(+Name, +TypeTerm, +StateIn, -StateOut)
 %  Values later assigned to Name are converted to this type.
@@ -192,12 +232,12 @@ parse_prefixed_name(Name, Prefix, FieldName) :-
 % Tries: file by prefix (colon), then file/queue by name (dot), then instance, then group
 get_prefixed_var(Prefix, FieldName, State, Value) :-
     ( find_file_by_prefix(Prefix, State, FileState) ->
-        ( FieldName = 'Record'
+        ( same_name(FieldName, 'Record')
         -> FileState = file_state(_, _, _, _, _, Value, _, _)
         ;  get_buffer_field(FieldName, FileState, Value)
         )
     ; get_file_state(Prefix, State, FileState) ->
-        ( FieldName = 'Record'
+        ( same_name(FieldName, 'Record')
         -> FileState = file_state(_, _, _, _, _, Value, _, _)
         ;  get_buffer_field(FieldName, FileState, Value)
         )
@@ -211,13 +251,13 @@ get_prefixed_var(Prefix, FieldName, State, Value) :-
 set_prefixed_var(Prefix, FieldName, Value, StateIn, StateOut) :-
     ( find_file_by_prefix(Prefix, StateIn, FileState) ->
         FileState = file_state(FileName, _, _, _, _, _, _, _),
-        ( FieldName = 'Record'
+        ( same_name(FieldName, 'Record')
         -> StateOut = StateIn
         ;  set_buffer_field(FieldName, Value, FileState, NewFileState),
            set_file_state(FileName, NewFileState, StateIn, StateOut)
         )
     ; get_file_state(Prefix, StateIn, FileState) ->
-        ( FieldName = 'Record'
+        ( same_name(FieldName, 'Record')
         -> StateOut = StateIn
         ;  set_buffer_field(FieldName, Value, FileState, NewFileState),
            set_file_state(Prefix, NewFileState, StateIn, StateOut)
@@ -387,8 +427,15 @@ find_file_by_prefix(Prefix, State, FileState) :-
 % Record Buffer Operations
 %------------------------------------------------------------
 
+field_index(FieldName, Fields, Index) :-
+    nth0(Index, Fields, field(F, _, _)), same_name(FieldName, F), !.
+% Group.Field: record groups are flattened, so use the last component
+field_index(FieldName, Fields, Index) :-
+    atom(FieldName), atomic_list_concat(Parts, '.', FieldName), Parts = [_, _|_],
+    last(Parts, Last), field_index(Last, Fields, Index).
+
 get_buffer_field(FieldName, file_state(_, _, _, Fields, _, Buffer, _, _), Value) :-
-    nth0(Index, Fields, field(FieldName, _, _)),
+    field_index(FieldName, Fields, Index),
     nth0(Index, Buffer, Value), !.
 get_buffer_field(FieldName, _, _) :-
     format(user_error, "Error: Unknown field '~w'~n", [FieldName]),
@@ -397,7 +444,8 @@ get_buffer_field(FieldName, _, _) :-
 set_buffer_field(FieldName, Value,
                  file_state(Name, Prefix, Keys, Fields, Records, Buffer, Pos, Open),
                  file_state(Name, Prefix, Keys, Fields, Records, NewBuffer, Pos, Open)) :-
-    nth0(Index, Fields, field(FieldName, Type, Size)),
+    field_index(FieldName, Fields, Index),
+    nth0(Index, Fields, field(_, Type, Size)),
     coerce(Type, Size, Value, Stored),
     replace_nth0(Index, Buffer, Stored, NewBuffer), !.
 

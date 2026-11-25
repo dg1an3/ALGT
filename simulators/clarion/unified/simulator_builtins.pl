@@ -147,6 +147,47 @@ builtin_call('TODAY', [], StateIn, StateIn, 80000).
 % CLOCK() - current time (returns 0 for now)
 builtin_call('CLOCK', [], StateIn, StateIn, 0).
 
+% BAND/BOR/BXOR(a, b) - bitwise AND/OR/XOR
+builtin_call('BAND', [A, B], StateIn, StateIn, R) :-
+    eval_expr(A, StateIn, VA), eval_expr(B, StateIn, VB), R is integer(VA) /\ integer(VB).
+builtin_call('BOR', [A, B], StateIn, StateIn, R) :-
+    eval_expr(A, StateIn, VA), eval_expr(B, StateIn, VB), R is integer(VA) \/ integer(VB).
+builtin_call('BXOR', [A, B], StateIn, StateIn, R) :-
+    eval_expr(A, StateIn, VA), eval_expr(B, StateIn, VB), R is integer(VA) xor integer(VB).
+
+% DATE(month, day, year) - Clarion standard date: days since 28 Dec 1800
+% (so DATE(1,1,1801) = 4). Month overflow (13 -> January next year) is
+% normalised by SWI's date arithmetic.
+builtin_call('DATE', [M, D, Y], StateIn, StateIn, R) :-
+    eval_expr(M, StateIn, VM), eval_expr(D, StateIn, VD), eval_expr(Y, StateIn, VY),
+    date_time_stamp(date(VY, VM, VD, 0, 0, 0, 0, -, -), S),
+    date_time_stamp(date(1800, 12, 28, 0, 0, 0, 0, -, -), S0),
+    R is round((S - S0) / 86400).
+
+% NAME(file) - the file's label (the NAME() attribute is not kept)
+builtin_call('NAME', [var(FileName)], StateIn, StateIn, FileName) :-
+    get_file_state(FileName, StateIn, _), !.
+
+% OMITTED(param) - true when the caller passed no argument for that parameter
+builtin_call('OMITTED', [var(Name)], StateIn, StateIn, R) :-
+    get_vars(StateIn, Vars),
+    ( memberchk(var('$omitted'(Name), O), Vars) -> R = O
+    ; atom(Name), upcase_atom(Name, U),
+      member(var('$omitted'(N), O), Vars), atom(N), upcase_atom(N, U) -> R = O
+    ; R = 0 ), !.
+
+% DISPOSE(ref) - releases a NEW'd object; the reference becomes NULL
+builtin_call('DISPOSE', [var(Name)], StateIn, StateOut, none) :-
+    set_var(Name, null, StateIn, StateOut), !.
+
+% ASSERT(condition [, message]) - logs a failed assertion and continues
+builtin_call('ASSERT', [C|Msg], StateIn, StateIn, none) :-
+    eval_expr(C, StateIn, V),
+    ( V \== 0, V \== '', V \== "" -> true
+    ; ( Msg = [ME], catch(eval_expr(ME, StateIn, MV), _, fail) -> true ; MV = '' ),
+      format("  [ASSERT failed: ~w]~n", [MV])
+    ).
+
 % ABS(number) - absolute value
 builtin_call('ABS', [Expr], StateIn, StateIn, Result) :-
     eval_expr(Expr, StateIn, Val),
@@ -237,14 +278,17 @@ byte_addressed(FileName, State, RecordSize) :-
     fields_bytes(Fields, RecordSize),
     RecordSize > 0.
 
-% ADDRESS(var) - returns a unique simulated address per variable name
-% Uses a deterministic hash: sum of char codes * 1000 + offset, ensuring
-% different variables get different "addresses" for MemCopy simulation.
+% ADDRESS(var) - returns a unique simulated address per variable name.
+% The upper-cased name read as a base-256 number (+65536): deterministic,
+% case-insensitive and injective. (It used to be the sum of the character
+% codes, so anagram names collided: ADDRESS(Listen) = ADDRESS(Silent)
+% sent a `case address(P:File)` dispatch to the wrong file's branch.)
 builtin_call('ADDRESS', [var(Name)], StateIn, StateIn, Addr) :-
     !,
-    atom_codes(Name, Codes),
-    sumlist(Codes, Sum),
-    Addr is (Sum * 1000) + 65536.
+    upcase_atom(Name, U),
+    atom_codes(U, Codes),
+    foldl([C, A0, A1]>>(A1 is A0 * 256 + C), Codes, 0, N),
+    Addr is N + 65536.
 builtin_call('ADDRESS', [_], StateIn, StateIn, 65536).
 
 % POINTER(file) - returns current file pointer position

@@ -166,6 +166,7 @@ type_size(pdecimal(N, _), size(N)) :- number(N), !.
 type_size(_, none).
 
 % Type with its length, for variables and parameters
+sized_type(ref(file), file_ref) :- !.            % *FILE parameter
 sized_type(ref(T), ref(Sized)) :- !, sized_type(T, Sized).
 sized_type(Type, Sized) :-
     bridge_type_name(Type, TypeAtom),
@@ -191,6 +192,7 @@ is_text_type(pstring).
 is_text_type(pstring(_)).
 
 bridge_type_name(long, 'LONG').
+bridge_type_name(ulong, 'ULONG').
 bridge_type_name(short, 'SHORT').
 bridge_type_name(byte, 'BYTE').
 bridge_type_name(real, 'REAL').
@@ -209,7 +211,11 @@ bridge_type_name(pstring, 'PSTRING').
 bridge_type_name(pstring(N), 'PSTRING') :- number(N).
 bridge_type_name(string, 'STRING').
 bridge_type_name(string(N), 'STRING') :- number(N).
-bridge_type_name(ref(T), TypeAtom) :- bridge_type_name(T, TypeAtom).
+bridge_type_name(ref(T), TypeAtom) :- !, bridge_type_name(T, TypeAtom).
+bridge_type_name(key, 'KEY') :- !.
+bridge_type_name(group, 'GROUP') :- !.
+bridge_type_name(queue, 'QUEUE') :- !.
+bridge_type_name(any, 'ANY') :- !.
 bridge_type_name(like(Ref, _Attrs), like(Ref)) :- !.  % LIKE(Ref): type resolved at runtime (default 0)
 bridge_type_name(T, T).  % pass through unknown types
 
@@ -237,6 +243,8 @@ bridge_globals([window(Name, Title, Attrs, Controls)|Rest], Vars,
     bridge_globals(Rest, Vars, WRest, Main).
 bridge_globals([equate(Name, Value)|Rest], [var(Name, Type, init(Value))|VRest], Wins, Main) :-
     ( atom(Value) -> Type = 'STRING' ; Type = 'LONG' ),   % EQUATE('text') vs EQUATE(n)
+    bridge_globals(Rest, VRest, Wins, Main).
+bridge_globals([global_instance(Name, ClassName)|Rest], [instance_global(Name, ClassName)|VRest], Wins, Main) :-
     bridge_globals(Rest, VRest, Wins, Main).
 bridge_globals([class(Name, Parent, _Attrs, Members)|Rest],
                [class(Name, Parent, [], BridgedMembers)|VRest], Wins, Main) :-
@@ -344,6 +352,10 @@ bridge_locals([group(Name, Prefix0, Fields)|Rest], Decls) :- !,
     findall(local_decl(G), member(G, GroupDecs), GDecls),
     bridge_locals(Rest, BRest),
     append(GDecls, BRest, Decls).
+% Local reference (Name &Type): starts as NULL until assigned with &=
+bridge_locals([ref_var(Name, Type)|Rest],
+              [local_var(Name, reference(Type), init(null))|BRest]) :- !,
+    bridge_locals(Rest, BRest).
 % Local WINDOW (title only; body skipped by the parser): nothing to initialise
 bridge_locals([window(_, _)|Rest], BRest) :- !,
     bridge_locals(Rest, BRest).
@@ -371,7 +383,11 @@ bridge_stmt(assign(array_ref(Name, Idx), Expr), array_assign(Name, BIdx, BExpr))
     bridge_expr(Idx, BIdx),
     bridge_expr(Expr, BExpr).
 
-% Assignment
+% Assignment. `SELF.P += E` reaches here as assign('SELF.P', add(var('SELF.P'), E)):
+% treat a SELF.P target as a SELF property assignment.
+bridge_stmt(assign(Var, Expr), self_assign(Prop, BExpr)) :-
+    self_prop_name(Var, Prop), !,
+    bridge_expr(Expr, BExpr).
 bridge_stmt(assign(Var, Expr), assign(Var, BExpr)) :- !,
     bridge_expr(Expr, BExpr).
 
@@ -449,6 +465,14 @@ bridge_stmt(assign_array(Name, Index, Expr), array_assign(Name, BIndex, BExpr)) 
     bridge_expr(Index, BIndex),
     bridge_expr(Expr, BExpr).
 
+% Reference assignment: Ref &= NULL | NEW(Class) | Name | Expr
+bridge_stmt(ref_assign(Var, null), ref_assign(Var, null)) :- !.
+bridge_stmt(ref_assign(Var, call(New, [var(Class)])), ref_assign(Var, new(Class))) :-
+    upcase_atom(New, 'NEW'), !.
+bridge_stmt(ref_assign(Var, var(Name)), ref_assign(Var, name(Name))) :- !.
+bridge_stmt(ref_assign(Var, Expr), ref_assign(Var, expr(BExpr))) :- !,
+    bridge_expr(Expr, BExpr).
+
 % Catch-all: pass through
 bridge_stmt(S, S) :-
     format(user_error, "Warning: ast_bridge unhandled statement: ~w~n", [S]).
@@ -490,6 +514,7 @@ bridge_expr(lit(N), number(N)) :- float(N), !.
 bridge_expr(lit(S), string(S)) :- atom(S), !.
 
 % Variables
+bridge_expr(var(Name), self_access(Prop)) :- self_prop_name(Name, Prop), !.
 bridge_expr(var(Name), var(Name)) :- !.
 
 % Equates -> control references
@@ -508,6 +533,9 @@ bridge_expr(modulo(A, B), binop('%', BA, BB)) :- !, bridge_expr(A, BA), bridge_e
 
 % Comparison operators
 bridge_expr(eq(A, B), binop('=', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
+% Ref &= NULL / Ref &= Other (reference identity test)
+bridge_expr(ref_eq(A, null), ref_eq(BA, null)) :- !, bridge_expr(A, BA).
+bridge_expr(ref_eq(A, B), ref_eq(BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
 bridge_expr(neq(A, B), binop('<>', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
 bridge_expr(lt(A, B), binop('<', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
 bridge_expr(lte(A, B), binop('<=', BA, BB)) :- !, bridge_expr(A, BA), bridge_expr(B, BB).
@@ -554,3 +582,8 @@ bridge_expr(control_ref(N), control_ref(N)) :- !.
 % Catch-all
 bridge_expr(E, E) :-
     format(user_error, "Warning: ast_bridge unhandled expr: ~w~n", [E]).
+
+% 'SELF.Prop' (any case) names a property of the current object
+self_prop_name(Name, Prop) :-
+    atom(Name), sub_atom(Name, 0, 5, _, Pre), upcase_atom(Pre, 'SELF.'),
+    sub_atom(Name, 5, _, 0, Prop), Prop \== ''.

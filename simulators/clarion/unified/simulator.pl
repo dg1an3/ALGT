@@ -154,6 +154,11 @@ init_globals([queue(Name, Prefix, Fields)|Rest], StateIn, StateOut) :-
     FileState = file_state(Name, Prefix, [], Fields, [], Buffer, -1, true),
     set_file_state(Name, FileState, StateIn, State1),
     init_globals(Rest, State1, StateOut).
+% Global object (its CLASS is declared earlier in the module)
+init_globals([instance_global(Name, ClassName)|Rest], StateIn, StateOut) :-
+    create_instance(ClassName, StateIn, Instance),
+    set_var(Name, Instance, StateIn, State1),
+    init_globals(Rest, State1, StateOut).
 init_globals([window(_Name, _Title, _Attrs, Controls)|Rest], StateIn, StateOut) :-
     assign_equates(Controls, 1, StateIn, State1),
     init_globals(Rest, State1, StateOut).
@@ -253,6 +258,13 @@ exec_statement(assign(VarName, Expr), StateIn0, StateOut, normal) :- !,
     ;  true
     ),
     set_var(VarName, Value, StateIn, StateOut).
+
+% Reference assignment (Ref &= Target). Value approximation:
+%   NULL -> null;  NEW(Class) -> a fresh instance;  a FILE/QUEUE -> ref(file(F));
+%   other names -> a copy of the value;  Expr -> its value
+exec_statement(ref_assign(VarName, Target), StateIn, StateOut, normal) :- !,
+    ref_target_value(Target, StateIn, State1, Value),
+    set_var(VarName, Value, State1, StateOut).
 
 % Method call (as statement)
 exec_statement(method_call(ObjName, MethodName, Args), StateIn, StateOut, normal) :- !,
@@ -494,6 +506,14 @@ eval_full_expr(member_access(ObjName, PropName), State, State, Value) :- !,
 eval_full_expr(not(Expr), StateIn, StateOut, Result) :- !,
     eval_full_expr(Expr, StateIn, StateOut, Val),
     ( is_truthy(Val) -> Result = 0 ; Result = 1 ).
+% Reference identity: Ref &= NULL, Ref &= Other (compares the stored references)
+eval_full_expr(ref_eq(A, null), StateIn, StateOut, Result) :- !,
+    eval_full_expr(A, StateIn, StateOut, V),
+    ( V == null -> Result = 1 ; Result = 0 ).
+eval_full_expr(ref_eq(A, B), StateIn, StateOut, Result) :- !,
+    eval_full_expr(A, StateIn, State1, VA),
+    eval_full_expr(B, State1, StateOut, VB),
+    ( VA == VB -> Result = 1 ; Result = 0 ).
 % Omitted call argument f(, a): passed through as the atom 'omitted'
 eval_full_expr(omitted, State, State, omitted) :- !.
 eval_full_expr(array_access(ArrayName, IndexExpr), StateIn, StateOut, Value) :- !,
@@ -707,7 +727,7 @@ exec_call(Name, Args, StateIn, StateOut, Result) :-
     upcase_atom(Name, UName),
     ( \+ is_builtin(UName)
     -> exec_user_call(Name, Args, StateIn, StateOut, Result)
-    ; builtin_args(Args, StateIn, State1, BuiltinArgs),
+    ; builtin_args(UName, Args, StateIn, State1, BuiltinArgs),
       builtin_call(UName, BuiltinArgs, State1, StateOut, Result)
     -> true
     ; find_proc(Name, StateIn, _)
@@ -721,14 +741,37 @@ is_builtin(UName) :-
 
 % Built-ins read simple arguments themselves (some need the variable, not its
 % value). Anything that may contain a call is evaluated first.
-builtin_args([], State, State, []).
-builtin_args([Arg|Args], StateIn, StateOut, [Arg1|Args1]) :-
+builtin_args(_, [], State, State, []).
+builtin_args(UName, [Arg0|Args], StateIn, StateOut, [Arg1|Args1]) :-
+    ( about_the_name(UName) -> Arg = Arg0 ; resolve_ref_arg(Arg0, StateIn, Arg) ),
     ( simple_arg(Arg)
     -> Arg1 = Arg, State1 = StateIn
     ;  eval_full_expr(Arg, StateIn, State1, Value),
-       ( number(Value) -> Arg1 = number(Value) ; Arg1 = string(Value) )
+       ( number(Value) -> Arg1 = number(Value)
+       ; compound(Value) -> Arg1 = evaluated(Value)
+       ; Arg1 = string(Value) )
     ),
-    builtin_args(Args, State1, StateOut, Args1).
+    builtin_args(UName, Args, State1, StateOut, Args1).
+
+% Built-ins that work on the parameter or reference itself, not what it refers to
+about_the_name('OMITTED').
+about_the_name('DISPOSE').
+
+% A by-reference parameter or file reference stands for what it refers to
+resolve_ref_arg(var(Name), State, Arg) :-
+    get_vars(State, Vars),
+    ( alias_of(Name, Vars, Target) -> resolve_ref_arg(var(Target), State, Arg)
+    ; file_ref_target(Name, State, File) -> Arg = var(File)
+    ), !.
+resolve_ref_arg(Arg, _, Arg).
+
+% Name is a FILE or QUEUE, or a variable that refers to one
+file_ref_target(Name, State, Name) :- get_file_state(Name, State, _), !.
+file_ref_target(Name, State, File) :-
+    get_vars(State, Vars),
+    ( alias_of(Name, Vars, Target) -> file_ref_target(Target, State, File)
+    ; memberchk(var(Name, Value), Vars), nonvar(Value), Value = ref(file(File))
+    ).
 
 simple_arg(var(_)).
 simple_arg(control_ref(_)).
@@ -756,7 +799,8 @@ find_proc(Name, State, Proc) :-
     ).
 
 exec_proc(Name, ProcName, Params, LocalVars, Body, Args, StateIn, StateOut, Result) :-
-    eval_args(Args, StateIn, CallState, ArgVals),
+    frame_keys(Params, LocalVars, CalleeKeys),
+    pass_args(Params, Args, CalleeKeys, StateIn, CallState, ArgVals),
     % Trace: procedure entry
     ( is_tracing
     -> trace_proc_enter(Name, ArgVals),
@@ -852,6 +896,8 @@ partition_vars([V|Vs], Keys, In, Out) :-
     partition_vars(Vs, Keys, In1, Out1).
 
 key_in('$type'(Name), Keys) :- !, memberchk(Name, Keys).
+key_in('$omitted'(Name), Keys) :- !, memberchk(Name, Keys).
+key_in(Key, _) :- implicit_long_name(Key), !.      % Name# belongs to its procedure
 key_in(Key, Keys) :- memberchk(Key, Keys).
 
 vars_assoc(Vars, Assoc) :-
@@ -862,8 +908,44 @@ replace_vars(Vars, state(_, Procs, Out, Files, Err, Classes, Self, UI, Cont),
                    state(Vars, Procs, Out, Files, Err, Classes, Self, UI, Cont)).
 
 %------------------------------------------------------------
-% By-reference parameters: copied back if the procedure changed them
+% By-reference parameters
 %------------------------------------------------------------
+% A plain name the procedure can also see (a global, record field, key, file)
+% is passed as an alias, so both names always show the same value. The caller's
+% own variables are out of the procedure's sight, as is a global hidden by one
+% of its names: those are copied in, and copied back if changed.
+
+pass_args([], Args, _, StateIn, StateOut, Vals) :- !,
+    eval_args(Args, StateIn, StateOut, Vals).
+pass_args(_, [], _, State, State, []) :- !.
+pass_args([Param|Params], [Arg|Args], CalleeKeys, StateIn, StateOut, [Val|Vals]) :-
+    ( file_param(Param), Arg = var(Name), file_ref_target(Name, StateIn, File)
+    -> Val = ref(file(File)), State1 = StateIn
+    ; ref_param(Param, _), Arg = var(Name),
+      alias_target(Name, StateIn, Target),
+      visible_to_callee(Target, CalleeKeys, StateIn)
+    -> Val = alias(Target), State1 = StateIn
+    ;  eval_full_expr(Arg, StateIn, State1, Val)
+    ),
+    pass_args(Params, Args, CalleeKeys, State1, StateOut, Vals).
+
+file_param(param(file_ref, _)).
+file_param(param(file_ref, _, _, _)).
+
+% An alias never points at another alias
+alias_target(Name, State, Target) :-
+    get_vars(State, Vars),
+    ( alias_of(Name, Vars, Next) -> alias_target(Next, State, Target) ; Target = Name ).
+
+visible_to_callee(Name, CalleeKeys, State) :-
+    get_vars(State, Vars),
+    ( memberchk(var('$frame', frame(CallerKeys, _)), Vars) -> true ; CallerKeys = [] ),
+    \+ ( member(Keys, [CallerKeys, CalleeKeys]), own_name(Name, Keys) ).
+
+own_name(Name, Keys) :- key_in(Name, Keys), !.
+own_name(Name, Keys) :-
+    parse_prefixed_name(Name, Prefix, _),
+    ( memberchk(group_prefix(Prefix), Keys) ; memberchk(Prefix, Keys) ), !.
 
 ref_values([], _, []).
 ref_values([Param|Params], State, [Value|Values]) :-
@@ -891,6 +973,12 @@ assign_lvalue(array_access(Name, IndexExpr), Value, StateIn, StateOut) :-
     assign_element(Name, Index, Value, StateIn, StateOut).
 assign_lvalue(member_access(Name, Field), Value, StateIn, StateOut) :-
     assign_member(Name, Field, Value, StateIn, StateOut).
+
+assign_lvalue(self_access(Prop), Value, StateIn, StateOut) :-
+    get_self(StateIn, self_context(VarName, _, _)),
+    get_var(VarName, StateIn, Instance),
+    set_instance_prop(Prop, Value, Instance, NewInstance),
+    set_var(VarName, NewInstance, StateIn, StateOut).
 
 %------------------------------------------------------------
 % External Procedure Stubs (MODULE declarations)
@@ -982,7 +1070,20 @@ bind_params([Param|Params], Vals0, StateIn, StateOut) :-
     ),
     declare_type(Name, Type, StateIn, State1),
     set_var(Name, Val, State1, State2),
-    bind_params(Params, Vals, State2, StateOut).
+    ( V == omitted -> Omitted = 1 ; Omitted = 0 ),     % for OMITTED()
+    set_var('$omitted'(Name), Omitted, State2, State3),
+    bind_params(Params, Vals, State3, StateOut).
+
+ref_target_value(null, State, State, null).
+ref_target_value(new(Class), State, State, Instance) :-
+    create_instance(Class, State, Instance).
+ref_target_value(name(Name), State, State, Value) :-
+    ( file_ref_target(Name, State, File) -> Value = ref(file(File))
+    ; get_var(Name, State, V) -> Value = V
+    ; Value = ref(Name)
+    ).
+ref_target_value(expr(Expr), StateIn, StateOut, Value) :-
+    eval_full_expr(Expr, StateIn, StateOut, Value).
 
 init_locals([], State, State).
 init_locals([var(Name, Type, SizeSpec)|Rest], StateIn, StateOut) :-
@@ -1028,7 +1129,8 @@ exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, Result) :-
     ),
     get_class_def(ClassName, StateIn, class_def(ClassName, ParentClass, _, _)),
     set_self(self_context(ObjName, ImplClass, ParentClass), ArgState, State1),
-    bind_params(Params, ArgVals, State1, State2),
+    enter_method(Params, LocalVars, State1, State1a),
+    bind_params(Params, ArgVals, State1a, State2),
     init_locals(LocalVars, State2, State3),
     exec_statements(Body, State3, State4, Control),
     ( Control = return(V) -> Result = V ; Result = none ),
@@ -1039,6 +1141,16 @@ exec_method_call(ObjName, MethodName, Args, StateIn, StateOut, Result) :-
     ;  true
     ),
     leave_method(Params, LocalVars, ArgState, State4, StateOut).
+
+% A method's parameters and locals must not write through an alias of the same
+% name in its caller, and Name# variables start afresh.
+enter_method(Params, LocalVars, StateIn, StateOut) :-
+    frame_keys(Params, LocalVars, Keys),
+    get_vars(StateIn, Vars),
+    exclude([var(Key, Value)]>>( implicit_long_name(Key)
+                               ; nonvar(Value), Value = alias(_), key_in(Key, Keys) ),
+            Vars, Vars1),
+    replace_vars(Vars1, StateIn, StateOut).
 
 % A method works on its caller's variables (its instance may be one of them),
 % so on exit only its own parameters and locals are put back.
@@ -1067,7 +1179,8 @@ exec_parent_call(MethodName, Args, StateIn, StateOut, Result) :-
        eval_args(Args, StateIn, ArgState, ArgVals),
        get_class_def(ImplClass, StateIn, class_def(ImplClass, GrandParent, _, _)),
        set_self(self_context(ObjName, ImplClass, GrandParent), ArgState, State1),
-       bind_params(Params, ArgVals, State1, State2),
+       enter_method(Params, LocalVars, State1, State1a),
+       bind_params(Params, ArgVals, State1a, State2),
        init_locals(LocalVars, State2, State3),
        exec_statements(Body, State3, State4, Control),
        ( Control = return(V) -> Result = V ; Result = none ),

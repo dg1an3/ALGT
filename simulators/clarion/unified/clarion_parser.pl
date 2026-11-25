@@ -122,8 +122,9 @@ top_decls(Files, Groups, Globals) -->
     { partition_decls(Items, Files, Groups, Globals) }.
 
 % FILE declaration
+% The label may be a keyword (e.g. a FILE named Prompt or Queue)
 top_decl_item(file(Name, Prefix, Attrs, Fields)) -->
-    ident(Name), ws, kw("FILE"), ws, !,
+    word(Name), ws, kw("FILE"), ws, !,
     file_attrs(Attrs0, Prefix), ws,
     key_decls(Keys), ws,
     record_block(Fields), ws,
@@ -209,6 +210,11 @@ top_decl_item(global(Name, string(Len), Init)) -->
 top_decl_item(global(Name, Type, Init)) -->
     ident(Name), ws, type(Type), ws,
     ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
+
+% Global object: Name ClassName (both on one line; ClassName not a keyword/type)
+top_decl_item(global_instance(Name, ClassName)) -->
+    ident(Name), ws_nonnl, word(ClassName),
+    { \+ is_keyword(ClassName), \+ is_builtin_type(ClassName) }.
 
 %% --- CLASS helpers ---
 
@@ -484,6 +490,8 @@ partition_decls([queue(N,F)|Is], Fs, Gs, [queue(N,F)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([queue(N,P,F)|Is], Fs, Gs, [queue(N,P,F)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
+partition_decls([global_instance(N,C)|Is], Fs, Gs, [global_instance(N,C)|Vs]) :-
+    partition_decls(Is, Fs, Gs, Vs).
 partition_decls([class(N,P,A,M)|Is], Fs, Gs, [class(N,P,A,M)|Vs]) :-
     partition_decls(Is, Fs, Gs, Vs).
 partition_decls([equate(N,V)|Is], Fs, Gs, [equate(N,V)|Vs]) :-
@@ -509,6 +517,9 @@ file_attr(name(FName), none) -->
     kw("NAME"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")",
     { atom_codes(FName, Cs) }.
 file_attr(create, none) --> kw("CREATE").
+file_attr(flag(F), none) -->
+    word(W), { upcase_atom(W, F), memberchk(F, ['THREAD','BINDABLE','ENCRYPT','OEM','RECLAIM','EXTERNAL','DLL']) },
+    opt_paren_args.
 file_attr(owner(Owner), none) -->
     kw("OWNER"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")",
     { atom_codes(Owner, Cs) }.
@@ -534,12 +545,29 @@ key_attr(primary) --> kw("PRIMARY").
 key_attr(nocase) --> kw("NOCASE").
 key_attr(opt) --> kw("OPT").
 key_attr(dup) --> kw("DUP").
+key_attr(name(N)) --> kw("NAME"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")", { atom_codes(N, Cs) }.
 
 % RECORD block
 record_block(Fields) -->
-    word(_), ws, kw("RECORD"), ws,
+    word(_), ws, kw("RECORD"), comma_attrs(record_attr, _), ws,
     field_list(Fields), ws,
     end_or_dot.
+
+% Optional "(...)" after a flag attribute, e.g. DLL(dll_mode); contents ignored.
+opt_paren_args --> "(", paren_body, ")", !.
+opt_paren_args --> [].
+paren_body --> [C], { C \== 0') }, !, paren_body.
+paren_body --> [].
+
+record_attr(pre) --> kw("PRE"), ws, "(", ws, ( ident(_) ; [] ), ws, ")".
+record_attr(name) --> kw("NAME"), ws, "(", ws, "'", qchars(_), "'", ws, ")".
+
+picture_rest([C|Cs]) --> [C], { \+ memberchk(C, [44, 41, 32, 9, 13, 10, 124]) }, !, picture_rest(Cs).  % , ) space tab CR LF |
+picture_rest([]) --> [].
+
+% Optional .Field.Field after a name: LIKE(PRE:Group.Field)
+dot_path(Acc, Name) --> ".", word(W), !, { atomic_list_concat([Acc, '.', W], Acc1) }, dot_path(Acc1, Name).
+dot_path(Name, Name) --> [].
 
 %% --- GROUP attributes ---
 
@@ -558,14 +586,21 @@ field_decl(group(Name, Prefix, SubFields)) -->
     end_or_dot.
 
 field_decl(field(Name, like(Ref, Attrs))) --> field_name(Name), ws, like_decl(Ref, Attrs), !.
-field_decl(field(Name, string(Len))) --> field_name(Name), ws, string_init(Len, _), !.
-field_decl(field(Name, Type)) --> field_name(Name), ws, type(Type).
+field_decl(field(Name, string(Len))) --> field_name(Name), ws, string_init(Len, _), !, comma_attrs(field_attr, _).
+field_decl(field(Name, Type)) --> field_name(Name), ws, type(Type), comma_attrs(field_attr, _).
+
+% Attributes after a field's type. They do not change simulation (NAME is the
+% SQL column name, |NULLABLE a driver hint), so they are parsed and dropped.
+field_attr(name(N)) --> kw("NAME"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")", { atom_codes(N, Cs) }.
+field_attr(over(N)) --> kw("OVER"), ws, "(", ws, ident(N), ws, ")".
+field_attr(dim(N)) --> kw("DIM"), ws, "(", ws, number(N), ws, ")".
+field_attr(binary) --> kw("BINARY").
 
 %% --- LIKE(Ref) and STRING('init') declarations ---
 
 % LIKE(Ref) followed by optional attributes (PRE, DIM, OVER, TYPE, ...)
 like_decl(Ref, Attrs) -->
-    kw("LIKE"), ws, "(", ws, callable_name(Ref), ws, ")",
+    kw("LIKE"), ws, "(", ws, callable_name(Ref0), dot_path(Ref0, Ref), ws, ")",
     comma_attrs(like_attr, Attrs).
 
 like_attr(pre(P)) --> kw("PRE"), ws, "(", ws, ( ident(P) ; { P = none } ), ws, ")".
@@ -588,13 +623,15 @@ field_name(Name) -->
     ; { Name = Part1 }
     ).
 
-% Inline GROUP attributes: ,OVER(x) and/or ,PRE(x)
+% Inline GROUP attributes, in any order: ,OVER(x) ,PRE(x) ,PRE() ,DIM(n)
+% (a DIM'd group's sub-fields are flattened like any other group: one element)
 inline_group_attrs(Prefix) -->
-    ",", ws, kw("OVER"), ws, "(", ws, ident(_), ws, ")", ws,
-    ( ",", ws, kw("PRE"), ws, "(", ws, ident(Prefix), ws, ")" ; { Prefix = none } ).
-inline_group_attrs(Prefix) -->
-    ",", ws, kw("PRE"), ws, "(", ws, ident(Prefix), ws, ")".
-inline_group_attrs(none) --> [].
+    comma_attrs(inline_group_attr, As),
+    { ( memberchk(pre(P), As) -> Prefix = P ; Prefix = none ) }.
+
+inline_group_attr(over(N)) --> kw("OVER"), ws, "(", ws, ident(N), ws, ")".
+inline_group_attr(pre(P)) --> kw("PRE"), ws, "(", ws, ( ident(P) ; { P = none } ), ws, ")".
+inline_group_attr(dim(N)) --> kw("DIM"), ws, "(", ws, number(N), ws, ")".
 
 % Group/Queue local attrs: handles ,OVER, ,PRE, ,TYPE in any combination
 group_local_attrs(Prefix) --> ",", ws, group_local_attr_list(Attrs),
@@ -662,8 +699,12 @@ map_attr(name(N)) -->
     { atom_codes(N, Cs) }.
 
 % MAP parameter
-map_param(param(Name, ref(Type), optional)) --> "<", ws, "*", ws, type(Type), ws, opt_ident(Name), ws, ">".
+map_param(param(Name, ref(Type), optional)) --> "<", ws, "*", ws, param_type(Type), ws, opt_ident(Name), ws, ">".
+map_param(param(Name, any, optional)) --> "<", ws, "?", ws, opt_ident(Name), ws, ">".
+map_param(param(Name, ref(Type))) --> "*", ws, param_only_type(Type), ws, opt_ident(Name).
+map_param(param(Name, any)) --> "?", ws, opt_ident(Name).
 map_param(param(Name, Type, optional)) --> "<", ws, type(Type), ws, opt_ident(Name), ws, ">".
+map_param(param(Name, ref(file))) --> "*", ws, kw("FILE"), ws, opt_ident(Name).
 map_param(param(Name, ref(Type))) --> "*", ws, type(Type), ws, opt_ident(Name).
 map_param(param(Name, Type)) --> type(Type), ws, opt_ident(Name).
 
@@ -734,23 +775,37 @@ local_var(group(Name, Prefix, Fields)) -->
 local_var(like(Name, Ref, Attrs)) -->
     ident(Name), ws, like_decl(Ref, Attrs), !.
 
+% Local reference variable: Name &Type  (e.g. objLog &LogClass, F &FILE)
+local_var(ref_var(Name, Type)) -->
+    ident(Name), ws_nonnl, "&", ws_nonnl, word(Type), !.
+
 % Local string with initial value: Name STRING('text')
 local_var(local(Name, string(Len), Init)) -->
-    ident(Name), ws, string_init(Len, Init), !.
+    ident(Name), ws, string_init(Len, Init), !, comma_attrs(local_attr, _).
 
 % Local array: Name TYPE,DIM(Size)
 local_var(array(Name, Type, Size)) -->
     ident(Name), ws, type(Type), ws,
-    ",", ws, kw("DIM"), ws, "(", ws, number(Size), ws, ")", !.
+    ",", ws, kw("DIM"), ws, "(", ws, number(Size), ws, ")", !, comma_attrs(local_attr, _).
 
 local_var(local(Name, Type, Init)) -->
     ident(Name), ws, type(Type), ws,
-    ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ).
+    ( "(", ws, number(Init), ws, ")" ; { Init = 0 } ),
+    comma_attrs(local_attr, _).
+
 
 % Local instance variable: Name ClassName (where neither is a keyword or built-in type)
 local_var(instance_var(Name, ClassName)) -->
     ident(Name), ws,
     word(ClassName), { \+ is_keyword(ClassName), \+ is_builtin_type(ClassName) }.
+
+% Storage attributes on a local (,AUTO ,STATIC ,THREAD ,NAME('x') ,OVER(v)).
+% They do not change simulation: every call already gets fresh locals.
+local_attr(auto) --> kw("AUTO").
+local_attr(static) --> kw("STATIC").
+local_attr(thread) --> kw("THREAD").
+local_attr(name(N)) --> kw("NAME"), ws, "(", ws, "'", qchars(Cs), "'", ws, ")", { atom_codes(N, Cs) }.
+local_attr(over(V)) --> kw("OVER"), ws, "(", ws, ident(V), ws, ")".
 
 is_builtin_type(Name) :-
     upcase_atom(Name, U),
@@ -761,14 +816,31 @@ is_builtin_type(Name) :-
 
 proc_param_list(Params) --> comma_list(proc_param, Params).
 
-proc_param(param(Name, ref(Type), optional)) --> "<", ws, "*", ws, type(Type), ws, ident(Name), ws, ">".
+proc_param(param(Name, ref(Type), optional)) --> "<", ws, "*", ws, param_type(Type), ws, ident(Name), ws, ">".
+proc_param(param(Name, any, optional)) --> "<", ws, "?", ws, ident(Name), ws, ">".
+proc_param(param(Name, ref(Type))) --> "*", ws, param_only_type(Type), ws, ident(Name).
+proc_param(param(Name, any)) --> "?", ws, ident(Name).
 proc_param(param(Name, Type, optional)) --> "<", ws, type(Type), ws, ident(Name), ws, ">".
+% *FILE (a file passed by reference, e.g. DoAdd(*file P:File, ...)). Kept out
+% of type//1 so a FILE declaration is never read as a plain local variable.
+proc_param(param(Name, ref(file))) --> "*", ws, kw("FILE"), ws, ident(Name).
 proc_param(param(Name, ref(Type))) --> "*", ws, type(Type), ws, ident(Name).
 proc_param(param(Name, Type)) --> type(Type), ws, ident(Name).
+
+% Types that only appear as (reference) parameters: *KEY, *GROUP, *QUEUE,
+% *? (any type). *FILE has its own rules above.
+param_only_type(key) --> kw("KEY").
+param_only_type(group) --> kw("GROUP").
+param_only_type(queue) --> kw("QUEUE").
+param_only_type(any) --> "?".
+param_type(file) --> kw("FILE"), !.
+param_type(T) --> param_only_type(T), !.
+param_type(T) --> type(T).
 
 %% --- Types ---
 
 type(long) --> kw("LONG").
+type(ulong) --> kw("ULONG").
 type(short) --> kw("SHORT").
 type(byte) --> kw("BYTE").
 type(real) --> kw("REAL").
@@ -898,6 +970,10 @@ statement(assign(array_field(Name, Index, Field), Expr)) -->
 statement(assign(array_ref(Name, Index), Expr)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", ws, "=", ws, expr(Expr).
 
+% Reference assignment: Ref &= Target  (Target: a name, NEW(Class), NULL, a call)
+statement(ref_assign(Var, Expr)) -->
+    ident(Var), ws, "&=", ws, ref_target(Expr).
+
 statement(assign(Var, Expr)) -->
     ident(Var), ws, "=", ws, expr(Expr).
 
@@ -915,7 +991,31 @@ statement(self_assign(Prop, sub(self_access(Prop), Expr))) -->
     kw("SELF"), ws, ".", ws, word(Prop), ws, "-=", ws, expr(Expr).
 
 statement(call('DELETE', [var(Name)])) -->
-    kw("DELETE"), ws, "(", ws, ident(Name), ws, ")".
+    kw("DELETE"), ws, "(", ws, name_arg(Name), ws, ")".
+
+% Right-hand side of &=: NULL, or any expression (a keyword-named table such
+% as Prompt/Queue is accepted by primary//1 when it stands alone).
+ref_target(null) --> kw("NULL"), !.
+ref_target(E) --> expr(E).
+ref_target(var(Name)) --> word(Name).
+
+% A name in argument position: an identifier, or a keyword used as a table /
+% queue name (Prompt, Queue, ...) when it is the whole argument.
+name_arg(Name) --> ident(Name), !.
+name_arg(Name) --> kw_name_arg(Name).
+
+kw_name_arg(Name) -->
+    word(Name), { is_keyword(Name), \+ non_name_keyword(Name) },
+    arg_end_ahead.
+
+% Keywords that can never be a table name in argument position
+non_name_keyword(Name) :-
+    upcase_atom(Name, U), memberchk(U, ['NOT', 'AND', 'OR', 'TO', 'OF', 'OROF']).
+
+% Lookahead: optional blanks, then ',' or ')' (nothing consumed)
+arg_end_ahead(S, S) :- skip_blanks(S, R), R = [C|_], ( C == 0', ; C == 0') ).
+skip_blanks([C|Cs], R) :- ( C =:= 32 ; C =:= 9 ), !, skip_blanks(Cs, R).
+skip_blanks(R, R).
 
 statement(call(Name, Args)) -->
     callable_name(Name), ws, "(", ws, expr_list(Args), ws, ")".
@@ -962,6 +1062,7 @@ and_rest(L, E) --> kw("AND"), ws, compare_expr(R), ws, and_rest(and(L, R), E).
 and_rest(E, E) --> [].
 
 compare_expr(E) --> add_expr(L), ws, compare_rest(L, E).
+compare_rest(L, ref_eq(L, R)) --> "&=", ws, ref_target(R).   % reference identity
 compare_rest(L, eq(L, R)) --> "=", ws, add_expr(R).
 compare_rest(L, neq(L, R)) --> "<>", ws, add_expr(R).
 compare_rest(L, lt(L, R)) --> "<", ws, add_expr(R).
@@ -984,6 +1085,9 @@ mul_rest(E, E) --> [].
 
 primary(lit(N))    --> number(N), !.
 primary(lit(S))    --> "'", qchars(Cs), "'", { atom_codes(S, Cs) }, !.
+% Picture token (@n02, @d17, @t3, @s20, @P.###P): kept as text, e.g. FORMAT(X, @n02)
+primary(lit(P))    --> "@", [C], { code_type(C, alpha) }, picture_rest(Cs), !,
+    { atom_codes(P, [0'@, C|Cs]) }.
 primary(equate(Name)) --> "?", callable_name(Name), !.
 
 % ~Expr (NOT / bitwise complement)
@@ -1021,6 +1125,7 @@ primary(array_field(Name, Index, Field)) -->
 primary(array_ref(Name, Index)) -->
     ident(Name), ws, "[", ws, expr(Index), ws, "]", !.
 primary(var(Name)) --> ident(Name), !.
+primary(var(Name)) --> kw_name_arg(Name), !.   % add(Prompt), Lookup(Queue, ...)
 primary(E)         --> "(", ws, expr(E), ws, ")".
 
 % Hand-rolled expr_list: supports expr_or_omit for omitted args
@@ -1065,19 +1170,22 @@ word(Name) -->
     { atom_codes(Name, [C|Cs]) }.
 
 % Identifier: word that is not a keyword
-% Handles colon-chains like O:R:OrigSITRecord, SAV::SIT:Record, and dot-notation
-% Also handles dot-member after colon chain: SRQ:Record.SIT_ID
+% Handles colon-chains like O:R:OrigITMRecord, SAV::ITM:Record, and dot-notation
+% Also handles dot-member after colon chain: QQ:Record.ITM_ID
+% Implicit LONG variables: a trailing '#' (e.g. SAV:ITM:EDIT_DATE#, i#) is kept
+% in the name so the simulator can recognise an undeclared implicit variable.
 ident(Name) -->
     word(Part1),
     ( ident_colon_start(Part1, ColonName) ->
         ( ".", word(Member) ->
-            { atomic_list_concat([ColonName, '.', Member], Name) }
-        ; { Name = ColonName }
+            { atomic_list_concat([ColonName, '.', Member], Name0) }
+        ; { Name0 = ColonName }
         )
-    ; ".", word(Part2) -> { atomic_list_concat([Part1, '.', Part2], Name) }
-    ; { Name = Part1 }
+    ; ".", word(Part2) -> { atomic_list_concat([Part1, '.', Part2], Name0) }
+    ; { Name0 = Part1 }
     ),
-    { \+ is_keyword(Name) }.
+    { \+ is_keyword(Name0) },
+    ( "#" -> { atom_concat(Name0, '#', Name) } ; { Name = Name0 } ).
 
 % Start a colon chain: at least one ":" after the first word
 ident_colon_start(Part1, Name) -->
@@ -1094,7 +1202,7 @@ ident_colon_rest(Acc, Result) -->
 ident_colon_rest(Acc, Acc) --> [].
 
 % Callable name: like ident but allows keywords (for built-in functions like CLIP, MESSAGE, etc.)
-% Also allows colon-chains like SiteIO:Core
+% Also allows colon-chains like FooIO:Core
 callable_name(Name) -->
     word(Part1),
     ( ident_colon_start(Part1, FullName) ->
